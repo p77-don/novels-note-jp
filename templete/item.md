@@ -1,0 +1,9 @@
+---
+tags:
+  - item
+aliases:
+  - 
+---
+
+# Item
+

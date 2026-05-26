@@ -1,0 +1,492 @@
+/* ═══════════════════════════════════════════
+   Novels Note JP — スタイルシート
+   ══════════════════════════════════════════ */
+
+/* ─────────────────────────────────────────
+   サイドバー 全体
+   ───────────────────────────────────────── */
+.novels-note-sidebar {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  font-size: 13px;
+  overflow: hidden;
+}
+
+/* ─────────────────────────────────────────
+   ヘッダー
+   ───────────────────────────────────────── */
+.nn-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px 4px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  flex-shrink: 0;
+}
+
+.nn-header-title {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-normal);
+}
+
+.nn-header-buttons {
+  display: flex;
+  gap: 2px;
+}
+
+.nn-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--text-muted);
+  padding: 0;
+  transition: background 0.15s, color 0.15s;
+}
+.nn-btn:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+/* ─────────────────────────────────────────
+   検索ボックス
+   ───────────────────────────────────────── */
+.nn-search-wrap {
+  padding: 6px 8px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.nn-search-input {
+  width: 100%;
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-size: 12px;
+  box-sizing: border-box;
+  outline: none;
+}
+.nn-search-input:focus {
+  border-color: var(--interactive-accent);
+  box-shadow: 0 0 0 2px var(--interactive-accent-hover);
+}
+
+/* ─────────────────────────────────────────
+   スクロール領域
+   ───────────────────────────────────────── */
+.nn-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 0 12px;
+}
+
+/* ─────────────────────────────────────────
+   タグセクション（キャラクター・場所など）
+   ───────────────────────────────────────── */
+.nn-section {
+  margin-bottom: 2px;
+}
+
+.nn-section-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  cursor: pointer;
+  border-radius: 4px;
+  user-select: none;
+  transition: background 0.12s;
+}
+.nn-section-header:hover {
+  background: var(--background-modifier-hover);
+}
+
+.nn-section-label {
+  font-weight: 600;
+  font-size: 12px;
+  flex: 1;
+}
+
+/* ─────────────────────────────────────────
+   展開矢印
+   ───────────────────────────────────────── */
+.nn-arrow {
+  display: inline-block;
+  font-size: 9px;
+  color: var(--text-muted);
+  transition: transform 0.15s;
+  width: 12px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.nn-arrow.nn-arrow-open {
+  transform: rotate(90deg);
+}
+
+/* ─────────────────────────────────────────
+   件数バッジ
+   ───────────────────────────────────────── */
+.nn-count {
+  font-size: 10px;
+  color: var(--text-faint);
+  background: var(--background-modifier-border);
+  border-radius: 8px;
+  padding: 0 5px;
+  min-width: 18px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+/* ─────────────────────────────────────────
+   フォルダ行
+   ───────────────────────────────────────── */
+.nn-folder-wrap {
+  /* インデントは children 側で付ける */
+}
+
+.nn-folder-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  cursor: pointer;
+  border-radius: 4px;
+  user-select: none;
+  transition: background 0.12s;
+}
+.nn-folder-row:hover {
+  background: var(--background-modifier-hover);
+}
+
+.nn-folder-icon {
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.nn-folder-name {
+  flex: 1;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* フォルダ中身のインデント */
+.nn-folder-children {
+  padding-left: 16px;
+}
+
+/* ─────────────────────────────────────────
+   用語行
+   ───────────────────────────────────────── */
+.nn-term-row {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 2px 10px 2px 22px; /* 左は矢印＋アイコン分のインデント */
+  border-radius: 4px;
+  transition: background 0.12s;
+  flex-wrap: wrap;
+}
+.nn-term-row:hover {
+  background: var(--background-modifier-hover);
+}
+
+/* フォルダ配下にネストした用語はさらにインデント */
+.nn-folder-children .nn-term-row {
+  padding-left: 10px;
+}
+
+.nn-term-name {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  transition: opacity 0.1s;
+}
+.nn-term-name:hover {
+  opacity: 0.75;
+  text-decoration: underline;
+}
+
+.nn-aliases {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+/* ─────────────────────────────────────────
+   空メッセージ
+   ───────────────────────────────────────── */
+.nn-empty {
+  padding: 12px 14px;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+/* ─────────────────────────────────────────
+   セクション本体の開閉アニメーション
+   （display:none との両立のためシンプルに）
+   ───────────────────────────────────────── */
+.nn-section-body {
+  /* overflow: hidden; はつけない（子のスクロール干渉を避ける） */
+}
+
+/* ═══════════════════════════════════════════
+   Export モーダル
+   ══════════════════════════════════════════ */
+
+.nn-export-modal {
+  width: min(860px, 92vw); /* 横幅を広げる */
+}
+
+/* Obsidian のモーダルコンテナ幅を上書き */
+.nn-export-modal .modal-content,
+.nn-export-modal.modal-content {
+  width: 100%;
+  max-width: 100%;
+}
+
+.nn-export-modal h2 {
+  margin-bottom: 8px;
+}
+
+.nn-export-filepath {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+  word-break: break-all;
+}
+
+.nn-export-no-file {
+  color: var(--text-error);
+}
+
+/* 設定エリア */
+.nn-export-settings {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  padding: 0 4px;
+  margin-bottom: 14px;
+}
+
+/* プレビューエリア */
+.nn-export-preview-wrap {
+  margin-bottom: 14px;
+}
+
+.nn-export-preview-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.nn-export-preview {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  padding: 10px 14px;
+  font-size: 13px;
+  line-height: 1.8;
+  min-height: 200px;   /* 最小高さを確保 */
+  max-height: 400px;   /* 高さを増やす */
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-family: "BIZ UDゴシック", "Noto Sans Mono CJK JP",
+               "源ノ角ゴシック", "Yu Gothic", monospace;
+  color: var(--text-normal);
+}
+
+/* ボタンエリア */
+.nn-export-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.nn-export-buttons button {
+  padding: 6px 18px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+/* ═══════════════════════════════════════════
+   縦書きプレビュー
+   ══════════════════════════════════════════ */
+
+/* ─────────────────────────────────────────
+   ルート・全体レイアウト
+   ───────────────────────────────────────── */
+.nn-vertical-root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  background: var(--background-primary);
+}
+
+/* ─────────────────────────────────────────
+   ツールバー
+   ───────────────────────────────────────── */
+.nn-vertical-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  flex-shrink: 0;
+}
+
+.nn-vertical-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+/* ─────────────────────────────────────────
+   スクロールコンテナ
+   縦書きは右→左に列が増えるため、
+   overflow-x: auto で横スクロールさせる
+   ───────────────────────────────────────── */
+.nn-vertical-scroller {
+  flex: 1;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 20px 24px;
+  /* direction は ltr のまま使用。
+     writing-mode: vertical-rl により段落は右→左に並ぶが、
+     scrollLeft の計算は ltr の方が素直なため RTL にしない。
+     初期スクロール位置（右端）は JS で設定する。 */
+  direction: ltr;
+  min-height: 0;
+}
+
+/* ─────────────────────────────────────────
+   縦書き本文コンテナ
+   ───────────────────────────────────────── */
+.nn-vertical-body {
+  display: inline-flex;          /* 列を横並びにする */
+  flex-direction: row;           /* 右→左に列が並ぶ（direction:rtl のため） */
+  writing-mode: vertical-rl;    /* 縦書き・右から左へ */
+  text-orientation: mixed;       /* 英数字は横向き、日本語は縦向き */
+  height: 100%;                 /* 親コンテナ（scroller）の高さに合わせる */
+  min-height: 0;                /* flex 子要素の縮小を許可 */
+  direction: ltr;                /* 内部は LTR に戻す（文字方向） */
+  font-family: "BIZ UDゴシック", "Noto Serif CJK JP",
+               "源ノ明朝", "Yu Mincho", "游明朝", serif;
+  font-size: 15px;              /* サイドバー幅に合わせて小さめに */
+  line-height: 2.0;
+  color: var(--text-normal);
+}
+
+/* ─────────────────────────────────────────
+   縦書き本文テキスト
+   ───────────────────────────────────────── */
+.nn-vertical-text {
+  /* inline-block で writing-mode を継承しつつ幅を本文に合わせる */
+}
+
+/* 行単位 span
+   ─────────────────────────────────────
+   display:inline-block にする理由：
+   ・inline のまま → <br> なしだと改行されず数珠繋ぎになる
+   ・display:block → 要素が列全体を占有し段落中央にスクロールしてしまう
+   ・inline-block + <br> → 改行を保持しつつ getBoundingClientRect() で
+     行単位の正確な画面位置を取得できる（カーソル連動スクロールに使用）
+   ───────────────────────────────────── */
+.nn-vertical-text .nn-sent {
+  display: inline;
+}
+
+/* 段落区切りスペーサー
+   段落間に空き幅を挿入する inline-block 要素。
+   writing-mode:vertical-rl では width が「列方向の幅」になる。 */
+.nn-vertical-text .nn-sep {
+  display: inline-block;
+  width: 0.8em;
+}
+
+/* ─────────────────────────────────────────
+   ルビ（縦書き対応）
+   ───────────────────────────────────────── */
+.nn-vertical-text ruby {
+  ruby-position: over; /* 縦書きでは over = テキストの右側（行の外側）に表示 */
+}
+
+.nn-vertical-text rt {
+  font-size: 0.5em;
+  color: var(--text-muted);
+}
+
+/* ─────────────────────────────────────────
+   カーソル位置の行ハイライト（背景色）
+   実際の色は main.ts の applyEditorStyles() で
+   動的CSSとして上書きされる。ここはフォールバック。
+   ───────────────────────────────────────── */
+.nn-vertical-text .nn-sent.nn-cursor {
+  background: rgba(58, 90, 138, 0.35);
+  border-radius: 2px;
+}
+
+/* ─────────────────────────────────────────
+   選択テキストのハイライト
+   ───────────────────────────────────────── */
+.nn-vertical-text mark.nn-sel {
+  background: var(--text-highlight-bg);
+  color: inherit;
+  border-radius: 2px;
+}
+
+/* ─────────────────────────────────────────
+   縦中横（tcy）：半角英数字を横組みにする
+   2桁以下の数字・年号などに自動適用
+   ───────────────────────────────────────── */
+.nn-vertical-text .tcy {
+  text-combine-upright: all;   /* W3C 標準 */
+  -webkit-text-combine: horizontal; /* Safari 向け */
+  font-size: 1em;
+}
+/*追加*/
+.nn-vertical-text .latin {
+  text-orientation: sideways;
+}
+
+/* ─────────────────────────────────────────
+   空ファイルメッセージ
+   ───────────────────────────────────────── */
+.nn-vertical-empty {
+  writing-mode: horizontal-tb; /* メッセージは横書きで */
+  color: var(--text-faint);
+  font-size: 13px;
+  padding: 20px;
+}
+
+/* ─────────────────────────────────────────
+   スクロールバーの見た目調整
+   （横スクロールを目立たせる）
+   ───────────────────────────────────────── */
+.nn-vertical-scroller::-webkit-scrollbar {
+  height: 8px;
+}
+.nn-vertical-scroller::-webkit-scrollbar-track {
+  background: var(--background-secondary);
+}
+.nn-vertical-scroller::-webkit-scrollbar-thumb {
+  background: var(--background-modifier-border);
+  border-radius: 4px;
+}
+.nn-vertical-scroller::-webkit-scrollbar-thumb:hover {
+  background: var(--text-faint);
+}
