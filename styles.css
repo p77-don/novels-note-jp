@@ -490,3 +490,57 @@
 .nn-vertical-scroller::-webkit-scrollbar-thumb:hover {
   background: var(--text-faint);
 }
+
+/* ═══════════════════════════════════════════
+   タグ定義 ドラッグ & ドロップ
+   ══════════════════════════════════════════ */
+
+/* ドラッグ可能な行 */
+.nn-drag-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  padding: 2px 4px;
+  transition: background 0.12s, border-color 0.12s;
+  cursor: default;
+}
+
+/* ドラッグハンドルアイコン */
+.nn-drag-handle {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  color: var(--text-faint);
+  cursor: grab;
+  padding: 2px;
+  border-radius: 3px;
+  transition: color 0.12s, background 0.12s;
+}
+.nn-drag-handle:hover {
+  color: var(--text-muted);
+  background: var(--background-modifier-hover);
+}
+.nn-drag-handle:active {
+  cursor: grabbing;
+}
+
+/* ドラッグ中の元行（半透明） */
+.nn-drag-row.nn-drag-dragging {
+  opacity: 0.4;
+  border-color: var(--interactive-accent);
+}
+
+/* ドロップ先ホバー */
+.nn-drag-row.nn-drag-over {
+  background: var(--background-modifier-hover);
+  border-color: var(--interactive-accent);
+  border-style: dashed;
+}
+
+/* Setting 要素が行内に入るので幅を伸ばす */
+.nn-drag-row .setting-item {
+  flex: 1;
+  min-width: 0;
+}

@@ -99,15 +99,15 @@ Community Plugins からの配布予定はありません。
 
 ## 手動インストール
 
-```bash
-git clone https://github.com/p77-don/novels-note-jp
-```
+1. GitHub の右リスト `Releases ` より最新の `novels-note-jp.zip` をダウンロードして解凍
+1. `Vault/.obsidian/plugins/novels-note-jp/` に配置
+1. Obsidian を再起動して有効化
 
-ビルド後、以下へ配置してください。
+または
 
-```text
-Vault/.obsidian/plugins/novels-note-jp
-```
+1. ターミナルにて `git clone https://github.com/p77-don/novels-note-jp` を実行 <br>※ Git のインストールが必要
+1. `Vault/.obsidian/plugins/novels-note-jp/` に配置
+1. Obsidian を再起動して有効化
 
 ---
 
@@ -368,6 +368,13 @@ Markdown 記法などは自動除外されます。
 - `.txt`
 
 ---
+
+## 更新履歴
+
+| 日時 | バージョン | 内容 |
+|----|----|----|
+| 2026/05/27 | v0.2.0 |タグ定義の順番を変更できるように修正しました。<br>これにより、用語リストに表示する順番を変えることができます。|
+| 2026/05/26 | v0.1.0 |Obsidian プラグイン Novels Note JP 公開|
 
 # ライセンス
 

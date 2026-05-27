@@ -392,26 +392,55 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
 
   private renderTagList(containerEl: HTMLElement): void {
     const defs = this.plugin.settings.tagDefinitions;
+
+    // ─── ドラッグ状態管理 ───
+    let dragSrcIdx = -1;
+
+    const saveAndRefresh = async () => {
+      await this.plugin.saveSettings();
+      this.plugin.applyEditorStyles();
+      await this.plugin.buildTermIndex();
+      this.plugin.updateSidebar();
+      this.plugin.refreshEditors();
+    };
+
     for (let i = 0; i < defs.length; i++) {
       const td = defs[i];
-      const setting = new Setting(containerEl);
-      setting.settingEl.addClass("novels-note-tag-row");
+
+      // ── 行コンテナ（draggable） ─────────────────────
+      const rowEl = containerEl.createEl("div", { cls: "novels-note-tag-row nn-drag-row" });
+      rowEl.setAttribute("draggable", "true");
+      rowEl.dataset.idx = String(i);
+
+      // ── ドラッグハンドル ────────────────────────────
+      const handle = rowEl.createEl("span", { cls: "nn-drag-handle", title: "ドラッグして並べ替え" });
+      handle.innerHTML = `<svg viewBox="0 0 16 16" width="16" height="16">
+        <circle cx="5" cy="4" r="1.2" fill="currentColor"/>
+        <circle cx="11" cy="4" r="1.2" fill="currentColor"/>
+        <circle cx="5" cy="8" r="1.2" fill="currentColor"/>
+        <circle cx="11" cy="8" r="1.2" fill="currentColor"/>
+        <circle cx="5" cy="12" r="1.2" fill="currentColor"/>
+        <circle cx="11" cy="12" r="1.2" fill="currentColor"/>
+      </svg>`;
+
+      // ── Setting をこの rowEl の中に作る ────────────
+      const setting = new Setting(rowEl);
+      setting.settingEl.style.border = "none";
+      setting.settingEl.style.padding = "0";
+
+      const capturedI = i; // クロージャ用
+
       setting.addText(text =>
         text.setPlaceholder("タグ名").setValue(td.tag)
           .onChange(async value => {
-            defs[i].tag = value.trim();
-            await this.plugin.saveSettings();
-            this.plugin.applyEditorStyles();
-            this.plugin.buildTermIndex().then(() => {
-              this.plugin.updateSidebar();
-              this.plugin.refreshEditors();
-            });
+            defs[capturedI].tag = value.trim();
+            await saveAndRefresh();
           })
       );
       setting.addText(text =>
         text.setPlaceholder("表示名").setValue(td.label)
           .onChange(async value => {
-            defs[i].label = value;
+            defs[capturedI].label = value;
             await this.plugin.saveSettings();
             this.plugin.updateSidebar();
           })
@@ -419,7 +448,7 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
       setting.addColorPicker(picker =>
         picker.setValue(td.color)
           .onChange(async value => {
-            defs[i].color = value;
+            defs[capturedI].color = value;
             await this.plugin.saveSettings();
             this.plugin.applyEditorStyles();
             this.plugin.refreshEditors();
@@ -428,24 +457,87 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
       setting.addToggle(toggle =>
         toggle.setTooltip("ハイライトのオン/オフ").setValue(td.enabled)
           .onChange(async value => {
-            defs[i].enabled = value;
+            defs[capturedI].enabled = value;
             await this.plugin.saveSettings();
             this.plugin.refreshEditors();
+          })
+      );
+
+      // ── 上下移動ボタン ──────────────────────────────
+      setting.addExtraButton(btn =>
+        btn.setIcon("arrow-up").setTooltip("上へ移動")
+          .onClick(async () => {
+            if (capturedI === 0) return;
+            [defs[capturedI - 1], defs[capturedI]] = [defs[capturedI], defs[capturedI - 1]];
+            await saveAndRefresh();
+            this.display();
+          })
+      );
+      setting.addExtraButton(btn =>
+        btn.setIcon("arrow-down").setTooltip("下へ移動")
+          .onClick(async () => {
+            if (capturedI === defs.length - 1) return;
+            [defs[capturedI], defs[capturedI + 1]] = [defs[capturedI + 1], defs[capturedI]];
+            await saveAndRefresh();
+            this.display();
           })
       );
       setting.addExtraButton(btn =>
         btn.setIcon("trash").setTooltip("このタグを削除")
           .onClick(async () => {
-            defs.splice(i, 1);
-            await this.plugin.saveSettings();
-            this.plugin.applyEditorStyles();
-            this.plugin.buildTermIndex().then(() => {
-              this.plugin.updateSidebar();
-              this.plugin.refreshEditors();
-            });
+            defs.splice(capturedI, 1);
+            await saveAndRefresh();
             this.display();
           })
       );
+
+      // ── HTML5 Drag & Drop ───────────────────────────
+      rowEl.addEventListener("dragstart", (e: DragEvent) => {
+        dragSrcIdx = capturedI;
+        rowEl.addClass("nn-drag-dragging");
+        if (e.dataTransfer) {
+          e.dataTransfer.effectAllowed = "move";
+          e.dataTransfer.setData("text/plain", String(capturedI));
+        }
+      });
+
+      rowEl.addEventListener("dragend", () => {
+        rowEl.removeClass("nn-drag-dragging");
+        // ドロップ先のハイライトを全消去
+        containerEl.querySelectorAll(".nn-drag-over").forEach(el =>
+          el.removeClass("nn-drag-over")
+        );
+      });
+
+      rowEl.addEventListener("dragover", (e: DragEvent) => {
+        e.preventDefault();
+        if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+        // 自分以外にホバー表示
+        containerEl.querySelectorAll(".nn-drag-over").forEach(el =>
+          el.removeClass("nn-drag-over")
+        );
+        if (dragSrcIdx !== capturedI) rowEl.addClass("nn-drag-over");
+      });
+
+      rowEl.addEventListener("dragleave", () => {
+        rowEl.removeClass("nn-drag-over");
+      });
+
+      rowEl.addEventListener("drop", async (e: DragEvent) => {
+        e.preventDefault();
+        rowEl.removeClass("nn-drag-over");
+        const src = dragSrcIdx;
+        const dst = capturedI;
+        if (src === dst || src < 0) return;
+
+        // src を dst の位置に移動
+        const [removed] = defs.splice(src, 1);
+        defs.splice(dst, 0, removed);
+        dragSrcIdx = -1;
+
+        await saveAndRefresh();
+        this.display();
+      });
     }
   }
 
