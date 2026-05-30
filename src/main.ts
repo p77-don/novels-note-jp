@@ -58,10 +58,10 @@ export default class NovelsNoteJP extends Plugin {
       }
     );
 
-    this.addRibbonIcon("book-open", "Novels Note JP を開く", () =>
+    this.addRibbonIcon("list-tree", "タグ情報一覧を開く", () =>
       this.activateSidebar()
     );
-    this.addRibbonIcon("book", "縦書きプレビューを開く", () =>
+    this.addRibbonIcon("square-kanban", "縦書きプレビューを開く", () =>
       this.activateVerticalPreview()
     );
     this.addSettingTab(new NovelsNoteSettingTab(this.app, this));

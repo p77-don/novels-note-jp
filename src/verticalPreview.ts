@@ -80,23 +80,39 @@ function splitIntoSentences(line: string): string[] {
 
   const sentences: string[] = [];
   let buf = "";
+  // プレーンテキスト部分の長さ（タグを除いた文字数）を追跡
+  let plainBuf = "";
+  let i = 0;
 
-  for (let i = 0; i < line.length; i++) {
+  while (i < line.length) {
+    // HTML タグをまるごとスキップしてバッファに追加
+    if (line[i] === "<") {
+      const closeIdx = line.indexOf(">", i);
+      if (closeIdx !== -1) {
+        buf += line.slice(i, closeIdx + 1);
+        i = closeIdx + 1;
+        continue;
+      }
+    }
+
     const ch = line[i];
     buf += ch;
+    plainBuf += ch;
+    i++;
 
-    // 文の終端となる文字
+    // 文の終端となる文字（タグ外の実テキストのみ判定）
     const isEnd =
       ch === "。" || ch === "！" || ch === "？" ||
       ch === "!" || ch === "?" ||
       ch === "」" || ch === "』" || ch === "）" || ch === ")";
 
     // 先頭全角スペース：字下げ部分を独立した文として切り出す
-    const isLeadingSpace = buf === "\u3000";
+    const isLeadingSpace = plainBuf === "\u3000";
 
     if (isEnd || isLeadingSpace) {
       sentences.push(buf);
       buf = "";
+      plainBuf = "";
     }
   }
 
@@ -162,9 +178,35 @@ export function toVerticalHtml(
   selectedText: string = ""
 ): VerticalHtmlResult {
 
-  // Step 1〜5: Markdown・Obsidian 記号除去
+  // ─────────────────────────────────────────
+  // Step 0: 選択テキストのマーカーを変換前に埋め込む
+  //
+  // ルビ変換後に選択テキストをマッチしようとすると
+  //   "漢字"  →  <ruby>漢字<rt>かんじ</rt></ruby>
+  // のようにDOMが分裂して文字列マッチが壊れる。
+  // そのため「ルビ変換 / HTML生成より前」にプレーンテキストへ
+  // マーカーを埋め込んでおき、後工程でタグへ置換する。
+  // ─────────────────────────────────────────
+  const SEL_START = "\x00\x01\x00";
+  const SEL_END   = "\x00\x02\x00";
+
   let cleaned = source;
-  cleaned = cleaned.replace(/^---[\s\S]*?^---[ \t]*\n?/m, "");
+
+  if (selectedText.length > 0) {
+    // selectedText をそのまま検索してマーカーで挟む（最初の1か所のみ）
+    const idx = cleaned.indexOf(selectedText);
+    if (idx !== -1) {
+      cleaned =
+        cleaned.slice(0, idx) +
+        SEL_START +
+        cleaned.slice(idx, idx + selectedText.length) +
+        SEL_END +
+        cleaned.slice(idx + selectedText.length);
+    }
+  }
+  // Step 1〜5: Markdown・Obsidian 記号除去
+  // Frontmatter は文書の先頭（行0）から始まる場合のみ除去
+  cleaned = cleaned.replace(/^---[ \t]*\n[\s\S]*?\n---[ \t]*\n?/, "");
   cleaned = cleaned.replace(/%%[\s\S]*?%%/g, "");
   cleaned = cleaned.replace(/^(>[ \t]*\[![\w-]+\][^\n]*\n(?:>[ \t]*[^\n]*\n?)*)/gm, "");
   cleaned = cleaned.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, "$2");
@@ -175,7 +217,9 @@ export function toVerticalHtml(
   cleaned = cleaned.replace(/^[ \t]*[-*+][ \t]+/gm, "");
   cleaned = cleaned.replace(/^[ \t]*\d+\.[ \t]+/gm, "");
   cleaned = cleaned.replace(/(\*{1,3}|_{1,3})([\s\S]*?)\1/g, "$2");
-  cleaned = cleaned.replace(/^[-*_]{3,}[ \t]*$/gm, "");
+  // 区切り線 --- は小説の文章区切りとして「―――」に変換（縦書きで自然に見える）
+  cleaned = cleaned.replace(/^(-{3,})[ \t]*$/gm, (_, dashes) => "―".repeat(dashes.length));
+  cleaned = cleaned.replace(/^[*_]{3,}[ \t]*$/gm, "");
   cleaned = cleaned.replace(/^```[\s\S]*?^```[ \t]*$/gm, "");
   cleaned = cleaned.replace(/^~~~[\s\S]*?^~~~[ \t]*$/gm, "");
   cleaned = cleaned.replace(/`([^`]+)`/g, "$1");
@@ -191,17 +235,48 @@ export function toVerticalHtml(
   // Step 8: 縦中横
   cleaned = applyTcy(cleaned);
 
-  // Step 9: 選択テキストのハイライト
+  // Step 9: 埋め込みマーカー → ハイライトタグへ置換
+  //
+  // SEL_S〜SEL_E の区間を取り出し、その中の <ruby> タグを分解して
+  // ルビの「親文字」部分だけに <mark> を付ける。
+  // こうすることで：
+  //   ・ルビの位置ずれが発生しない（<mark> が <ruby> を外側から囲まない）
+  //   ・ルビ読み（<rt>）はハイライトされない
+  //   ・ルビを含まないテキストも正しくハイライトされる
+  //
+  // 例: SEL_S + "文章中の<ruby>漢字<rt>かんじ</rt></ruby>を" + SEL_E
+  //   → <mark>文章中の</mark><ruby><mark>漢字</mark><rt>かんじ</rt></ruby><mark>を</mark>
+  //
   if (selectedText.length > 0) {
-    const escaped = selectedText
-      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    if (escaped.length > 0) {
-      const selParts = cleaned.split(/(<ruby>[\s\S]*?<\/ruby>)/g);
-      cleaned = selParts.map((part, i) => {
-        if (i % 2 === 1) return part;
-        return part.split(escaped).join(`<mark class="nn-sel">${escaped}</mark>`);
+    let hlResult = "";
+    let pos = 0;
+    while (true) {
+      const start = cleaned.indexOf(SEL_START, pos);
+      if (start === -1) { hlResult += cleaned.slice(pos); break; }
+      const end = cleaned.indexOf(SEL_END, start + SEL_START.length);
+      if (end === -1) { hlResult += cleaned.slice(pos); break; }
+
+      hlResult += cleaned.slice(pos, start);
+      const inner = cleaned.slice(start + SEL_START.length, end);
+
+      // inner 内の <ruby>BASE<rt>RT</rt></ruby> を
+      // <ruby><mark>BASE</mark><rt>RT</rt></ruby> へ組み替える
+      const rubyReplaced = inner.replace(
+        /<ruby>([\s\S]*?)<rt>([\s\S]*?)<\/rt><\/ruby>/g,
+        (_, base, rt) =>
+          `<ruby><mark class="nn-sel">${base}</mark><rt>${rt}</rt></ruby>`
+      );
+      // ruby タグ以外のプレーンテキスト部分を <mark> で囲む
+      const parts = rubyReplaced.split(/(<ruby>[\s\S]*?<\/ruby>)/g);
+      hlResult += parts.map((p, i) => {
+        if (i % 2 === 1) return p;   // ruby タグ本体はそのまま
+        if (p === "") return "";
+        return `<mark class="nn-sel">${p}</mark>`;
       }).join("");
+
+      pos = end + SEL_END.length;
     }
+    cleaned = hlResult;
   }
 
   // Step 10: ソース行と cleaned 行を対応させながら
@@ -241,11 +316,21 @@ export function toVerticalHtml(
       lineSentences.set(i, srcSents);
 
       // 各文を <span class="nn-sent"> として生成
+      // <mark class="nn-sel"> が文境界をまたぐ場合、各 span 内で独立して開閉する
+      let markOpen = false; // 直前の文で mark が閉じられずに終わっているか
       const sentHtml = cleanedSents.map((sent, j) => {
+        // 直前の文から mark が開きっぱなしなら冒頭で再開する
+        let inner = markOpen ? `<mark class="nn-sel">` + sent : sent;
+        // この文内の mark 開閉数を数えて、文末に mark が開いたままか判定
+        const opens  = (inner.match(/<mark class="nn-sel">/g) || []).length;
+        const closes = (inner.match(/<\/mark>/g) || []).length;
+        markOpen = opens > closes;
+        // 文末で mark が開いたままなら閉じておく
+        if (markOpen) inner += `</mark>`;
         return `<span class="nn-sent"
                        data-line="${i}"
                        data-sent="${j}">
-                  ${sent}
+                  ${inner}
                 </span>`;
       }).join("");
       parts.push(
@@ -297,7 +382,7 @@ export class VerticalPreviewView extends ItemView {
 
   getViewType(): string    { return VERTICAL_VIEW_TYPE; }
   getDisplayText(): string { return "縦書きプレビュー"; }
-  getIcon(): string        { return "book"; }
+  getIcon(): string        { return "square-kanban"; }
 
   async onOpen(): Promise<void> {
     const root = this.containerEl.children[1] as HTMLElement;

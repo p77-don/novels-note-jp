@@ -132,8 +132,8 @@ export class NovelsNoteSidebarView extends ItemView {
   }
 
   getViewType(): string { return SIDEBAR_VIEW_TYPE; }
-  getDisplayText(): string { return "Novels Note JP"; }
-  getIcon(): string { return "book-open"; }
+  getDisplayText(): string { return "タグ情報一覧"; }
+  getIcon(): string { return "list-tree"; }
 
   /**
    * onOpen はサイドバーが「開かれた瞬間」に呼ばれる。
@@ -165,7 +165,7 @@ export class NovelsNoteSidebarView extends ItemView {
 
     // ── ヘッダー ──
     const header = root.createEl("div", { cls: "nn-header" });
-    header.createEl("span", { text: "Novels Note JP", cls: "nn-header-title" });
+    header.createEl("span", { text: "タグ情報一覧", cls: "nn-header-title" });
 
     // 全展開 / 全折りたたみボタン
     const btnBar = header.createEl("div", { cls: "nn-header-buttons" });
@@ -175,11 +175,21 @@ export class NovelsNoteSidebarView extends ItemView {
     btnCollapse.innerHTML = `<svg viewBox="0 0 16 16" width="14" height="14"><path fill="currentColor" d="M14 11L8 5l-6 6"/></svg>`;
 
     btnExpand.addEventListener("click", () => {
+      // すべての既存キーを開く
       this.openState.forEach((_, k) => this.openState.set(k, true));
+      // タグキーが未登録の場合も明示的に開く
+      for (const td of this.tagDefs) {
+        this.openState.set(`tag::${td.tag}`, true);
+      }
       this.renderBody(body);
     });
     btnCollapse.addEventListener("click", () => {
+      // すべての既存キーを閉じる
       this.openState.forEach((_, k) => this.openState.set(k, false));
+      // タグキーが未登録の場合も明示的に閉じる
+      for (const td of this.tagDefs) {
+        this.openState.set(`tag::${td.tag}`, false);
+      }
       this.renderBody(body);
     });
 
@@ -232,7 +242,11 @@ export class NovelsNoteSidebarView extends ItemView {
 
       // タグセクションヘッダー
       const sectionKey = `tag::${td.tag}`;
-      const isTagOpen = this.openState.get(sectionKey) ?? true;
+      // デフォルトは閉じた状態（初回表示時はタグのみ表示）
+      if (!this.openState.has(sectionKey)) {
+        this.openState.set(sectionKey, false);
+      }
+      const isTagOpen = this.openState.get(sectionKey) ?? false;
 
       const section = body.createEl("div", { cls: "nn-section" });
       const sectionHeader = section.createEl("div", { cls: "nn-section-header" });
@@ -256,7 +270,7 @@ export class NovelsNoteSidebarView extends ItemView {
       sectionBody.style.display = isTagOpen ? "" : "none";
 
       sectionHeader.addEventListener("click", () => {
-        const next = !(this.openState.get(sectionKey) ?? true);
+        const next = !(this.openState.get(sectionKey) ?? false);
         this.openState.set(sectionKey, next);
         arrow.classList.toggle("nn-arrow-open", next);
         sectionBody.style.display = next ? "" : "none";

@@ -1,9 +1,9 @@
 {
   "id": "novels-note-jp",
   "name": "Novels Note JP",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "minAppVersion": "1.4.0",
-  "description": "小説執筆支援プラグイン for Obsidian",
+  "description": "Novel writing support plugin for obsidian.",
   "author": "p77-don",
   "authorUrl": "https://github.com/p77-don",
   "isDesktopOnly": true
