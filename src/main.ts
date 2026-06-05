@@ -11,7 +11,7 @@ import {
   DEFAULT_TAG_DEFINITIONS,
   DEFAULT_BRACKET_DEFINITIONS,
 } from "./settings";
-import { SIDEBAR_VIEW_TYPE, VERTICAL_VIEW_TYPE, TermEntry, settingsEffect } from "./types";
+import { SIDEBAR_VIEW_TYPE, VERTICAL_VIEW_TYPE, NOVEL_READING_VIEW_TYPE, TermEntry, settingsEffect } from "./types";
 import {
   buildBracketExtension,
   buildTermExtension,
@@ -23,6 +23,7 @@ import { NovelsNoteSettingTab } from "./settingTab";
 import { countCharacters, formatCount, CountMode } from "./wordCount";
 import { ExportModal } from "./exportModal";
 import { VerticalPreviewView } from "./verticalPreview";
+import { NovelReadingView } from "./novelReadingView";
 
 export default class NovelsNoteJP extends Plugin {
   private terms: TermEntry[] = [];
@@ -57,6 +58,16 @@ export default class NovelsNoteJP extends Plugin {
         return view;
       }
     );
+    // 小説閲覧 View 登録
+    this.registerView(
+      NOVEL_READING_VIEW_TYPE,
+      leaf => {
+        const view = new NovelReadingView(leaf);
+        view.setRubyStyleGetter(()  => this.settings.rubyStyle);
+        view.setWrapColumnGetter(() => this.settings.wrapColumn);
+        return view;
+      }
+    );
 
     this.addRibbonIcon("list-tree", "タグ情報一覧を開く", () =>
       this.activateSidebar()
@@ -64,9 +75,13 @@ export default class NovelsNoteJP extends Plugin {
     this.addRibbonIcon("square-kanban", "縦書きプレビューを開く", () =>
       this.activateVerticalPreview()
     );
+    this.addRibbonIcon("square-chart-gantt", "小説用ビューで表示", () =>
+      this.activateNovelReadingView()
+    );
     this.addSettingTab(new NovelsNoteSettingTab(this.app, this));
     this.registerExportCommand();
     this.registerVerticalPreviewCommand();
+    this.registerNovelReadingViewCommand();
 
     // ─────────────────────────────────────────
     // 折り返し：CSS の white-space ではなく
@@ -579,5 +594,105 @@ export default class NovelsNoteJP extends Plugin {
     if (!leaf) return;
     await leaf.setViewState({ type: VERTICAL_VIEW_TYPE, active: true });
     workspace.revealLeaf(leaf);
+  }
+
+  // ─────────────────────────────────────────
+  // 小説閲覧 View 開閉
+  // ─────────────────────────────────────────
+  private registerNovelReadingViewCommand(): void {
+    this.addCommand({
+      id: "open-novel-reading-view",
+      name: "小説閲覧ビューを開く",
+      callback: () => this.activateNovelReadingView(),
+    });
+  }
+
+  async activateNovelReadingView(): Promise<void> {
+    const { workspace } = this.app;
+
+    // ─── 現在アクティブな markdown リーフと file を取得 ───
+    const activeLeaf = workspace.getMostRecentLeaf();
+    let targetLeaf   = activeLeaf;
+    let targetFile: TFile | null = null;
+
+    if (
+      activeLeaf &&
+      activeLeaf.view.getViewType() === "markdown" &&
+      (activeLeaf.view as any).file instanceof TFile
+    ) {
+      targetFile = (activeLeaf.view as any).file as TFile;
+    }
+
+    // アクティブリーフが markdown でない場合、
+    // 開いている全リーフから mode:novel のファイルを探す
+    if (!targetFile) {
+      workspace.iterateAllLeaves(leaf => {
+        if (targetFile) return;
+        if (leaf.view.getViewType() !== "markdown") return;
+        const f = (leaf.view as any).file;
+        if (!(f instanceof TFile)) return;
+        const cache = this.app.metadataCache.getFileCache(f);
+        if (cache?.frontmatter?.mode === "novel") {
+          targetFile = f;
+          targetLeaf = leaf;
+        }
+      });
+    }
+
+    if (!targetFile) {
+      // mode:novel のファイルが見つからない場合は何もしない
+      return;
+    }
+
+    // mode:novel チェック
+    const cache = this.app.metadataCache.getFileCache(targetFile);
+    if (cache?.frontmatter?.mode !== "novel") {
+      // 対象外ファイル：既存の NovelReadingView があれば revealするだけ
+      const existing = workspace.getLeavesOfType(NOVEL_READING_VIEW_TYPE);
+      if (existing.length > 0) {
+        workspace.revealLeaf(existing[0]);
+      }
+      return;
+    }
+
+    // ─── 同じファイルを表示中の NovelReadingView が既にあれば revealのみ ───
+    const existing = workspace.getLeavesOfType(NOVEL_READING_VIEW_TYPE);
+    for (const leaf of existing) {
+      const nrv = leaf.view as unknown as NovelReadingView;
+      if (nrv._file === targetFile) {
+        workspace.revealLeaf(leaf);
+        return;
+      }
+    }
+
+    // ─── 対象リーフそのものを NovelReadingView に差し替える ───
+    if (!targetLeaf) return;
+    const file = targetFile; // TypeScript の narrowing のためコピー
+    await targetLeaf.setViewState({
+      type: NOVEL_READING_VIEW_TYPE,
+      state: { filePath: file.path },
+    });
+
+    // View が構築された後に setFile を呼んで確実にファイルをセット
+    const view = targetLeaf.view;
+    if (view instanceof NovelReadingView) {
+      view.setFile(file);
+      await view.loadCurrentFile();
+    }
+
+    workspace.revealLeaf(targetLeaf);
+  }
+
+  // ─────────────────────────────────────────
+  // 小説閲覧 View 強制再描画
+  // ルビ設定変更時に呼ぶ
+  // ─────────────────────────────────────────
+  refreshNovelReadingView(): void {
+    const leaves = this.app.workspace.getLeavesOfType(NOVEL_READING_VIEW_TYPE);
+    for (const leaf of leaves) {
+      if (leaf.view instanceof NovelReadingView) {
+        leaf.view.forceReload();
+      }
+    }
   }
 }

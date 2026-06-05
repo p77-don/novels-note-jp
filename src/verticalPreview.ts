@@ -286,8 +286,22 @@ export function toVerticalHtml(
   // ・cleaned 行も同様に文に分割（表示用テキスト）
   // ・data-line="ソース行番号" data-sent="行内文番号" を付与
   //
+  // 【Frontmatter オフセット補正】
+  // cleaned は Frontmatter 除去済みのため sourceLines との行番号がズレる。
+  // source 先頭の Frontmatter 行数を数えて ループ開始行を補正する。
+  //
   const sourceLines  = source.split("\n");
   const cleanedLines = cleaned.split("\n");
+
+  // Frontmatter の行数を計算（--- で囲まれたブロックが先頭にある場合）
+  let frontmatterLineCount = 0;
+  {
+    const fmMatch = source.match(/^---[ \t]*\n[\s\S]*?\n---[ \t]*\n?/);
+    if (fmMatch) {
+      // 末尾の \n を除いた行数を数える
+      frontmatterLineCount = fmMatch[0].replace(/\n$/, "").split("\n").length;
+    }
+  }
 
   const lineSentences = new Map<number, string[]>(); // ソース行 → 文リスト（ソース原文）
   const parts: string[] = [];
@@ -295,7 +309,8 @@ export function toVerticalHtml(
   let firstPara = true;
   let cleanedIdx = 0;
 
-  for (let i = 0; i < sourceLines.length; i++) {
+  // Frontmatter 行をスキップし、実際のコンテンツ行から処理開始
+  for (let i = frontmatterLineCount; i < sourceLines.length; i++) {
     const srcLine     = sourceLines[i];
     const isBlank     = srcLine.trim() === "";
     const cleanedLine = cleanedLines[cleanedIdx] ?? "";
@@ -308,10 +323,44 @@ export function toVerticalHtml(
     }
 
     if (!isBlank) {
-      // ソース行を文に分割（カーソル対応テーブル用）
-      const srcSents     = splitIntoSentences(srcLine);
+      // ─────────────────────────────────────────
+      // 先頭全角スペース（字下げ）の検出
+      // ─────────────────────────────────────────
+      // 字下げ行では splitIntoSentences が先頭全角スペースを
+      // 「文0番」として独立分割する。
+      //
+      // displayLine（表示用）は全角スペースを除去するため、
+      // そのまま splitIntoSentences に渡すと文インデックスが
+      // srcSents と 1 つズレる。
+      //
+      // 解決策：
+      //   - hasIndent の判定は srcLine で行う
+      //   - displayLine は cleanedLine から全角スペースを除去
+      //   - srcSents も先頭の全角スペース文（"　"）を除去して
+      //     cleanedSents と文インデックスを一致させる
+      //   - lineSentences には除去後の srcSents を格納
+      //     （cursorChToSentIdx の ch 計算も全角スペース除去後の
+      //       位置に合わせるため、srcLine も先頭1文字除去して渡す）
+      // ─────────────────────────────────────────
+      const hasIndent = srcLine.startsWith("\u3000");
+
+      // カーソル対応用：字下げ行は先頭全角スペースを除去した行で文分割
+      const srcLineForSplit = hasIndent ? srcLine.slice(1) : srcLine;
+      const srcSents = splitIntoSentences(srcLineForSplit);
+
+      // 表示用：cleanedLine から最初の全角スペースを除去
+      let displayLine = cleanedLine;
+      if (hasIndent) {
+        const spaceIdx = cleanedLine.indexOf("\u3000");
+        if (spaceIdx !== -1) {
+          displayLine =
+            cleanedLine.slice(0, spaceIdx) +
+            cleanedLine.slice(spaceIdx + 1);
+        }
+      }
+
       // cleaned 行を文に分割（表示用）
-      const cleanedSents = splitIntoSentences(cleanedLine);
+      const cleanedSents = splitIntoSentences(displayLine);
 
       lineSentences.set(i, srcSents);
 
@@ -333,8 +382,9 @@ export function toVerticalHtml(
                   ${inner}
                 </span>`;
       }).join("");
+      const lineClass = hasIndent ? "nn-line nn-line--indent" : "nn-line";
       parts.push(
-        `<span class="nn-line"
+        `<span class="${lineClass}"
                data-line="${i}">
             ${sentHtml}
          </span><br>`
@@ -392,14 +442,6 @@ export class VerticalPreviewView extends ItemView {
     // ツールバー
     const toolbar = root.createEl("div", { cls: "nn-vertical-toolbar" });
     toolbar.createEl("span", { text: "縦書きプレビュー", cls: "nn-vertical-title" });
-    const reloadBtn = toolbar.createEl("button", { cls: "nn-btn", title: "再読み込み" });
-    reloadBtn.innerHTML = `<svg viewBox="0 0 16 16" width="14" height="14">
-      <path fill="currentColor" d="M13.6 2.4A7 7 0 1 0 15 8h-2a5 5 0 1 1-1.1-3.1L10 7h5V2l-1.4.4z"/>
-    </svg>`;
-    reloadBtn.addEventListener("click", () => {
-      this.lastText = "";
-      this.loadFromActiveEditor();
-    });
 
     // 縦書きコンテナ
     this.scrollerEl = root.createEl("div", { cls: "nn-vertical-scroller" });
@@ -540,8 +582,20 @@ export class VerticalPreviewView extends ItemView {
       // カーソル文字位置（ch）から行内の文インデックスを決定
       // カーソルが targetLine にある場合は ch を使用、
       // 空行からフォールバックした場合は行末（最後の文）を使用
+      //
+      // 字下げ行（先頭全角スペースあり）は lineSentences に
+      // 全角スペース除去後の srcSents を格納しているため、
+      // エディタ上の ch から 1 引いてオフセットを補正する。
+      let adjustedCh = cursorCh;
+      if (targetLine === cursorLine) {
+        const mdView = this.app.workspace.getActiveViewOfType(MarkdownView);
+        const targetSrcLine = mdView?.editor.getLine(targetLine) ?? "";
+        if (targetSrcLine.startsWith("\u3000")) {
+          adjustedCh = Math.max(0, cursorCh - 1);
+        }
+      }
       const sentIdx = (targetLine === cursorLine)
-        ? cursorChToSentIdx(sents, cursorCh)
+        ? cursorChToSentIdx(sents, adjustedCh)
         : sents.length - 1;
 
       // ── ハイライトを付け替え ──────────────────────

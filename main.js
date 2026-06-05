@@ -26,7 +26,7 @@ __export(main_exports, {
   default: () => NovelsNoteJP
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian5 = require("obsidian");
+var import_obsidian6 = require("obsidian");
 var import_view2 = require("@codemirror/view");
 
 // src/settings.ts
@@ -77,6 +77,7 @@ var DEFAULT_SETTINGS = {
 var import_state = require("@codemirror/state");
 var SIDEBAR_VIEW_TYPE = "novels-note-jp-sidebar";
 var VERTICAL_VIEW_TYPE = "novels-note-jp-vertical";
+var NOVEL_READING_VIEW_TYPE = "novel-reading-view";
 var settingsEffect = import_state.StateEffect.define();
 
 // src/extensions.ts
@@ -1556,12 +1557,19 @@ function toVerticalHtml(source, rubyStyle, selectedText = "") {
   }
   const sourceLines = source.split("\n");
   const cleanedLines = cleaned.split("\n");
+  let frontmatterLineCount = 0;
+  {
+    const fmMatch = source.match(/^---[ \t]*\n[\s\S]*?\n---[ \t]*\n?/);
+    if (fmMatch) {
+      frontmatterLineCount = fmMatch[0].replace(/\n$/, "").split("\n").length;
+    }
+  }
   const lineSentences = /* @__PURE__ */ new Map();
   const parts = [];
   let prevBlank = true;
   let firstPara = true;
   let cleanedIdx = 0;
-  for (let i = 0; i < sourceLines.length; i++) {
+  for (let i = frontmatterLineCount; i < sourceLines.length; i++) {
     const srcLine = sourceLines[i];
     const isBlank = srcLine.trim() === "";
     const cleanedLine = (_a = cleanedLines[cleanedIdx]) != null ? _a : "";
@@ -1572,8 +1580,17 @@ function toVerticalHtml(source, rubyStyle, selectedText = "") {
       firstPara = false;
     }
     if (!isBlank) {
-      const srcSents = splitIntoSentences(srcLine);
-      const cleanedSents = splitIntoSentences(cleanedLine);
+      const hasIndent = srcLine.startsWith("\u3000");
+      const srcLineForSplit = hasIndent ? srcLine.slice(1) : srcLine;
+      const srcSents = splitIntoSentences(srcLineForSplit);
+      let displayLine = cleanedLine;
+      if (hasIndent) {
+        const spaceIdx = cleanedLine.indexOf("\u3000");
+        if (spaceIdx !== -1) {
+          displayLine = cleanedLine.slice(0, spaceIdx) + cleanedLine.slice(spaceIdx + 1);
+        }
+      }
+      const cleanedSents = splitIntoSentences(displayLine);
       lineSentences.set(i, srcSents);
       let markOpen = false;
       const sentHtml = cleanedSents.map((sent, j) => {
@@ -1588,8 +1605,9 @@ function toVerticalHtml(source, rubyStyle, selectedText = "") {
                   ${inner}
                 </span>`;
       }).join("");
+      const lineClass = hasIndent ? "nn-line nn-line--indent" : "nn-line";
       parts.push(
-        `<span class="nn-line"
+        `<span class="${lineClass}"
                data-line="${i}">
             ${sentHtml}
          </span><br>`
@@ -1636,14 +1654,6 @@ var VerticalPreviewView = class extends import_obsidian4.ItemView {
     root.addClass("nn-vertical-root");
     const toolbar = root.createEl("div", { cls: "nn-vertical-toolbar" });
     toolbar.createEl("span", { text: "\u7E26\u66F8\u304D\u30D7\u30EC\u30D3\u30E5\u30FC", cls: "nn-vertical-title" });
-    const reloadBtn = toolbar.createEl("button", { cls: "nn-btn", title: "\u518D\u8AAD\u307F\u8FBC\u307F" });
-    reloadBtn.innerHTML = `<svg viewBox="0 0 16 16" width="14" height="14">
-      <path fill="currentColor" d="M13.6 2.4A7 7 0 1 0 15 8h-2a5 5 0 1 1-1.1-3.1L10 7h5V2l-1.4.4z"/>
-    </svg>`;
-    reloadBtn.addEventListener("click", () => {
-      this.lastText = "";
-      this.loadFromActiveEditor();
-    });
     this.scrollerEl = root.createEl("div", { cls: "nn-vertical-scroller" });
     this.bodyEl = this.scrollerEl.createEl("div", { cls: "nn-vertical-body" });
     await this.loadFromActiveEditor();
@@ -1722,7 +1732,7 @@ var VerticalPreviewView = class extends import_obsidian4.ItemView {
     this.syncTimer = setTimeout(tick, 100);
   }
   syncCursorToPreview(force) {
-    var _a, _b, _c, _d;
+    var _a, _b, _c, _d, _e;
     if (!this.bodyEl || !this.scrollerEl) return;
     const mdView = this.app.workspace.getActiveViewOfType(import_obsidian4.MarkdownView);
     const cursor = mdView ? mdView.editor.getCursor() : null;
@@ -1757,7 +1767,15 @@ var VerticalPreviewView = class extends import_obsidian4.ItemView {
         }
       }
       const sents = (_d = this.lineSentences.get(targetLine)) != null ? _d : [];
-      const sentIdx = targetLine === cursorLine ? cursorChToSentIdx(sents, cursorCh) : sents.length - 1;
+      let adjustedCh = cursorCh;
+      if (targetLine === cursorLine) {
+        const mdView2 = this.app.workspace.getActiveViewOfType(import_obsidian4.MarkdownView);
+        const targetSrcLine = (_e = mdView2 == null ? void 0 : mdView2.editor.getLine(targetLine)) != null ? _e : "";
+        if (targetSrcLine.startsWith("\u3000")) {
+          adjustedCh = Math.max(0, cursorCh - 1);
+        }
+      }
+      const sentIdx = targetLine === cursorLine ? cursorChToSentIdx(sents, adjustedCh) : sents.length - 1;
       this.bodyEl.querySelectorAll(".nn-cursor").forEach((el) => el.classList.remove("nn-cursor"));
       const targetEl = this.bodyEl.querySelector(
         `.nn-sent[data-line="${targetLine}"][data-sent="${sentIdx}"]`
@@ -1778,8 +1796,211 @@ var VerticalPreviewView = class extends import_obsidian4.ItemView {
   }
 };
 
+// src/novelReadingView.ts
+var import_obsidian5 = require("obsidian");
+function escapeAttr(text) {
+  return text.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+}
+function stripFrontmatter(source) {
+  return source.replace(/^---[ \t]*\n[\s\S]*?\n---[ \t]*\n?/, "");
+}
+function renderLine(rawLine, rubyStyle) {
+  let line = convertRuby(rawLine, rubyStyle);
+  line = line.replace(
+    /\[\[([^\]|]+)\|([^\]]+)\]\]/g,
+    (_, target, display) => `\0WL${escapeAttr(target)}${display}\0`
+  );
+  line = line.replace(
+    /\[\[([^\]]+)\]\]/g,
+    (_, target) => `\0WL${escapeAttr(target)}${target}\0`
+  );
+  const parts = line.split(/(<[^>]+>)/g);
+  line = parts.map((part, i) => {
+    if (i % 2 === 1) return part;
+    return part.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }).join("");
+  line = line.replace(
+    /\x00WL\x01([^\x01]*)\x01([^\x00]*)\x00/g,
+    (_, href, display) => `<a class="internal-link" data-href="${href}">${display}</a>`
+  );
+  return line;
+}
+function toReadingHtml(source, rubyStyle) {
+  const body = stripFrontmatter(source);
+  const lines = body.split("\n");
+  const parts = [];
+  for (const rawLine of lines) {
+    const isBlank = rawLine.length === 0 || rawLine.trim() === "" && rawLine.replace(/\u3000/g, "").trim() === "";
+    if (isBlank) {
+      parts.push(`<p class="nn-blank"></p>`);
+      continue;
+    }
+    const hasIndent = rawLine.startsWith("\u3000");
+    const lineToRender = hasIndent ? rawLine.slice(1) : rawLine;
+    const rendered = renderLine(lineToRender, rubyStyle);
+    parts.push(
+      hasIndent ? `<p class="nn-indent">${rendered}</p>` : `<p>${rendered}</p>`
+    );
+  }
+  return parts.join("\n");
+}
+var NovelReadingView = class extends import_obsidian5.ItemView {
+  constructor(leaf) {
+    super(leaf);
+    /** このビューが表示するファイル（タブ切り替え後も保持） */
+    this._file = null;
+    this.getRubyStyle = () => "narou";
+    this.getWrapColumn = () => 40;
+  }
+  /** ファイルを外から設定する（activateNovelReadingView から呼ぶ） */
+  setFile(file) {
+    this._file = file;
+  }
+  setRubyStyleGetter(fn) {
+    this.getRubyStyle = fn;
+  }
+  setWrapColumnGetter(fn) {
+    this.getWrapColumn = fn;
+  }
+  getViewType() {
+    return NOVEL_READING_VIEW_TYPE;
+  }
+  getDisplayText() {
+    var _a, _b;
+    return (_b = (_a = this._file) == null ? void 0 : _a.basename) != null ? _b : "\u5C0F\u8AAC\u30D3\u30E5\u30FC";
+  }
+  getIcon() {
+    return "book-open";
+  }
+  // ─────────────────────────────────────────
+  // 状態の保存・復元（Obsidian の leaf 永続化）
+  // ─────────────────────────────────────────
+  getState() {
+    var _a, _b;
+    return { filePath: (_b = (_a = this._file) == null ? void 0 : _a.path) != null ? _b : null };
+  }
+  async setState(state) {
+    const filePath = state == null ? void 0 : state.filePath;
+    if (typeof filePath === "string") {
+      const file = this.app.vault.getAbstractFileByPath(filePath);
+      if (file instanceof import_obsidian5.TFile) {
+        this._file = file;
+      }
+    }
+    if (this.rootEl) await this.loadCurrentFile();
+  }
+  async onOpen() {
+    var _a, _b;
+    const container = this.containerEl.children[1];
+    container.empty();
+    container.addClass("nn-reading-container");
+    const toolbar = container.createEl("div", { cls: "nn-reading-toolbar" });
+    this.titleEl = toolbar.createEl("span", { cls: "nn-reading-toolbar-title" });
+    this.titleEl.textContent = (_b = (_a = this._file) == null ? void 0 : _a.basename) != null ? _b : "\u5C0F\u8AAC\u95B2\u89A7";
+    const btnWrap = toolbar.createEl("div", { cls: "nn-reading-toolbar-buttons" });
+    const editBtn = btnWrap.createEl("button", {
+      cls: "nn-btn",
+      title: "\u7DE8\u96C6\u30E2\u30FC\u30C9\u306B\u623B\u308B"
+    });
+    editBtn.innerHTML = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 20h9"/>
+      <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+    </svg>`;
+    editBtn.addEventListener("click", () => this.switchToEdit());
+    this.rootEl = container.createEl("div", { cls: "nn-reading-root" });
+    await this.loadCurrentFile();
+    let updateTimer = null;
+    this.registerEvent(
+      this.app.workspace.on("editor-change", () => {
+        if (updateTimer) clearTimeout(updateTimer);
+        updateTimer = setTimeout(() => this.loadCurrentFile(), 500);
+      })
+    );
+    this.registerEvent(
+      this.app.vault.on("modify", (file) => {
+        if (file instanceof import_obsidian5.TFile && file === this._file) {
+          this.loadCurrentFile();
+        }
+      })
+    );
+  }
+  async onClose() {
+  }
+  // ─────────────────────────────────────────
+  // 編集モードへ切り替え
+  // このリーフを markdown ビューに戻す
+  // ─────────────────────────────────────────
+  async switchToEdit() {
+    if (!this._file) return;
+    const filePath = this._file.path;
+    await this.leaf.setViewState({
+      type: "markdown",
+      state: { file: filePath, mode: "source" }
+    });
+  }
+  // ─────────────────────────────────────────
+  // ファイル読み込み・レンダリング
+  // ─────────────────────────────────────────
+  async loadCurrentFile() {
+    var _a;
+    if (!this.rootEl) return;
+    const file = this._file;
+    if (!file) {
+      this.renderMessage("\u30D5\u30A1\u30A4\u30EB\u304C\u6307\u5B9A\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002");
+      return;
+    }
+    const cache = this.app.metadataCache.getFileCache(file);
+    const mode = (_a = cache == null ? void 0 : cache.frontmatter) == null ? void 0 : _a.mode;
+    if (mode !== "novel") {
+      this.renderMessage(
+        "\u3053\u306E\u30D5\u30A1\u30A4\u30EB\u306F\u5BFE\u8C61\u5916\u3067\u3059\u3002\nFrontmatter \u306B `mode: novel` \u3092\u8A2D\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044\u3002"
+      );
+      return;
+    }
+    let source;
+    try {
+      source = await this.app.vault.read(file);
+    } catch (e) {
+      this.renderMessage("\u30D5\u30A1\u30A4\u30EB\u306E\u8AAD\u307F\u8FBC\u307F\u306B\u5931\u6557\u3057\u307E\u3057\u305F\u3002");
+      return;
+    }
+    this.renderContent(source);
+    this.app.workspace.requestSaveLayout();
+  }
+  renderContent(source) {
+    var _a, _b;
+    if (!this.rootEl) return;
+    if (this.titleEl) {
+      this.titleEl.textContent = (_b = (_a = this._file) == null ? void 0 : _a.basename) != null ? _b : "\u5C0F\u8AAC\u95B2\u89A7";
+    }
+    const wrapCol = this.getWrapColumn();
+    this.rootEl.style.maxWidth = `${wrapCol}em`;
+    const html = toReadingHtml(source, this.getRubyStyle());
+    this.rootEl.innerHTML = html;
+    this.rootEl.querySelectorAll("a.internal-link").forEach((a) => {
+      a.addEventListener("click", (e) => {
+        e.preventDefault();
+        const href = a.dataset.href;
+        if (!href) return;
+        this.app.workspace.openLinkText(href, "", false);
+      });
+    });
+  }
+  renderMessage(message) {
+    if (!this.rootEl) return;
+    this.rootEl.innerHTML = "";
+    this.rootEl.style.maxWidth = "";
+    const p = this.rootEl.createEl("p", { cls: "nn-reading-message" });
+    p.textContent = message;
+  }
+  /** ルビ設定変更・折り返し幅変更などの際に外部から強制再描画 */
+  forceReload() {
+    this.loadCurrentFile();
+  }
+};
+
 // src/main.ts
-var NovelsNoteJP = class extends import_obsidian5.Plugin {
+var NovelsNoteJP = class extends import_obsidian6.Plugin {
   constructor() {
     super(...arguments);
     this.terms = [];
@@ -1810,6 +2031,15 @@ var NovelsNoteJP = class extends import_obsidian5.Plugin {
         return view;
       }
     );
+    this.registerView(
+      NOVEL_READING_VIEW_TYPE,
+      (leaf) => {
+        const view = new NovelReadingView(leaf);
+        view.setRubyStyleGetter(() => this.settings.rubyStyle);
+        view.setWrapColumnGetter(() => this.settings.wrapColumn);
+        return view;
+      }
+    );
     this.addRibbonIcon(
       "list-tree",
       "\u30BF\u30B0\u60C5\u5831\u4E00\u89A7\u3092\u958B\u304F",
@@ -1820,9 +2050,15 @@ var NovelsNoteJP = class extends import_obsidian5.Plugin {
       "\u7E26\u66F8\u304D\u30D7\u30EC\u30D3\u30E5\u30FC\u3092\u958B\u304F",
       () => this.activateVerticalPreview()
     );
+    this.addRibbonIcon(
+      "square-chart-gantt",
+      "\u5C0F\u8AAC\u7528\u30D3\u30E5\u30FC\u3067\u8868\u793A",
+      () => this.activateNovelReadingView()
+    );
     this.addSettingTab(new NovelsNoteSettingTab(this.app, this));
     this.registerExportCommand();
     this.registerVerticalPreviewCommand();
+    this.registerNovelReadingViewCommand();
     this.registerEditorExtension(import_view2.EditorView.lineWrapping);
     this.registerEditorExtension(
       buildBracketExtension(() => this.settings)
@@ -1860,7 +2096,7 @@ var NovelsNoteJP = class extends import_obsidian5.Plugin {
   registerVaultEvents() {
     this.registerEvent(
       this.app.vault.on("modify", async (file) => {
-        if (file instanceof import_obsidian5.TFile && file.extension === "md") {
+        if (file instanceof import_obsidian6.TFile && file.extension === "md") {
           await this.waitForMetadata(file);
           await this.buildTermIndex();
           this.updateSidebar();
@@ -1870,7 +2106,7 @@ var NovelsNoteJP = class extends import_obsidian5.Plugin {
     );
     this.registerEvent(
       this.app.vault.on("create", async (file) => {
-        if (file instanceof import_obsidian5.TFile && file.extension === "md") {
+        if (file instanceof import_obsidian6.TFile && file.extension === "md") {
           await this.waitForMetadata(file);
           await this.buildTermIndex();
           this.updateSidebar();
@@ -1887,7 +2123,7 @@ var NovelsNoteJP = class extends import_obsidian5.Plugin {
     );
     this.registerEvent(
       this.app.vault.on("rename", async (file) => {
-        if (file instanceof import_obsidian5.TFile && file.extension === "md") {
+        if (file instanceof import_obsidian6.TFile && file.extension === "md") {
           await this.waitForMetadata(file);
         }
         await this.buildTermIndex();
@@ -2074,7 +2310,7 @@ var NovelsNoteJP = class extends import_obsidian5.Plugin {
   refreshEditors() {
     this.app.workspace.iterateAllLeaves((leaf) => {
       const view = leaf.view;
-      if (view instanceof import_obsidian5.MarkdownView) {
+      if (view instanceof import_obsidian6.MarkdownView) {
         const cm = view.editor.cm;
         if (cm) {
           cm.dispatch({ effects: settingsEffect.of(this.settings) });
@@ -2121,7 +2357,7 @@ var NovelsNoteJP = class extends import_obsidian5.Plugin {
    */
   updateWordCount() {
     if (!this.statusBarEl) return;
-    const view = this.app.workspace.getActiveViewOfType(import_obsidian5.MarkdownView);
+    const view = this.app.workspace.getActiveViewOfType(import_obsidian6.MarkdownView);
     if (!view) {
       this.statusBarEl.setText("\u2014");
       return;
@@ -2200,7 +2436,7 @@ var NovelsNoteJP = class extends import_obsidian5.Plugin {
       id: "export-current-file",
       name: "\u73FE\u5728\u306E\u30D5\u30A1\u30A4\u30EB\u3092\u539F\u7A3F Export \u3059\u308B",
       checkCallback: (checking) => {
-        const view = this.app.workspace.getActiveViewOfType(import_obsidian5.MarkdownView);
+        const view = this.app.workspace.getActiveViewOfType(import_obsidian6.MarkdownView);
         if (!(view == null ? void 0 : view.file)) return false;
         if (!checking) {
           new ExportModal(this.app, view.file, this.settings.rubyStyle).open();
@@ -2230,5 +2466,82 @@ var NovelsNoteJP = class extends import_obsidian5.Plugin {
     if (!leaf) return;
     await leaf.setViewState({ type: VERTICAL_VIEW_TYPE, active: true });
     workspace.revealLeaf(leaf);
+  }
+  // ─────────────────────────────────────────
+  // 小説閲覧 View 開閉
+  // ─────────────────────────────────────────
+  registerNovelReadingViewCommand() {
+    this.addCommand({
+      id: "open-novel-reading-view",
+      name: "\u5C0F\u8AAC\u95B2\u89A7\u30D3\u30E5\u30FC\u3092\u958B\u304F",
+      callback: () => this.activateNovelReadingView()
+    });
+  }
+  async activateNovelReadingView() {
+    var _a;
+    const { workspace } = this.app;
+    const activeLeaf = workspace.getMostRecentLeaf();
+    let targetLeaf = activeLeaf;
+    let targetFile = null;
+    if (activeLeaf && activeLeaf.view.getViewType() === "markdown" && activeLeaf.view.file instanceof import_obsidian6.TFile) {
+      targetFile = activeLeaf.view.file;
+    }
+    if (!targetFile) {
+      workspace.iterateAllLeaves((leaf) => {
+        var _a2;
+        if (targetFile) return;
+        if (leaf.view.getViewType() !== "markdown") return;
+        const f = leaf.view.file;
+        if (!(f instanceof import_obsidian6.TFile)) return;
+        const cache2 = this.app.metadataCache.getFileCache(f);
+        if (((_a2 = cache2 == null ? void 0 : cache2.frontmatter) == null ? void 0 : _a2.mode) === "novel") {
+          targetFile = f;
+          targetLeaf = leaf;
+        }
+      });
+    }
+    if (!targetFile) {
+      return;
+    }
+    const cache = this.app.metadataCache.getFileCache(targetFile);
+    if (((_a = cache == null ? void 0 : cache.frontmatter) == null ? void 0 : _a.mode) !== "novel") {
+      const existing2 = workspace.getLeavesOfType(NOVEL_READING_VIEW_TYPE);
+      if (existing2.length > 0) {
+        workspace.revealLeaf(existing2[0]);
+      }
+      return;
+    }
+    const existing = workspace.getLeavesOfType(NOVEL_READING_VIEW_TYPE);
+    for (const leaf of existing) {
+      const nrv = leaf.view;
+      if (nrv._file === targetFile) {
+        workspace.revealLeaf(leaf);
+        return;
+      }
+    }
+    if (!targetLeaf) return;
+    const file = targetFile;
+    await targetLeaf.setViewState({
+      type: NOVEL_READING_VIEW_TYPE,
+      state: { filePath: file.path }
+    });
+    const view = targetLeaf.view;
+    if (view instanceof NovelReadingView) {
+      view.setFile(file);
+      await view.loadCurrentFile();
+    }
+    workspace.revealLeaf(targetLeaf);
+  }
+  // ─────────────────────────────────────────
+  // 小説閲覧 View 強制再描画
+  // ルビ設定変更時に呼ぶ
+  // ─────────────────────────────────────────
+  refreshNovelReadingView() {
+    const leaves = this.app.workspace.getLeavesOfType(NOVEL_READING_VIEW_TYPE);
+    for (const leaf of leaves) {
+      if (leaf.view instanceof NovelReadingView) {
+        leaf.view.forceReload();
+      }
+    }
   }
 };

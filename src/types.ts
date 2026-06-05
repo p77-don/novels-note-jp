@@ -8,8 +8,9 @@ import { NovelsNoteSettings } from "./settings";
 // ─────────────────────────────────────────
 // 定数
 // ─────────────────────────────────────────
-export const SIDEBAR_VIEW_TYPE   = "novels-note-jp-sidebar";
-export const VERTICAL_VIEW_TYPE  = "novels-note-jp-vertical";
+export const SIDEBAR_VIEW_TYPE        = "novels-note-jp-sidebar";
+export const VERTICAL_VIEW_TYPE       = "novels-note-jp-vertical";
+export const NOVEL_READING_VIEW_TYPE  = "novel-reading-view";
 
 // ─────────────────────────────────────────
 // 用語インデックス

@@ -238,9 +238,7 @@
    セクション本体の開閉アニメーション
    （display:none との両立のためシンプルに）
    ───────────────────────────────────────── */
-.nn-section-body {
-  /* overflow: hidden; はつけない（子のスクロール干渉を避ける） */
-}
+/* .nn-section-body: overflow:hidden はつけない（子のスクロール干渉を避ける） */
 
 /* ═══════════════════════════════════════════
    Export モーダル
@@ -395,9 +393,7 @@
 /* ─────────────────────────────────────────
    縦書き本文テキスト
    ───────────────────────────────────────── */
-.nn-vertical-text {
-  /* inline-block で writing-mode を継承しつつ幅を本文に合わせる */
-}
+/* .nn-vertical-text: inline-block で writing-mode を継承しつつ幅を本文に合わせる */
 
 /* 行単位 span
    ─────────────────────────────────────
@@ -409,6 +405,12 @@
    ───────────────────────────────────── */
 .nn-vertical-text .nn-sent {
   display: inline;
+}
+
+/* 字下げ行（先頭全角スペースをCSSで再現）
+   縦書きでは padding-top が字下げ方向（行頭側）になる。 */
+.nn-vertical-text .nn-line--indent {
+  padding-top: 1em;
 }
 
 /* 段落区切りスペーサー
@@ -544,4 +546,126 @@
 .nn-drag-row .setting-item {
   flex: 1;
   min-width: 0;
+}
+
+/* ═══════════════════════════════════════════
+   Novel Reading View
+   ══════════════════════════════════════════ */
+
+/* ─────────────────────────────────────────
+   コンテナ全体
+   ───────────────────────────────────────── */
+.nn-reading-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* ─────────────────────────────────────────
+   ツールバー
+   ───────────────────────────────────────── */
+.nn-reading-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  flex-shrink: 0;
+}
+
+.nn-reading-toolbar-title {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-normal);
+}
+
+.nn-reading-toolbar-buttons {
+  display: flex;
+  gap: 2px;
+}
+
+/* ─────────────────────────────────────────
+   本文ルート：スクロール可能・文字選択可能
+   max-width は JS から style 属性で上書きする
+   ───────────────────────────────────────── */
+.nn-reading-root {
+  height: 100%;
+  overflow-y: auto;
+  /* overflow: hidden は禁止 */
+  padding: 2em 3em;
+  box-sizing: border-box;
+  /* max-width は JS (wrapColumn em) で動的に設定 */
+  margin: 0 auto;
+  width: 100%;
+  line-height: 2;
+  font-size: var(--font-text-size, 16px);
+  color: var(--text-normal);
+  /* 文字選択を有効にする */
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+}
+
+/* ─────────────────────────────────────────
+   段落共通：上下マージンをゼロにして
+   改行制御をプラグイン側に委ねる
+   ───────────────────────────────────────── */
+.nn-reading-root p {
+  margin: 0;
+  padding: 0;
+  /* テキストは折り返す（overflow: hidden 禁止） */
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+/* ─────────────────────────────────────────
+   字下げ行
+   ───────────────────────────────────────── */
+.nn-reading-root p.nn-indent {
+  text-indent: 1em;
+}
+
+/* ─────────────────────────────────────────
+   空行（高さを確保して空白を保持）
+   ───────────────────────────────────────── */
+.nn-reading-root p.nn-blank {
+  min-height: 1em;
+}
+
+/* ─────────────────────────────────────────
+   WikiLink
+   ───────────────────────────────────────── */
+.nn-reading-root a.internal-link {
+  color: var(--link-color);
+  text-decoration: none;
+  cursor: pointer;
+}
+.nn-reading-root a.internal-link:hover {
+  text-decoration: underline;
+  color: var(--link-color-hover);
+}
+
+/* ─────────────────────────────────────────
+   ルビ
+   ───────────────────────────────────────── */
+.nn-reading-root ruby {
+  ruby-align: center;
+}
+.nn-reading-root rt {
+  font-size: 0.5em;
+}
+
+/* ─────────────────────────────────────────
+   メッセージ（対象外ファイルなど）
+   ───────────────────────────────────────── */
+.nn-reading-root p.nn-reading-message {
+  color: var(--text-muted);
+  font-size: 0.9em;
+  white-space: pre-wrap;
+  text-align: center;
+  margin-top: 3em;
+  cursor: default;
+  user-select: none;
+  -webkit-user-select: none;
 }
