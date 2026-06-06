@@ -9,19 +9,15 @@
 //     タブ順序変更・他タブへの移動後も表示維持。
 //   - ツールバーの「編集に戻る」でリーフを
 //     markdown に戻す（ファイルは維持）。
+//   - 表示テキストはエクスポートと同じクリーニングを適用する。
+//     WikiLink・タグ・Markdown記号などの原稿外情報を排除する。
 // ─────────────────────────────────────────
 
 import { ItemView, WorkspaceLeaf, TFile } from "obsidian";
 import { NOVEL_READING_VIEW_TYPE } from "./types";
 import { RubyStyle } from "./settings";
 import { convertRuby } from "./verticalPreview";
-
-// ─────────────────────────────────────────
-// HTML 属性エスケープ
-// ─────────────────────────────────────────
-function escapeAttr(text: string): string {
-  return text.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
-}
+import { ExportModal } from "./exportModal";
 
 // ─────────────────────────────────────────
 // Frontmatter 除去
@@ -31,42 +27,91 @@ function stripFrontmatter(source: string): string {
 }
 
 // ─────────────────────────────────────────
+// 原稿テキストのクリーニング
+//
+// エクスポートと同じ処理でMarkdown記法・WikiLink・タグなどを除去する。
+// ルビ記法はそのまま残す（convertRubyで後処理する）。
+// ─────────────────────────────────────────
+function cleanSource(source: string): string {
+  let text = source;
+
+  // Obsidian コメント削除
+  text = text.replace(/%%[\s\S]*?%%/g, "");
+
+  // Callout ブロック削除
+  text = text.replace(/^(>[ \t]*\[![\w-]+\][^\n]*\n(?:>[ \t]*[^\n]*\n?)*)/gm, "");
+
+  // WikiLink を表示テキストに変換（[[target|display]] → display、[[target]] → target）
+  text = text.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, "$2");
+  text = text.replace(/\[\[([^\]]+)\]\]/g, "$1");
+
+  // タグ削除
+  // ① 行全体がタグだけの行 → 行ごと削除
+  text = text.replace(/^[ \t\u3000]*#\S+[ \t\u3000]*$/gm, "");
+  // ② タグ本体＋直後スペースを除去
+  text = text.replace(/#\S+[ \t\u3000]?/g, "");
+  // ③ タグ除去後の連続スペース・行頭末尾スペースを正規化
+  text = text.replace(/[ \t]{2,}/g, " ");
+  text = text.replace(/^[ \t]+$/gm, "");
+
+  // Markdown 見出し記号除去
+  text = text.replace(/^#{1,6}[ \t]+/gm, "");
+
+  // Markdown 引用記号除去
+  text = text.replace(/^>[ \t]?/gm, "");
+
+  // Markdown リスト記号除去
+  text = text.replace(/^[ \t]*[-*+][ \t]+/gm, "");
+  text = text.replace(/^[ \t]*\d+\.[ \t]+/gm, "");
+
+  // Markdown 強調記号除去（**bold**、*italic*、__bold__、_italic_）
+  text = text.replace(/(\*{1,3}|_{1,3})([\s\S]*?)\1/g, "$2");
+
+  // Markdown 水平線除去
+  text = text.replace(/^[-*_]{3,}[ \t]*$/gm, "");
+
+  // Markdown コードブロック除去
+  text = text.replace(/^```[\s\S]*?^```[ \t]*$/gm, "");
+  text = text.replace(/^~~~[\s\S]*?^~~~[ \t]*$/gm, "");
+  text = text.replace(/`([^`]+)`/g, "$1");
+
+  // Markdown リンク変換（画像は除去、テキストリンクは表示テキストのみ残す）
+  text = text.replace(/!\[[^\]]*\]\([^)]+\)/g, "");
+  text = text.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
+
+  // HTML タグ除去（ruby・rt は除外）
+  text = text.replace(/<(?!\/?(ruby|rt)\b)[^>]+>/gi, "");
+
+  return text;
+}
+
+// ─────────────────────────────────────────
+// HTML 属性エスケープ
+// ─────────────────────────────────────────
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+// ─────────────────────────────────────────
 // 1行をHTMLへ変換
 //
 // 処理順序：
 //   1. ルビ記法 → <ruby>タグ
-//   2. WikiLink → プレースホルダ（タグ内混入防止）
-//   3. テキスト部分のHTMLエスケープ（既存タグは保護）
-//   4. プレースホルダ → <a class="internal-link">
+//   2. テキスト部分のHTMLエスケープ（既存タグは保護）
 // ─────────────────────────────────────────
 function renderLine(rawLine: string, rubyStyle: RubyStyle): string {
   // Step 1: ルビ変換
   let line = convertRuby(rawLine, rubyStyle);
 
-  // Step 2: WikiLink をプレースホルダに置換
-  line = line.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, (_, target, display) =>
-    `\x00WL\x01${escapeAttr(target)}\x01${display}\x00`
-  );
-  line = line.replace(/\[\[([^\]]+)\]\]/g, (_, target) =>
-    `\x00WL\x01${escapeAttr(target)}\x01${target}\x00`
-  );
-
-  // Step 3: テキスト部分のみHTMLエスケープ（<tag>は保護）
+  // Step 2: テキスト部分のみHTMLエスケープ（<ruby><rt>タグは保護）
   const parts = line.split(/(<[^>]+>)/g);
   line = parts.map((part, i) => {
-    if (i % 2 === 1) return part;
-    return part
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;");
+    if (i % 2 === 1) return part; // タグ部分はそのまま
+    return escapeHtml(part);
   }).join("");
-
-  // Step 4: プレースホルダ → <a class="internal-link">
-  line = line.replace(
-    /\x00WL\x01([^\x01]*)\x01([^\x00]*)\x00/g,
-    (_, href, display) =>
-      `<a class="internal-link" data-href="${href}">${display}</a>`
-  );
 
   return line;
 }
@@ -79,8 +124,11 @@ function renderLine(rawLine: string, rubyStyle: RubyStyle): string {
 //   その他            → <p>…</p>
 // ─────────────────────────────────────────
 export function toReadingHtml(source: string, rubyStyle: RubyStyle): string {
-  const body = stripFrontmatter(source);
-  const lines = body.split("\n");
+  // Frontmatter 除去 → 原稿クリーニング
+  const stripped = stripFrontmatter(source);
+  const cleaned  = cleanSource(stripped);
+
+  const lines = cleaned.split("\n");
   const parts: string[] = [];
 
   for (const rawLine of lines) {
@@ -166,6 +214,17 @@ export class NovelReadingView extends ItemView {
     this.titleEl.textContent = this._file?.basename ?? "小説閲覧";
 
     const btnWrap = toolbar.createEl("div", { cls: "nn-reading-toolbar-buttons" });
+
+    // エクスポートボタン（file-output アイコン）
+    const exportBtn = btnWrap.createEl("button", {
+      cls: "nn-btn",
+      title: "現在のファイルを原稿 Export する",
+    });
+    exportBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="-5 -5 34 34" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-file-output-icon lucide-file-output"><path d="M4.226 20.925A2 2 0 0 0 6 22h12a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v3.127"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="m5 11-3 3"/><path d="m5 17-3-3h10"/></svg>`;
+    exportBtn.addEventListener("click", () => {
+      if (!this._file) return;
+      new ExportModal(this.app, this._file, this.getRubyStyle()).open();
+    });
 
     // 編集モードに戻るボタン（pencil-line アイコン）
     const editBtn = btnWrap.createEl("button", {
@@ -270,16 +329,6 @@ export class NovelReadingView extends ItemView {
 
     const html = toReadingHtml(source, this.getRubyStyle());
     this.rootEl.innerHTML = html;
-
-    // WikiLink クリックでファイルを開く
-    this.rootEl.querySelectorAll<HTMLAnchorElement>("a.internal-link").forEach(a => {
-      a.addEventListener("click", (e) => {
-        e.preventDefault();
-        const href = a.dataset.href;
-        if (!href) return;
-        this.app.workspace.openLinkText(href, "", false);
-      });
-    });
   }
 
   private renderMessage(message: string): void {

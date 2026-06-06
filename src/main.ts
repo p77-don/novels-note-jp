@@ -2,7 +2,7 @@
 // Novels Note JP — メインプラグイン
 // ─────────────────────────────────────────
 
-import { Plugin, WorkspaceLeaf, TFile, MarkdownView } from "obsidian";
+import { Plugin, WorkspaceLeaf, TFile, MarkdownView, Notice } from "obsidian";
 import { EditorView } from "@codemirror/view";
 
 import {
@@ -11,7 +11,7 @@ import {
   DEFAULT_TAG_DEFINITIONS,
   DEFAULT_BRACKET_DEFINITIONS,
 } from "./settings";
-import { SIDEBAR_VIEW_TYPE, VERTICAL_VIEW_TYPE, NOVEL_READING_VIEW_TYPE, TermEntry, settingsEffect } from "./types";
+import { SIDEBAR_VIEW_TYPE, VERTICAL_VIEW_TYPE, NOVEL_READING_VIEW_TYPE, TermEntry, settingsEffect, novelModeEffect, novelModeField } from "./types";
 import {
   buildBracketExtension,
   buildTermExtension,
@@ -82,6 +82,12 @@ export default class NovelsNoteJP extends Plugin {
     this.registerExportCommand();
     this.registerVerticalPreviewCommand();
     this.registerNovelReadingViewCommand();
+
+    // ─────────────────────────────────────────
+    // novelModeField を全エディタに登録
+    // mode:novel かどうかを CM6 State として保持する
+    // ─────────────────────────────────────────
+    this.registerEditorExtension(novelModeField);
 
     // ─────────────────────────────────────────
     // 折り返し：CSS の white-space ではなく
@@ -196,6 +202,27 @@ export default class NovelsNoteJP extends Plugin {
         }
       })
     );
+
+    // ─────────────────────────────────────────
+    // active-leaf-change：タブ切り替え時に
+    // 新しいリーフの novelMode 状態を更新する
+    // ─────────────────────────────────────────
+    this.registerEvent(
+      this.app.workspace.on("active-leaf-change", () => {
+        this.refreshEditors();
+      })
+    );
+
+    // ─────────────────────────────────────────
+    // file-open：ファイルを開いた直後に
+    // cm.dom が確定してから novelMode を付与する
+    // ─────────────────────────────────────────
+    this.registerEvent(
+      this.app.workspace.on("file-open", () => {
+        // CM6 が DOM を構築し終えるのを少し待つ
+        setTimeout(() => this.refreshEditors(), 50);
+      })
+    );
   }
 
   // ─────────────────────────────────────────
@@ -222,6 +249,11 @@ export default class NovelsNoteJP extends Plugin {
 
   // ─────────────────────────────────────────
   // CSS 動的生成
+  //
+  // mode:novel のエディタにのみスタイルを適用するため、
+  // セレクタに [data-novel-mode="true"] を付与する。
+  // このデータ属性は refreshEditors() でリーフの
+  // containerEl に付け外しされる。
   // ─────────────────────────────────────────
   applyEditorStyles(): void {
     if (this.styleEl) this.styleEl.remove();
@@ -229,43 +261,34 @@ export default class NovelsNoteJP extends Plugin {
     const s = this.settings;
     const wrapWidth = `${s.wrapColumn}em`;
 
-    // カッコ色
+    // カッコ色（novel-mode 限定）
     const bracketColorCss = s.bracketDefinitions
-      .map(bd => `.novel-bracket-${bd.id} { color: ${bd.color}; }`)
+      .map(bd => `.cm-editor[data-novel-mode="true"] .novel-bracket-${bd.id} { color: ${bd.color}; }`)
       .join("\n");
 
-    // 用語色：.cm-content 配下で !important を付けて確実に優先
+    // 用語色（novel-mode 限定）
     const tagColorCss = s.tagDefinitions
-      .map(td => `.cm-content .novel-hl-${td.tag} { color: ${td.color} !important; }`)
+      .map(td => `.cm-editor[data-novel-mode="true"] .cm-content .novel-hl-${td.tag} { color: ${td.color} !important; }`)
       .join("\n");
 
-    // サイドバー用（!important なし）
+    // サイドバー用（!important なし・data-novel-mode 不要）
     const tagColorSidebarCss = s.tagDefinitions
       .map(td => `.novels-note-sidebar .novel-hl-${td.tag} { color: ${td.color}; }`)
       .join("\n");
 
     // ─────────────────────────────────────────
-    // 全角スペース可視化 CSS
-    //
-    // .novel-fwsp        : 共通（position:relative で ::after の基点にする）
-    // .novel-fwsp::after : スタイルに応じた可視マーカーを重ねる
-    //
-    // 【dot】    文字中央に薄い丸ドットを重ねる
-    // 【underline】 文字幅いっぱいの下線を引く
-    // 【box】    文字を薄い枠で囲む
+    // 全角スペース可視化 CSS（novel-mode 限定）
     // ─────────────────────────────────────────
     const fwColor = s.fullWidthSpaceColor;
     const fwspCss = s.showFullWidthSpace && s.fullWidthSpaceStyle !== "none"
       ? `
-      /* 全角スペース共通：疑似要素の基点にするために relative を付与 */
-      .cm-content .novel-fwsp {
+      .cm-editor[data-novel-mode="true"] .cm-content .novel-fwsp {
         position: relative;
-        display: inline-block; /* inline 要素に position:relative を効かせる */
+        display: inline-block;
       }
 
-      /* dot: 文字の中央にドットを浮かべる */
-      .cm-content .novel-fwsp--dot::after {
-        content: "·";        /* U+00B7 MIDDLE DOT（半角なので位置調整） */
+      .cm-editor[data-novel-mode="true"] .cm-content .novel-fwsp--dot::after {
+        content: "·";
         position: absolute;
         top: 50%;
         left: 50%;
@@ -277,14 +300,12 @@ export default class NovelsNoteJP extends Plugin {
         line-height: 1;
       }
 
-      /* underline: 下線で幅を可視化 */
-      .cm-content .novel-fwsp--underline {
+      .cm-editor[data-novel-mode="true"] .cm-content .novel-fwsp--underline {
         border-bottom: 1.5px solid ${fwColor};
         opacity: 0.8;
       }
 
-      /* box: 薄い枠線で囲む */
-      .cm-content .novel-fwsp--box {
+      .cm-editor[data-novel-mode="true"] .cm-content .novel-fwsp--box {
         outline: 1px solid ${fwColor};
         opacity: 0.6;
       }
@@ -292,26 +313,17 @@ export default class NovelsNoteJP extends Plugin {
       : "";
 
     // ─────────────────────────────────────────
-    // ルーラー（折り返しガイドライン）CSS
-    //
-    // 【バグ修正】
-    // 旧実装では background-color と border-left を両方指定していたため、
-    // background-color が前面になり破線が見えなかった。
-    //
-    // 修正方針：
-    //   background-color を廃止し、border-left だけで縦線を描く。
-    //   ただし border-left は要素の幅に含まれず left 位置がズレるため、
-    //   transform: translateX(-1px) で補正する。
+    // ルーラー（折り返しガイドライン）CSS（novel-mode 限定）
     // ─────────────────────────────────────────
     const rulerCss = `
-      .novel-ruler-line { position: relative; }
-      .novel-ruler-line::after {
+      .cm-editor[data-novel-mode="true"] .novel-ruler-line { position: relative; }
+      .cm-editor[data-novel-mode="true"] .novel-ruler-line::after {
         content: "";
         position: absolute;
         top: 0;
         left: ${wrapWidth};
-        transform: translateX(-1px); /* border-left の幅ズレを補正 */
-        width: 0;                    /* 塗り幅ゼロ＝border-left だけで描く */
+        transform: translateX(-1px);
+        width: 0;
         height: 100%;
         border-left: 1px ${s.rulerStyle} ${s.rulerColor};
         opacity: ${s.rulerOpacity};
@@ -319,7 +331,7 @@ export default class NovelsNoteJP extends Plugin {
       }
     `;
 
-    // カーソルハイライト色（CSS変数として定義し styles.css から参照）
+    // カーソルハイライト色（縦書きプレビュー用・data-novel-mode 不要）
     const cursorHighlightCss = s.verticalCursorHighlightEnabled
       ? `.nn-vertical-text .nn-sent.nn-cursor {
           background: ${s.verticalCursorHighlightColor} !important;
@@ -331,26 +343,29 @@ export default class NovelsNoteJP extends Plugin {
     const css = `
       /* ── Novels Note JP 動的スタイル ── */
 
-.markdown-source-view.mod-cm6 .cm-content {
+/* ─────────────────────────────────────────
+   mode:novel エディタのみ：フォント・折り返し幅・行高
+   cm.dom（.cm-editor）に data-novel-mode="true" を付与して
+   確実にスコープを絞る
+   ───────────────────────────────────────── */
+.cm-editor[data-novel-mode="true"] .cm-content {
   font-family: "BIZ UDゴシック", "Noto Sans Mono CJK JP",
                "源ノ角ゴシック", "Yu Gothic", monospace !important;
-
   font-size: ${s.fontSize}px !important;
   line-height: ${s.lineHeight} !important;
   max-width: ${wrapWidth} !important;
 }
 
-.markdown-source-view.mod-cm6 .cm-line {
+.cm-editor[data-novel-mode="true"] .cm-line {
   line-height: ${s.lineHeight} !important;
 }
-  /* ─────────────────────────
-     CM6 の hanging indent を無効化
-     小説向け：折返し行を左端から開始
-  ───────────────────────── */
-  .markdown-source-view.mod-cm6 .cm-lineWrapping .cm-line {
-    padding-left: 0 !important;
-    text-indent: 0 !important;
-  }
+
+/* CM6 の hanging indent を無効化（小説向け：折返し行を左端から開始） */
+.cm-editor[data-novel-mode="true"] .cm-lineWrapping .cm-line {
+  padding-left: 0 !important;
+  text-indent: 0 !important;
+}
+
       ${rulerCss}
       ${fwspCss}
       ${bracketColorCss}
@@ -415,16 +430,41 @@ export default class NovelsNoteJP extends Plugin {
   }
 
   // ─────────────────────────────────────────
-  // settingsEffect を dispatch して
-  // 全 Extension の update() を確実に発火させる
+  // 指定ファイルが mode:novel かどうかを判定する
+  // ─────────────────────────────────────────
+  private isNovelModeFile(file: TFile | null): boolean {
+    if (!file) return false;
+    const cache = this.app.metadataCache.getFileCache(file);
+    return cache?.frontmatter?.mode === "novel";
+  }
+
+  // ─────────────────────────────────────────
+  // 全エディタの novelModeField と data-novel-mode 属性を更新する
+  //
+  // 各 MarkdownView のリーフ containerEl に
+  // data-novel-mode="true/false" を付与することで、
+  // CSS セレクタ [data-novel-mode="true"] でスコープを絞る。
+  // 同時に novelModeEffect を dispatch して Extension に通知する。
   // ─────────────────────────────────────────
   refreshEditors(): void {
     this.app.workspace.iterateAllLeaves((leaf: WorkspaceLeaf) => {
       const view = leaf.view;
       if (view instanceof MarkdownView) {
+        const file = view.file ?? null;
+        const isNovel = this.isNovelModeFile(file);
+
+        // CM6 State を更新し、EditorView.dom に data-novel-mode 属性を付与
+        // cm.dom は .cm-editor 要素であり、CSS セレクタ
+        // [data-novel-mode="true"].cm-editor で確実にスコープが効く
         const cm = (view.editor as any).cm as EditorView;
         if (cm) {
-          cm.dispatch({ effects: settingsEffect.of(this.settings) });
+          cm.dom.dataset.novelMode = isNovel ? "true" : "false";
+          cm.dispatch({
+            effects: [
+              novelModeEffect.of(isNovel),
+              settingsEffect.of(this.settings),
+            ],
+          });
         }
       }
     });
@@ -560,13 +600,29 @@ export default class NovelsNoteJP extends Plugin {
     this.addCommand({
       id: "export-current-file",
       name: "現在のファイルを原稿 Export する",
-      checkCallback: (checking: boolean) => {
-        const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-        if (!view?.file) return false;
-        if (!checking) {
-          new ExportModal(this.app, view.file, this.settings.rubyStyle).open();
+      callback: () => {
+        // MarkdownView（編集・リーディングモード）からファイルを取得
+        let file: TFile | null = null;
+
+        const mdView = this.app.workspace.getActiveViewOfType(MarkdownView);
+        if (mdView?.file) {
+          file = mdView.file;
         }
-        return true;
+
+        // 小説ビューがアクティブな場合はそこからファイルを取得
+        if (!file) {
+          const leaf = this.app.workspace.getMostRecentLeaf();
+          if (leaf?.view instanceof NovelReadingView) {
+            file = (leaf.view as NovelReadingView)._file;
+          }
+        }
+
+        if (!file) {
+          new Notice("エクスポート対象のファイルが見つかりません。");
+          return;
+        }
+
+        new ExportModal(this.app, file, this.settings.rubyStyle).open();
       },
     });
   }
@@ -640,14 +696,16 @@ export default class NovelsNoteJP extends Plugin {
     }
 
     if (!targetFile) {
-      // mode:novel のファイルが見つからない場合は何もしない
+      // 開いているファイルがない、またはすべて対象外
+      new Notice("小説用ビューの対象外です。Frontmatter に mode: novel のプロパティを設定してください。");
       return;
     }
 
     // mode:novel チェック
     const cache = this.app.metadataCache.getFileCache(targetFile);
     if (cache?.frontmatter?.mode !== "novel") {
-      // 対象外ファイル：既存の NovelReadingView があれば revealするだけ
+      // 対象外ファイル：通知を出し、既存の NovelReadingView があれば revealするだけ
+      new Notice("小説用ビューの対象外です。Frontmatter に mode: novel のプロパティを設定してください。");
       const existing = workspace.getLeavesOfType(NOVEL_READING_VIEW_TYPE);
       if (existing.length > 0) {
         workspace.revealLeaf(existing[0]);

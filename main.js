@@ -79,6 +79,16 @@ var SIDEBAR_VIEW_TYPE = "novels-note-jp-sidebar";
 var VERTICAL_VIEW_TYPE = "novels-note-jp-vertical";
 var NOVEL_READING_VIEW_TYPE = "novel-reading-view";
 var settingsEffect = import_state.StateEffect.define();
+var novelModeEffect = import_state.StateEffect.define();
+var novelModeField = import_state.StateField.define({
+  create: () => false,
+  update(value, tr) {
+    for (const e of tr.effects) {
+      if (e.is(novelModeEffect)) return e.value;
+    }
+    return value;
+  }
+});
 
 // src/extensions.ts
 var import_view = require("@codemirror/view");
@@ -143,6 +153,7 @@ function buildBracketExtension(getSettings) {
         }
         build(view) {
           const builder = new import_state2.RangeSetBuilder();
+          if (!view.state.field(novelModeField, false)) return builder.finish();
           const settings = getSettings();
           if (!settings.highlightEnabled) return builder.finish();
           const enabledBrackets = settings.bracketDefinitions.filter((b) => b.enabled);
@@ -181,6 +192,7 @@ function buildTermExtension(getTerms, getSettings) {
         }
         build(view) {
           const builder = new import_state2.RangeSetBuilder();
+          if (!view.state.field(novelModeField, false)) return builder.finish();
           const settings = getSettings();
           if (!settings.highlightEnabled) return builder.finish();
           const terms = getTerms();
@@ -250,6 +262,7 @@ function buildRulerExtension(getSettings) {
       }
       build(view) {
         const builder = new import_state2.RangeSetBuilder();
+        if (!view.state.field(novelModeField, false)) return builder.finish();
         const settings = getSettings();
         if (!settings.showRuler) return builder.finish();
         for (const { from, to } of view.visibleRanges) {
@@ -284,6 +297,7 @@ function buildFullWidthSpaceExtension(getSettings) {
       }
       build(view) {
         const builder = new import_state2.RangeSetBuilder();
+        if (!view.state.field(novelModeField, false)) return builder.finish();
         const settings = getSettings();
         if (!settings.showFullWidthSpace || settings.fullWidthSpaceStyle === "none") {
           return builder.finish();
@@ -448,8 +462,22 @@ var NovelsNoteSidebarView = class extends import_obsidian.ItemView {
       cls: "nn-search-input"
     });
     searchInput.value = this.searchQuery;
+    const clearBtn = searchWrap.createEl("button", {
+      cls: "nn-search-clear",
+      title: "\u30AF\u30EA\u30A2",
+      text: "\u2715"
+    });
+    clearBtn.style.display = this.searchQuery ? "" : "none";
     searchInput.addEventListener("input", () => {
       this.searchQuery = searchInput.value.trim();
+      clearBtn.style.display = this.searchQuery ? "" : "none";
+      this.renderBody(body);
+    });
+    clearBtn.addEventListener("click", () => {
+      searchInput.value = "";
+      this.searchQuery = "";
+      clearBtn.style.display = "none";
+      searchInput.focus();
       this.renderBody(body);
     });
     const body = root.createEl("div", { cls: "nn-body" });
@@ -1798,36 +1826,49 @@ var VerticalPreviewView = class extends import_obsidian4.ItemView {
 
 // src/novelReadingView.ts
 var import_obsidian5 = require("obsidian");
-function escapeAttr(text) {
-  return text.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
-}
 function stripFrontmatter(source) {
   return source.replace(/^---[ \t]*\n[\s\S]*?\n---[ \t]*\n?/, "");
 }
+function cleanSource(source) {
+  let text = source;
+  text = text.replace(/%%[\s\S]*?%%/g, "");
+  text = text.replace(/^(>[ \t]*\[![\w-]+\][^\n]*\n(?:>[ \t]*[^\n]*\n?)*)/gm, "");
+  text = text.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, "$2");
+  text = text.replace(/\[\[([^\]]+)\]\]/g, "$1");
+  text = text.replace(/^[ \t\u3000]*#\S+[ \t\u3000]*$/gm, "");
+  text = text.replace(/#\S+[ \t\u3000]?/g, "");
+  text = text.replace(/[ \t]{2,}/g, " ");
+  text = text.replace(/^[ \t]+$/gm, "");
+  text = text.replace(/^#{1,6}[ \t]+/gm, "");
+  text = text.replace(/^>[ \t]?/gm, "");
+  text = text.replace(/^[ \t]*[-*+][ \t]+/gm, "");
+  text = text.replace(/^[ \t]*\d+\.[ \t]+/gm, "");
+  text = text.replace(/(\*{1,3}|_{1,3})([\s\S]*?)\1/g, "$2");
+  text = text.replace(/^[-*_]{3,}[ \t]*$/gm, "");
+  text = text.replace(/^```[\s\S]*?^```[ \t]*$/gm, "");
+  text = text.replace(/^~~~[\s\S]*?^~~~[ \t]*$/gm, "");
+  text = text.replace(/`([^`]+)`/g, "$1");
+  text = text.replace(/!\[[^\]]*\]\([^)]+\)/g, "");
+  text = text.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
+  text = text.replace(/<(?!\/?(ruby|rt)\b)[^>]+>/gi, "");
+  return text;
+}
+function escapeHtml(text) {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
 function renderLine(rawLine, rubyStyle) {
   let line = convertRuby(rawLine, rubyStyle);
-  line = line.replace(
-    /\[\[([^\]|]+)\|([^\]]+)\]\]/g,
-    (_, target, display) => `\0WL${escapeAttr(target)}${display}\0`
-  );
-  line = line.replace(
-    /\[\[([^\]]+)\]\]/g,
-    (_, target) => `\0WL${escapeAttr(target)}${target}\0`
-  );
   const parts = line.split(/(<[^>]+>)/g);
   line = parts.map((part, i) => {
     if (i % 2 === 1) return part;
-    return part.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    return escapeHtml(part);
   }).join("");
-  line = line.replace(
-    /\x00WL\x01([^\x01]*)\x01([^\x00]*)\x00/g,
-    (_, href, display) => `<a class="internal-link" data-href="${href}">${display}</a>`
-  );
   return line;
 }
 function toReadingHtml(source, rubyStyle) {
-  const body = stripFrontmatter(source);
-  const lines = body.split("\n");
+  const stripped = stripFrontmatter(source);
+  const cleaned = cleanSource(stripped);
+  const lines = cleaned.split("\n");
   const parts = [];
   for (const rawLine of lines) {
     const isBlank = rawLine.length === 0 || rawLine.trim() === "" && rawLine.replace(/\u3000/g, "").trim() === "";
@@ -1898,6 +1939,15 @@ var NovelReadingView = class extends import_obsidian5.ItemView {
     this.titleEl = toolbar.createEl("span", { cls: "nn-reading-toolbar-title" });
     this.titleEl.textContent = (_b = (_a = this._file) == null ? void 0 : _a.basename) != null ? _b : "\u5C0F\u8AAC\u95B2\u89A7";
     const btnWrap = toolbar.createEl("div", { cls: "nn-reading-toolbar-buttons" });
+    const exportBtn = btnWrap.createEl("button", {
+      cls: "nn-btn",
+      title: "\u73FE\u5728\u306E\u30D5\u30A1\u30A4\u30EB\u3092\u539F\u7A3F Export \u3059\u308B"
+    });
+    exportBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="-5 -5 34 34" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-file-output-icon lucide-file-output"><path d="M4.226 20.925A2 2 0 0 0 6 22h12a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v3.127"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="m5 11-3 3"/><path d="m5 17-3-3h10"/></svg>`;
+    exportBtn.addEventListener("click", () => {
+      if (!this._file) return;
+      new ExportModal(this.app, this._file, this.getRubyStyle()).open();
+    });
     const editBtn = btnWrap.createEl("button", {
       cls: "nn-btn",
       title: "\u7DE8\u96C6\u30E2\u30FC\u30C9\u306B\u623B\u308B"
@@ -1977,14 +2027,6 @@ var NovelReadingView = class extends import_obsidian5.ItemView {
     this.rootEl.style.maxWidth = `${wrapCol}em`;
     const html = toReadingHtml(source, this.getRubyStyle());
     this.rootEl.innerHTML = html;
-    this.rootEl.querySelectorAll("a.internal-link").forEach((a) => {
-      a.addEventListener("click", (e) => {
-        e.preventDefault();
-        const href = a.dataset.href;
-        if (!href) return;
-        this.app.workspace.openLinkText(href, "", false);
-      });
-    });
   }
   renderMessage(message) {
     if (!this.rootEl) return;
@@ -2059,6 +2101,7 @@ var NovelsNoteJP = class extends import_obsidian6.Plugin {
     this.registerExportCommand();
     this.registerVerticalPreviewCommand();
     this.registerNovelReadingViewCommand();
+    this.registerEditorExtension(novelModeField);
     this.registerEditorExtension(import_view2.EditorView.lineWrapping);
     this.registerEditorExtension(
       buildBracketExtension(() => this.settings)
@@ -2151,6 +2194,16 @@ var NovelsNoteJP = class extends import_obsidian6.Plugin {
         }
       })
     );
+    this.registerEvent(
+      this.app.workspace.on("active-leaf-change", () => {
+        this.refreshEditors();
+      })
+    );
+    this.registerEvent(
+      this.app.workspace.on("file-open", () => {
+        setTimeout(() => this.refreshEditors(), 50);
+      })
+    );
   }
   // ─────────────────────────────────────────
   // 設定 ロード／セーブ
@@ -2173,25 +2226,28 @@ var NovelsNoteJP = class extends import_obsidian6.Plugin {
   }
   // ─────────────────────────────────────────
   // CSS 動的生成
+  //
+  // mode:novel のエディタにのみスタイルを適用するため、
+  // セレクタに [data-novel-mode="true"] を付与する。
+  // このデータ属性は refreshEditors() でリーフの
+  // containerEl に付け外しされる。
   // ─────────────────────────────────────────
   applyEditorStyles() {
     if (this.styleEl) this.styleEl.remove();
     const s = this.settings;
     const wrapWidth = `${s.wrapColumn}em`;
-    const bracketColorCss = s.bracketDefinitions.map((bd) => `.novel-bracket-${bd.id} { color: ${bd.color}; }`).join("\n");
-    const tagColorCss = s.tagDefinitions.map((td) => `.cm-content .novel-hl-${td.tag} { color: ${td.color} !important; }`).join("\n");
+    const bracketColorCss = s.bracketDefinitions.map((bd) => `.cm-editor[data-novel-mode="true"] .novel-bracket-${bd.id} { color: ${bd.color}; }`).join("\n");
+    const tagColorCss = s.tagDefinitions.map((td) => `.cm-editor[data-novel-mode="true"] .cm-content .novel-hl-${td.tag} { color: ${td.color} !important; }`).join("\n");
     const tagColorSidebarCss = s.tagDefinitions.map((td) => `.novels-note-sidebar .novel-hl-${td.tag} { color: ${td.color}; }`).join("\n");
     const fwColor = s.fullWidthSpaceColor;
     const fwspCss = s.showFullWidthSpace && s.fullWidthSpaceStyle !== "none" ? `
-      /* \u5168\u89D2\u30B9\u30DA\u30FC\u30B9\u5171\u901A\uFF1A\u7591\u4F3C\u8981\u7D20\u306E\u57FA\u70B9\u306B\u3059\u308B\u305F\u3081\u306B relative \u3092\u4ED8\u4E0E */
-      .cm-content .novel-fwsp {
+      .cm-editor[data-novel-mode="true"] .cm-content .novel-fwsp {
         position: relative;
-        display: inline-block; /* inline \u8981\u7D20\u306B position:relative \u3092\u52B9\u304B\u305B\u308B */
+        display: inline-block;
       }
 
-      /* dot: \u6587\u5B57\u306E\u4E2D\u592E\u306B\u30C9\u30C3\u30C8\u3092\u6D6E\u304B\u3079\u308B */
-      .cm-content .novel-fwsp--dot::after {
-        content: "\xB7";        /* U+00B7 MIDDLE DOT\uFF08\u534A\u89D2\u306A\u306E\u3067\u4F4D\u7F6E\u8ABF\u6574\uFF09 */
+      .cm-editor[data-novel-mode="true"] .cm-content .novel-fwsp--dot::after {
+        content: "\xB7";
         position: absolute;
         top: 50%;
         left: 50%;
@@ -2203,27 +2259,25 @@ var NovelsNoteJP = class extends import_obsidian6.Plugin {
         line-height: 1;
       }
 
-      /* underline: \u4E0B\u7DDA\u3067\u5E45\u3092\u53EF\u8996\u5316 */
-      .cm-content .novel-fwsp--underline {
+      .cm-editor[data-novel-mode="true"] .cm-content .novel-fwsp--underline {
         border-bottom: 1.5px solid ${fwColor};
         opacity: 0.8;
       }
 
-      /* box: \u8584\u3044\u67A0\u7DDA\u3067\u56F2\u3080 */
-      .cm-content .novel-fwsp--box {
+      .cm-editor[data-novel-mode="true"] .cm-content .novel-fwsp--box {
         outline: 1px solid ${fwColor};
         opacity: 0.6;
       }
       ` : "";
     const rulerCss = `
-      .novel-ruler-line { position: relative; }
-      .novel-ruler-line::after {
+      .cm-editor[data-novel-mode="true"] .novel-ruler-line { position: relative; }
+      .cm-editor[data-novel-mode="true"] .novel-ruler-line::after {
         content: "";
         position: absolute;
         top: 0;
         left: ${wrapWidth};
-        transform: translateX(-1px); /* border-left \u306E\u5E45\u30BA\u30EC\u3092\u88DC\u6B63 */
-        width: 0;                    /* \u5857\u308A\u5E45\u30BC\u30ED\uFF1Dborder-left \u3060\u3051\u3067\u63CF\u304F */
+        transform: translateX(-1px);
+        width: 0;
         height: 100%;
         border-left: 1px ${s.rulerStyle} ${s.rulerColor};
         opacity: ${s.rulerOpacity};
@@ -2238,26 +2292,29 @@ var NovelsNoteJP = class extends import_obsidian6.Plugin {
     const css = `
       /* \u2500\u2500 Novels Note JP \u52D5\u7684\u30B9\u30BF\u30A4\u30EB \u2500\u2500 */
 
-.markdown-source-view.mod-cm6 .cm-content {
+/* \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+   mode:novel \u30A8\u30C7\u30A3\u30BF\u306E\u307F\uFF1A\u30D5\u30A9\u30F3\u30C8\u30FB\u6298\u308A\u8FD4\u3057\u5E45\u30FB\u884C\u9AD8
+   cm.dom\uFF08.cm-editor\uFF09\u306B data-novel-mode="true" \u3092\u4ED8\u4E0E\u3057\u3066
+   \u78BA\u5B9F\u306B\u30B9\u30B3\u30FC\u30D7\u3092\u7D5E\u308B
+   \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
+.cm-editor[data-novel-mode="true"] .cm-content {
   font-family: "BIZ UD\u30B4\u30B7\u30C3\u30AF", "Noto Sans Mono CJK JP",
                "\u6E90\u30CE\u89D2\u30B4\u30B7\u30C3\u30AF", "Yu Gothic", monospace !important;
-
   font-size: ${s.fontSize}px !important;
   line-height: ${s.lineHeight} !important;
   max-width: ${wrapWidth} !important;
 }
 
-.markdown-source-view.mod-cm6 .cm-line {
+.cm-editor[data-novel-mode="true"] .cm-line {
   line-height: ${s.lineHeight} !important;
 }
-  /* \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
-     CM6 \u306E hanging indent \u3092\u7121\u52B9\u5316
-     \u5C0F\u8AAC\u5411\u3051\uFF1A\u6298\u8FD4\u3057\u884C\u3092\u5DE6\u7AEF\u304B\u3089\u958B\u59CB
-  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
-  .markdown-source-view.mod-cm6 .cm-lineWrapping .cm-line {
-    padding-left: 0 !important;
-    text-indent: 0 !important;
-  }
+
+/* CM6 \u306E hanging indent \u3092\u7121\u52B9\u5316\uFF08\u5C0F\u8AAC\u5411\u3051\uFF1A\u6298\u8FD4\u3057\u884C\u3092\u5DE6\u7AEF\u304B\u3089\u958B\u59CB\uFF09 */
+.cm-editor[data-novel-mode="true"] .cm-lineWrapping .cm-line {
+  padding-left: 0 !important;
+  text-indent: 0 !important;
+}
+
       ${rulerCss}
       ${fwspCss}
       ${bracketColorCss}
@@ -2304,16 +2361,38 @@ var NovelsNoteJP = class extends import_obsidian6.Plugin {
     console.log(`Novels Note JP: ${this.terms.length} \u4EF6\u306E\u7528\u8A9E\u3092\u8AAD\u307F\u8FBC\u307F\u307E\u3057\u305F\u3002`);
   }
   // ─────────────────────────────────────────
-  // settingsEffect を dispatch して
-  // 全 Extension の update() を確実に発火させる
+  // 指定ファイルが mode:novel かどうかを判定する
+  // ─────────────────────────────────────────
+  isNovelModeFile(file) {
+    var _a;
+    if (!file) return false;
+    const cache = this.app.metadataCache.getFileCache(file);
+    return ((_a = cache == null ? void 0 : cache.frontmatter) == null ? void 0 : _a.mode) === "novel";
+  }
+  // ─────────────────────────────────────────
+  // 全エディタの novelModeField と data-novel-mode 属性を更新する
+  //
+  // 各 MarkdownView のリーフ containerEl に
+  // data-novel-mode="true/false" を付与することで、
+  // CSS セレクタ [data-novel-mode="true"] でスコープを絞る。
+  // 同時に novelModeEffect を dispatch して Extension に通知する。
   // ─────────────────────────────────────────
   refreshEditors() {
     this.app.workspace.iterateAllLeaves((leaf) => {
+      var _a;
       const view = leaf.view;
       if (view instanceof import_obsidian6.MarkdownView) {
+        const file = (_a = view.file) != null ? _a : null;
+        const isNovel = this.isNovelModeFile(file);
         const cm = view.editor.cm;
         if (cm) {
-          cm.dispatch({ effects: settingsEffect.of(this.settings) });
+          cm.dom.dataset.novelMode = isNovel ? "true" : "false";
+          cm.dispatch({
+            effects: [
+              novelModeEffect.of(isNovel),
+              settingsEffect.of(this.settings)
+            ]
+          });
         }
       }
     });
@@ -2435,13 +2514,23 @@ var NovelsNoteJP = class extends import_obsidian6.Plugin {
     this.addCommand({
       id: "export-current-file",
       name: "\u73FE\u5728\u306E\u30D5\u30A1\u30A4\u30EB\u3092\u539F\u7A3F Export \u3059\u308B",
-      checkCallback: (checking) => {
-        const view = this.app.workspace.getActiveViewOfType(import_obsidian6.MarkdownView);
-        if (!(view == null ? void 0 : view.file)) return false;
-        if (!checking) {
-          new ExportModal(this.app, view.file, this.settings.rubyStyle).open();
+      callback: () => {
+        let file = null;
+        const mdView = this.app.workspace.getActiveViewOfType(import_obsidian6.MarkdownView);
+        if (mdView == null ? void 0 : mdView.file) {
+          file = mdView.file;
         }
-        return true;
+        if (!file) {
+          const leaf = this.app.workspace.getMostRecentLeaf();
+          if ((leaf == null ? void 0 : leaf.view) instanceof NovelReadingView) {
+            file = leaf.view._file;
+          }
+        }
+        if (!file) {
+          new import_obsidian6.Notice("\u30A8\u30AF\u30B9\u30DD\u30FC\u30C8\u5BFE\u8C61\u306E\u30D5\u30A1\u30A4\u30EB\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3002");
+          return;
+        }
+        new ExportModal(this.app, file, this.settings.rubyStyle).open();
       }
     });
   }
@@ -2501,10 +2590,12 @@ var NovelsNoteJP = class extends import_obsidian6.Plugin {
       });
     }
     if (!targetFile) {
+      new import_obsidian6.Notice("\u5C0F\u8AAC\u7528\u30D3\u30E5\u30FC\u306E\u5BFE\u8C61\u5916\u3067\u3059\u3002Frontmatter \u306B mode: novel \u306E\u30D7\u30ED\u30D1\u30C6\u30A3\u3092\u8A2D\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044\u3002");
       return;
     }
     const cache = this.app.metadataCache.getFileCache(targetFile);
     if (((_a = cache == null ? void 0 : cache.frontmatter) == null ? void 0 : _a.mode) !== "novel") {
+      new import_obsidian6.Notice("\u5C0F\u8AAC\u7528\u30D3\u30E5\u30FC\u306E\u5BFE\u8C61\u5916\u3067\u3059\u3002Frontmatter \u306B mode: novel \u306E\u30D7\u30ED\u30D1\u30C6\u30A3\u3092\u8A2D\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044\u3002");
       const existing2 = workspace.getLeavesOfType(NOVEL_READING_VIEW_TYPE);
       if (existing2.length > 0) {
         workspace.revealLeaf(existing2[0]);

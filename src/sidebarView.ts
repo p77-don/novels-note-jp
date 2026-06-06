@@ -201,8 +201,26 @@ export class NovelsNoteSidebarView extends ItemView {
       cls: "nn-search-input",
     });
     searchInput.value = this.searchQuery;
+
+    // クリアボタン（入力があるときのみ表示）
+    const clearBtn = searchWrap.createEl("button", {
+      cls: "nn-search-clear",
+      title: "クリア",
+      text: "✕",
+    });
+    clearBtn.style.display = this.searchQuery ? "" : "none";
+
     searchInput.addEventListener("input", () => {
       this.searchQuery = searchInput.value.trim();
+      clearBtn.style.display = this.searchQuery ? "" : "none";
+      this.renderBody(body);
+    });
+
+    clearBtn.addEventListener("click", () => {
+      searchInput.value = "";
+      this.searchQuery = "";
+      clearBtn.style.display = "none";
+      searchInput.focus();
       this.renderBody(body);
     });
 

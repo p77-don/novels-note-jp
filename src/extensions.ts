@@ -11,11 +11,12 @@ import {
 } from "@codemirror/view";
 import { RangeSetBuilder, Prec } from "@codemirror/state";
 import { NovelsNoteSettings } from "./settings";
-import { TermEntry, settingsEffect } from "./types";
+import { TermEntry, settingsEffect, novelModeField } from "./types";
 import { parseBrackets } from "./bracketParser";
 
 // ─────────────────────────────────────────
 // Extension 1: カッコハイライト（最低優先度）
+// mode:novel のエディタのみ動作する
 // ─────────────────────────────────────────
 export function buildBracketExtension(getSettings: () => NovelsNoteSettings) {
   return Prec.lowest(
@@ -35,6 +36,10 @@ export function buildBracketExtension(getSettings: () => NovelsNoteSettings) {
         }
         build(view: EditorView): DecorationSet {
           const builder = new RangeSetBuilder<Decoration>();
+
+          // mode:novel でないエディタでは何もしない
+          if (!view.state.field(novelModeField, false)) return builder.finish();
+
           const settings = getSettings();
           if (!settings.highlightEnabled) return builder.finish();
 
@@ -67,6 +72,7 @@ export function buildBracketExtension(getSettings: () => NovelsNoteSettings) {
 
 // ─────────────────────────────────────────
 // Extension 2: 用語ハイライト（最高優先度）
+// mode:novel のエディタのみ動作する
 // settingsEffect で確実に再描画される
 // ─────────────────────────────────────────
 export function buildTermExtension(
@@ -90,6 +96,10 @@ export function buildTermExtension(
         }
         build(view: EditorView): DecorationSet {
           const builder = new RangeSetBuilder<Decoration>();
+
+          // mode:novel でないエディタでは何もしない
+          if (!view.state.field(novelModeField, false)) return builder.finish();
+
           const settings = getSettings();
           if (!settings.highlightEnabled) return builder.finish();
 
@@ -152,6 +162,7 @@ export function buildTermExtension(
 
 // ─────────────────────────────────────────
 // Extension 3: 折り返しガイドライン
+// mode:novel のエディタのみ動作する
 // ─────────────────────────────────────────
 export function buildRulerExtension(getSettings: () => NovelsNoteSettings) {
   return ViewPlugin.fromClass(
@@ -169,6 +180,10 @@ export function buildRulerExtension(getSettings: () => NovelsNoteSettings) {
       }
       build(view: EditorView): DecorationSet {
         const builder = new RangeSetBuilder<Decoration>();
+
+        // mode:novel でないエディタでは何もしない
+        if (!view.state.field(novelModeField, false)) return builder.finish();
+
         const settings = getSettings();
         if (!settings.showRuler) return builder.finish();
         for (const { from, to } of view.visibleRanges) {
@@ -193,13 +208,7 @@ export function buildRulerExtension(getSettings: () => NovelsNoteSettings) {
 
 // ─────────────────────────────────────────
 // Extension 4: 全角スペース可視化
-//
-// 【方針】
-// 全角スペース（U+3000）は色を変えても視覚的に変わらない。
-// Decoration.mark で専用クラスを当て、CSS の ::after 擬似要素で
-// 「スペースの上に可視記号を重ねる」ことで本文を変えずに表示する。
-//
-// position: relative → ::after で絶対配置して文字の中心にマーカーを置く。
+// mode:novel のエディタのみ動作する
 // ─────────────────────────────────────────
 export function buildFullWidthSpaceExtension(getSettings: () => NovelsNoteSettings) {
   return ViewPlugin.fromClass(
@@ -217,6 +226,10 @@ export function buildFullWidthSpaceExtension(getSettings: () => NovelsNoteSettin
       }
       build(view: EditorView): DecorationSet {
         const builder = new RangeSetBuilder<Decoration>();
+
+        // mode:novel でないエディタでは何もしない
+        if (!view.state.field(novelModeField, false)) return builder.finish();
+
         const settings = getSettings();
 
         if (!settings.showFullWidthSpace || settings.fullWidthSpaceStyle === "none") {
