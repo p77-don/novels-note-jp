@@ -328,6 +328,99 @@ function buildFullWidthSpaceExtension(getSettings) {
 
 // src/sidebarView.ts
 var import_obsidian = require("obsidian");
+var CreateTermModal = class extends import_obsidian.Modal {
+  constructor(app, folderPath, tag, tagLabel, onSubmit) {
+    super(app);
+    this.folderPath = folderPath;
+    this.tag = tag;
+    this.tagLabel = tagLabel;
+    this.onSubmit = onSubmit;
+  }
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.addClass("nn-create-term-modal");
+    contentEl.createEl("h3", { text: "\u7528\u8A9E\u30CE\u30FC\u30C8\u3092\u65B0\u898F\u4F5C\u6210", cls: "nn-modal-title" });
+    const infoEl = contentEl.createEl("div", { cls: "nn-modal-info" });
+    infoEl.createEl("span", { text: "\u30D5\u30A9\u30EB\u30C0\uFF1A", cls: "nn-modal-label" });
+    infoEl.createEl("span", {
+      text: this.folderPath || "\uFF08\u30EB\u30FC\u30C8\uFF09",
+      cls: "nn-modal-value"
+    });
+    infoEl.createEl("br");
+    infoEl.createEl("span", { text: "\u30BF\u30B0\uFF1A", cls: "nn-modal-label" });
+    infoEl.createEl("span", {
+      text: this.tagLabel,
+      cls: "nn-modal-value"
+    });
+    const inputWrap = contentEl.createEl("div", { cls: "nn-modal-input-wrap" });
+    inputWrap.createEl("label", { text: "\u7528\u8A9E\u540D", cls: "nn-modal-field-label" });
+    const input = inputWrap.createEl("input", {
+      type: "text",
+      placeholder: "\u7528\u8A9E\u540D\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044",
+      cls: "nn-modal-input"
+    });
+    const btnRow = contentEl.createEl("div", { cls: "nn-modal-btn-row" });
+    const cancelBtn = btnRow.createEl("button", { text: "\u30AD\u30E3\u30F3\u30BB\u30EB", cls: "nn-modal-btn nn-modal-btn-cancel" });
+    const createBtn = btnRow.createEl("button", { text: "\u4F5C\u6210", cls: "nn-modal-btn nn-modal-btn-create" });
+    const submit = () => {
+      const name = input.value.trim();
+      if (!name) {
+        input.addClass("nn-modal-input-error");
+        input.focus();
+        return;
+      }
+      this.close();
+      this.onSubmit(name);
+    };
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") submit();
+      if (e.key === "Escape") this.close();
+    });
+    cancelBtn.addEventListener("click", () => this.close());
+    createBtn.addEventListener("click", submit);
+    setTimeout(() => input.focus(), 50);
+  }
+  onClose() {
+    this.contentEl.empty();
+  }
+};
+var ConfirmDeleteModal = class extends import_obsidian.Modal {
+  constructor(app, termName, filePath, onResult) {
+    super(app);
+    this.termName = termName;
+    this.filePath = filePath;
+    this.onResult = onResult;
+  }
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.addClass("nn-confirm-modal");
+    contentEl.createEl("h3", { text: "\u7528\u8A9E\u30CE\u30FC\u30C8\u306E\u524A\u9664", cls: "nn-modal-title" });
+    contentEl.createEl("p", {
+      text: `\u300C${this.termName}\u300D\u3092\u30B4\u30DF\u7BB1\u306B\u79FB\u52D5\u3057\u307E\u3059\u3002`,
+      cls: "nn-modal-text"
+    });
+    contentEl.createEl("p", {
+      text: this.filePath,
+      cls: "nn-modal-path"
+    });
+    const btnRow = contentEl.createEl("div", { cls: "nn-modal-btn-row" });
+    const cancelBtn = btnRow.createEl("button", { text: "\u30AD\u30E3\u30F3\u30BB\u30EB", cls: "nn-modal-btn nn-modal-btn-cancel" });
+    const deleteBtn = btnRow.createEl("button", { text: "\u524A\u9664", cls: "nn-modal-btn nn-modal-btn-delete" });
+    cancelBtn.addEventListener("click", () => {
+      this.close();
+      this.onResult(false);
+    });
+    deleteBtn.addEventListener("click", () => {
+      this.close();
+      this.onResult(true);
+    });
+  }
+  onClose() {
+    this.contentEl.empty();
+  }
+};
 function folderOf(filePath) {
   const idx = filePath.lastIndexOf("/");
   return idx === -1 ? "" : filePath.substring(0, idx);
@@ -365,6 +458,9 @@ function sortTree(node) {
   for (const child of node.children) sortTree(child);
 }
 function filterTree(node, query) {
+  if (node.name && node.name.includes(query)) {
+    return { ...node };
+  }
   const filteredTerms = node.terms.filter(
     (t) => t.name.includes(query) || t.aliases.some((a) => a.includes(query))
   );
@@ -388,10 +484,10 @@ var NovelsNoteSidebarView = class extends import_obsidian.ItemView {
     this.openState = /* @__PURE__ */ new Map();
     /** 検索クエリ */
     this.searchQuery = "";
+    /** D&D: ドラッグ中の用語 */
+    this.dragTerm = null;
     /**
-     * プラグイン本体への参照。
-     * onOpen() 時に最新データを自力で取得するために使う。
-     * main.ts の registerView コールバックで渡す。
+     * プラグイン本体への参照
      */
     this.plugin = null;
   }
@@ -408,11 +504,6 @@ var NovelsNoteSidebarView = class extends import_obsidian.ItemView {
   getIcon() {
     return "list-tree";
   }
-  /**
-   * onOpen はサイドバーが「開かれた瞬間」に呼ばれる。
-   * この時点では main.ts の updateSidebar() がまだ走っていない場合があるため、
-   * プラグインから直接最新データを取得して描画する。
-   */
   async onOpen() {
     if (this.plugin) {
       this.terms = this.plugin.getTerms();
@@ -485,7 +576,6 @@ var NovelsNoteSidebarView = class extends import_obsidian.ItemView {
   }
   // ─────────────────────────────────────────
   // ボディ（タグセクション一覧）の描画
-  // 検索・開閉変化のたびにここだけ再描画
   // ─────────────────────────────────────────
   renderBody(body) {
     var _a;
@@ -535,7 +625,7 @@ var NovelsNoteSidebarView = class extends import_obsidian.ItemView {
         arrow.classList.toggle("nn-arrow-open", next);
         sectionBody.style.display = next ? "" : "none";
       });
-      this.renderFolderNode(sectionBody, tree, td.tag, query !== "");
+      this.renderFolderNode(sectionBody, tree, td, query !== "");
     }
     if (totalVisible === 0) {
       body.createEl("p", {
@@ -547,24 +637,27 @@ var NovelsNoteSidebarView = class extends import_obsidian.ItemView {
   // ─────────────────────────────────────────
   // フォルダノードの再帰描画
   // ─────────────────────────────────────────
-  renderFolderNode(container, node, tag, forceOpen) {
+  renderFolderNode(container, node, td, forceOpen) {
     for (const term of node.terms) {
-      this.renderTermItem(container, term, tag);
+      this.renderTermItem(container, term, td.tag);
     }
     for (const child of node.children) {
-      this.renderFolderItem(container, child, tag, forceOpen);
+      this.renderFolderItem(container, child, td, forceOpen);
     }
   }
   /** フォルダ行 + 中身（再帰） */
-  renderFolderItem(container, node, tag, forceOpen) {
+  renderFolderItem(container, node, td, forceOpen) {
     var _a;
-    const stateKey = `${tag}::${node.fullPath}`;
+    const stateKey = `${td.tag}::${node.fullPath}`;
     const isOpen = forceOpen || ((_a = this.openState.get(stateKey)) != null ? _a : false);
     if (!this.openState.has(stateKey)) {
       this.openState.set(stateKey, false);
     }
     const wrap = container.createEl("div", { cls: "nn-folder-wrap" });
-    const folderRow = wrap.createEl("div", { cls: "nn-folder-row" });
+    const folderRow = wrap.createEl("div", {
+      cls: "nn-folder-row",
+      attr: { "data-folder-path": node.fullPath, "data-tag": td.tag }
+    });
     const arrow = folderRow.createEl("span", {
       cls: `nn-arrow ${isOpen ? "nn-arrow-open" : ""}`,
       text: "\u25B6"
@@ -583,18 +676,44 @@ var NovelsNoteSidebarView = class extends import_obsidian.ItemView {
     });
     const children = wrap.createEl("div", { cls: "nn-folder-children" });
     children.style.display = isOpen ? "" : "none";
-    folderRow.addEventListener("click", () => {
+    folderRow.addEventListener("click", (e) => {
+      e.stopPropagation();
       const next = !this.openState.get(stateKey);
       this.openState.set(stateKey, next);
       arrow.classList.toggle("nn-arrow-open", next);
       folderRow.querySelector(".nn-folder-icon").textContent = next ? "\u{1F4C2}" : "\u{1F4C1}";
       children.style.display = next ? "" : "none";
     });
-    this.renderFolderNode(children, node, tag, forceOpen);
+    folderRow.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.showFolderContextMenu(e, node, td);
+    });
+    folderRow.addEventListener("dragover", (e) => {
+      if (this.dragTerm) {
+        e.preventDefault();
+        folderRow.addClass("nn-drop-target");
+      }
+    });
+    folderRow.addEventListener("dragleave", () => {
+      folderRow.removeClass("nn-drop-target");
+    });
+    folderRow.addEventListener("drop", (e) => {
+      e.preventDefault();
+      folderRow.removeClass("nn-drop-target");
+      if (this.dragTerm) {
+        this.moveTermToFolder(this.dragTerm, node.fullPath);
+        this.dragTerm = null;
+      }
+    });
+    this.renderFolderNode(children, node, td, forceOpen);
   }
   /** 用語 1 件の行 */
   renderTermItem(container, term, tag) {
-    const row = container.createEl("div", { cls: "nn-term-row" });
+    const row = container.createEl("div", {
+      cls: "nn-term-row",
+      attr: { draggable: "true" }
+    });
     const nameEl = row.createEl("span", {
       text: term.name,
       cls: `nn-term-name novel-hl-${tag}`,
@@ -613,6 +732,148 @@ var NovelsNoteSidebarView = class extends import_obsidian.ItemView {
         this.app.workspace.getLeaf(false).openFile(file);
       }
     });
+    row.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.showTermContextMenu(e, term);
+    });
+    row.addEventListener("dragstart", (e) => {
+      this.dragTerm = term;
+      row.addClass("nn-dragging");
+      if (e.dataTransfer) {
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("text/plain", term.filePath);
+      }
+    });
+    row.addEventListener("dragend", () => {
+      this.dragTerm = null;
+      row.removeClass("nn-dragging");
+    });
+  }
+  // ─────────────────────────────────────────
+  // 右クリックメニュー（フォルダ）
+  // ─────────────────────────────────────────
+  showFolderContextMenu(e, node, td) {
+    const menu = new import_obsidian.Menu();
+    menu.addItem((item) => {
+      item.setTitle("\u7528\u8A9E\u30CE\u30FC\u30C8\u3092\u65B0\u898F\u4F5C\u6210\u3059\u308B").setIcon("file-plus").onClick(() => {
+        new CreateTermModal(
+          this.app,
+          node.fullPath,
+          td.tag,
+          td.label,
+          async (termName) => {
+            await this.createTermNote(termName, node.fullPath, td.tag);
+          }
+        ).open();
+      });
+    });
+    menu.showAtMouseEvent(e);
+  }
+  // ─────────────────────────────────────────
+  // 右クリックメニュー（用語）
+  // ─────────────────────────────────────────
+  showTermContextMenu(e, term) {
+    const menu = new import_obsidian.Menu();
+    menu.addItem((item) => {
+      item.setTitle("\u30CE\u30FC\u30C8\u3092\u958B\u304F").setIcon("file-text").onClick(() => {
+        const file = this.app.vault.getAbstractFileByPath(term.filePath);
+        if (file instanceof import_obsidian.TFile) {
+          this.app.workspace.getLeaf(false).openFile(file);
+        }
+      });
+    });
+    menu.addSeparator();
+    menu.addItem((item) => {
+      item.setTitle("\u7528\u8A9E\u30CE\u30FC\u30C8\u3092\u524A\u9664\u3059\u308B").setIcon("trash").onClick(async () => {
+        await this.deleteTermNote(term);
+      });
+    });
+    menu.showAtMouseEvent(e);
+  }
+  // ─────────────────────────────────────────
+  // 用語ノート新規作成
+  // ─────────────────────────────────────────
+  async createTermNote(termName, folderPath, tag) {
+    try {
+      if (folderPath) {
+        const folder = this.app.vault.getAbstractFileByPath(folderPath);
+        if (!folder) {
+          await this.app.vault.createFolder(folderPath);
+        }
+      }
+      const fileName = `${termName}.md`;
+      const filePath = folderPath ? `${folderPath}/${fileName}` : fileName;
+      const existing = this.app.vault.getAbstractFileByPath(filePath);
+      if (existing) {
+        new import_obsidian.Notice(`\u300C${fileName}\u300D\u306F\u3059\u3067\u306B\u5B58\u5728\u3057\u307E\u3059\u3002`);
+        return;
+      }
+      const content = `---
+tags:
+  - ${tag}
+---
+
+`;
+      const newFile = await this.app.vault.create(filePath, content);
+      new import_obsidian.Notice(`\u300C${termName}\u300D\u3092\u4F5C\u6210\u3057\u307E\u3057\u305F\u3002`);
+      await this.app.workspace.getLeaf(false).openFile(newFile);
+    } catch (err) {
+      new import_obsidian.Notice(`\u30CE\u30FC\u30C8\u306E\u4F5C\u6210\u306B\u5931\u6557\u3057\u307E\u3057\u305F: ${err}`);
+      console.error("Novels Note JP: \u7528\u8A9E\u30CE\u30FC\u30C8\u4F5C\u6210\u30A8\u30E9\u30FC", err);
+    }
+  }
+  // ─────────────────────────────────────────
+  // 用語ノート削除
+  // ─────────────────────────────────────────
+  async deleteTermNote(term) {
+    const file = this.app.vault.getAbstractFileByPath(term.filePath);
+    if (!(file instanceof import_obsidian.TFile)) {
+      new import_obsidian.Notice("\u30D5\u30A1\u30A4\u30EB\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3002");
+      return;
+    }
+    const confirmed = await new Promise((resolve) => {
+      new ConfirmDeleteModal(this.app, term.name, term.filePath, resolve).open();
+    });
+    if (!confirmed) return;
+    try {
+      await this.app.vault.trash(file, true);
+      new import_obsidian.Notice(`\u300C${term.name}\u300D\u3092\u30B4\u30DF\u7BB1\u306B\u79FB\u52D5\u3057\u307E\u3057\u305F\u3002`);
+    } catch (err) {
+      new import_obsidian.Notice(`\u524A\u9664\u306B\u5931\u6557\u3057\u307E\u3057\u305F: ${err}`);
+      console.error("Novels Note JP: \u7528\u8A9E\u30CE\u30FC\u30C8\u524A\u9664\u30A8\u30E9\u30FC", err);
+    }
+  }
+  // ─────────────────────────────────────────
+  // 用語ノートをフォルダへ移動（D&D）
+  // ─────────────────────────────────────────
+  async moveTermToFolder(term, targetFolderPath) {
+    const file = this.app.vault.getAbstractFileByPath(term.filePath);
+    if (!(file instanceof import_obsidian.TFile)) {
+      new import_obsidian.Notice("\u79FB\u52D5\u5143\u30D5\u30A1\u30A4\u30EB\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3002");
+      return;
+    }
+    const fileName = file.name;
+    const newPath = targetFolderPath ? `${targetFolderPath}/${fileName}` : fileName;
+    if (newPath === term.filePath) return;
+    const existing = this.app.vault.getAbstractFileByPath(newPath);
+    if (existing) {
+      new import_obsidian.Notice(`\u300C${fileName}\u300D\u306F\u79FB\u52D5\u5148\u306B\u3059\u3067\u306B\u5B58\u5728\u3057\u307E\u3059\u3002`);
+      return;
+    }
+    try {
+      if (targetFolderPath) {
+        const targetFolder = this.app.vault.getAbstractFileByPath(targetFolderPath);
+        if (!targetFolder) {
+          await this.app.vault.createFolder(targetFolderPath);
+        }
+      }
+      await this.app.vault.rename(file, newPath);
+      new import_obsidian.Notice(`\u300C${term.name}\u300D\u3092\u79FB\u52D5\u3057\u307E\u3057\u305F\u3002`);
+    } catch (err) {
+      new import_obsidian.Notice(`\u79FB\u52D5\u306B\u5931\u6557\u3057\u307E\u3057\u305F: ${err}`);
+      console.error("Novels Note JP: \u7528\u8A9E\u30CE\u30FC\u30C8\u79FB\u52D5\u30A8\u30E9\u30FC", err);
+    }
   }
 };
 

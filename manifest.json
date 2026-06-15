@@ -3,7 +3,7 @@
   "name": "Novels Note JP",
   "version": "0.3.1",
   "minAppVersion": "1.4.0",
-  "description": "Novel writing support plugin for obsidian.",
+  "description": "Japanese novel writing support tools for Obsidian.",
   "author": "p77-don",
   "authorUrl": "https://github.com/p77-don",
   "isDesktopOnly": true
