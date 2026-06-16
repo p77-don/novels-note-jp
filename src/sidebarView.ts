@@ -4,7 +4,7 @@
 // ─────────────────────────────────────────
 
 import { ItemView, WorkspaceLeaf, TFile, Plugin, Notice, Modal, Menu, App } from "obsidian";
-import { SIDEBAR_VIEW_TYPE, TermEntry } from "./types";
+import { SIDEBAR_VIEW_TYPE, TermEntry, TERM_DRAG_MIME_TYPE } from "./types";
 import { TagDefinition } from "./settings";
 
 // ─────────────────────────────────────────
@@ -519,6 +519,7 @@ export class NovelsNoteSidebarView extends ItemView {
     folderRow.addEventListener("dragover", (e: DragEvent) => {
       if (this.dragTerm) {
         e.preventDefault();
+        if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
         folderRow.addClass("nn-drop-target");
       }
     });
@@ -581,8 +582,14 @@ export class NovelsNoteSidebarView extends ItemView {
       this.dragTerm = term;
       row.addClass("nn-dragging");
       if (e.dataTransfer) {
-        e.dataTransfer.effectAllowed = "move";
+        // move  : サイドバー内でのフォルダ間移動（既存機能）
+        // copy  : メインエディタへの Wikilink 挿入（新機能）
+        e.dataTransfer.effectAllowed = "copyMove";
         e.dataTransfer.setData("text/plain", term.filePath);
+        e.dataTransfer.setData(
+          TERM_DRAG_MIME_TYPE,
+          JSON.stringify({ filePath: term.filePath, name: term.name })
+        );
       }
     });
     row.addEventListener("dragend", () => {

@@ -55,3 +55,14 @@ export const novelModeField = StateField.define<boolean>({
     return value;
   },
 });
+
+// ─────────────────────────────────────────
+// D&D：サイドバーの用語行をドラッグする際に使う
+// カスタム MIME タイプ。
+// 値は JSON.stringify({ filePath, name }) を格納する。
+// サイドバー内のフォルダ移動（既存機能）は dataTransfer を
+// 参照しないため、このタイプの追加による影響はない。
+// メインエディタ側の Wikilink 挿入機能は、この MIME タイプの
+// 有無で「サイドバーからの用語ドラッグかどうか」を判定する。
+// ─────────────────────────────────────────
+export const TERM_DRAG_MIME_TYPE = "application/x-novels-note-term";

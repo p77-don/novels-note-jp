@@ -10,8 +10,9 @@ import {
   ViewUpdate,
 } from "@codemirror/view";
 import { RangeSetBuilder, Prec } from "@codemirror/state";
+import { App, MarkdownView, TFile } from "obsidian";
 import { NovelsNoteSettings } from "./settings";
-import { TermEntry, settingsEffect, novelModeField } from "./types";
+import { TermEntry, settingsEffect, novelModeField, TERM_DRAG_MIME_TYPE } from "./types";
 import { parseBrackets } from "./bracketParser";
 
 // ─────────────────────────────────────────
@@ -262,4 +263,85 @@ export function buildFullWidthSpaceExtension(getSettings: () => NovelsNoteSettin
     },
     { decorations: v => v.decorations }
   );
+}
+
+// ─────────────────────────────────────────
+// Extension 5: 用語のドラッグ＆ドロップ挿入
+//
+// サイドバー（タグ情報一覧）の用語行をメインエディタへ
+// ドラッグ＆ドロップすると、ドロップした正確な位置に
+// Wikilink 形式（[[ファイル名]] / [[ファイル名|表示名]]）で挿入する。
+//
+// ・mode:novel に関係なく、すべてのエディタで動作する
+//   （Frontmatter 編集など novel モード以外のノートでも
+//   用語間の相互参照リンクを挿入したい場面があるため）
+// ・サイドバー内でのフォルダ間移動（既存機能）は dataTransfer の
+//   内容を見ずに `this.dragTerm`（インメモリ変数）のみで判定して
+//   いるため、ここでカスタム MIME タイプを追加しても無関係。
+// ・TERM_DRAG_MIME_TYPE が付いていないドラッグ（エディタ内の
+//   テキスト移動や、OS のファイルドロップなど）は素通りさせ、
+//   CodeMirror 標準のドロップ処理に委ねる。
+// ─────────────────────────────────────────
+export function buildTermDropExtension(app: App) {
+  return EditorView.domEventHandlers({
+    dragover(event, _view) {
+      // サイドバー用語のドラッグ以外は何もしない
+      if (!event.dataTransfer?.types.includes(TERM_DRAG_MIME_TYPE)) return false;
+      // ここで preventDefault しないとブラウザの仕様上 drop イベントが発火しない
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "copy";
+      return true;
+    },
+    drop(event, view) {
+      const raw = event.dataTransfer?.getData(TERM_DRAG_MIME_TYPE);
+      if (!raw) return false; // サイドバー用語のドラッグ以外は標準処理に委ねる
+
+      let payload: { filePath: string; name: string };
+      try {
+        payload = JSON.parse(raw);
+      } catch {
+        return false;
+      }
+
+      const file = app.vault.getAbstractFileByPath(payload.filePath);
+      if (!(file instanceof TFile)) return true; // ファイルが見つからない＝何もせず終了
+
+      // ドロップ先エディタが表示しているファイルを特定する
+      // （Wikilink の相対パス解決・パス短縮に使うリンク起点）
+      // ※ let 変数をコールバック内で再代入する形では、
+      //   TypeScript の制御フロー解析が誤って never 型に
+      //   絞り込んでしまうため、オブジェクトのプロパティとして保持する
+      const sourceFileRef: { file: TFile | null } = { file: null };
+      app.workspace.iterateAllLeaves(leaf => {
+        if (sourceFileRef.file) return;
+        if (leaf.view instanceof MarkdownView) {
+          const cm = (leaf.view.editor as any).cm as EditorView | undefined;
+          if (cm === view) sourceFileRef.file = leaf.view.file;
+        }
+      });
+
+      // Obsidian 標準 API で Wikilink 文字列を生成する。
+      // ファイルエクスプローラからのドラッグと同じ仕組みを使うため、
+      // 「Wikilink を使う」設定やパス短縮設定もそのまま反映される。
+      const linkText = app.fileManager.generateMarkdownLink(
+        file,
+        sourceFileRef.file?.path ?? "",
+        undefined,
+        payload.name
+      );
+
+      const dropPos = view.posAtCoords({ x: event.clientX, y: event.clientY });
+      if (dropPos == null) return true;
+
+      event.preventDefault();
+      view.dispatch({
+        changes: { from: dropPos, insert: linkText },
+        selection: { anchor: dropPos + linkText.length },
+        userEvent: "input.drop",
+      });
+      view.focus();
+
+      return true;
+    },
+  });
 }

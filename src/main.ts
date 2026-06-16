@@ -17,6 +17,7 @@ import {
   buildTermExtension,
   buildRulerExtension,
   buildFullWidthSpaceExtension,
+  buildTermDropExtension,
 } from "./extensions";
 import { NovelsNoteSidebarView } from "./sidebarView";
 import { NovelsNoteSettingTab } from "./settingTab";
@@ -113,6 +114,14 @@ export default class NovelsNoteJP extends Plugin {
     );
     this.registerEditorExtension(
       buildFullWidthSpaceExtension(() => this.settings)
+    );
+
+    // ─────────────────────────────────────────
+    // サイドバーの用語をドロップした位置に Wikilink を挿入する
+    // novel モードに関係なく、すべてのエディタで動作する
+    // ─────────────────────────────────────────
+    this.registerEditorExtension(
+      buildTermDropExtension(this.app)
     );
 
     this.applyEditorStyles();
