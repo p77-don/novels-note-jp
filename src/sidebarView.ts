@@ -25,6 +25,7 @@ class CreateTermModal extends Modal {
   private tag: string;
   private tagLabel: string;
   private onSubmit: (termName: string) => void;
+  private focusTimer?: ReturnType<typeof setTimeout>;
 
   constructor(
     app: App,
@@ -90,10 +91,11 @@ class CreateTermModal extends Modal {
     cancelBtn.addEventListener("click", () => this.close());
     createBtn.addEventListener("click", submit);
 
-    setTimeout(() => input.focus(), 50);
+    this.focusTimer = setTimeout(() => input.focus(), 50);
   }
 
   onClose(): void {
+    if (this.focusTimer !== undefined) clearTimeout(this.focusTimer);
     this.contentEl.empty();
   }
 }

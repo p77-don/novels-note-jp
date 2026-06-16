@@ -42,7 +42,7 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
       .addText(text =>
         text.setValue(String(this.plugin.settings.fontSize))
           .onChange(async value => {
-            const n = parseInt(value);
+            const n = parseInt(value, 10);
             if (!isNaN(n) && n > 0) {
               this.plugin.settings.fontSize = n;
               await this.plugin.saveSettings();
@@ -72,7 +72,7 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
       .addText(text =>
         text.setValue(String(this.plugin.settings.wrapColumn))
           .onChange(async value => {
-            const n = parseInt(value);
+            const n = parseInt(value, 10);
             if (!isNaN(n) && n > 0) {
               this.plugin.settings.wrapColumn = n;
               await this.plugin.saveSettings();

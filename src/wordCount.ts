@@ -83,11 +83,11 @@ export function cleanNovelText(raw: string): string {
   // 14. Markdown 水平線（--- *** ___）を除去
   text = text.replace(/^[-*_]{3,}\s*$/gm, "");
 
-  // 15. Markdown リンク [テキスト](url) → テキスト
-  text = text.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
-
-  // 16. Markdown 画像 ![alt](url) → 除去
+  // 15. Markdown 画像 ![alt](url) → 除去（リンク変換より先に処理する）
   text = text.replace(/!\[[^\]]*\]\([^)]+\)/g, "");
+
+  // 16. Markdown リンク [テキスト](url) → テキスト
+  text = text.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
 
   return text;
 }

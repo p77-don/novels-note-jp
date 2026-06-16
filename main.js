@@ -54,8 +54,8 @@ var DEFAULT_SETTINGS = {
   fontSize: 16,
   lineHeight: 2,
   highlightEnabled: true,
-  tagDefinitions: DEFAULT_TAG_DEFINITIONS,
-  bracketDefinitions: DEFAULT_BRACKET_DEFINITIONS,
+  tagDefinitions: DEFAULT_TAG_DEFINITIONS.map((v) => ({ ...v })),
+  bracketDefinitions: DEFAULT_BRACKET_DEFINITIONS.map((v) => ({ ...v })),
   // 全角スペース可視化
   showFullWidthSpace: true,
   fullWidthSpaceStyle: "dot",
@@ -379,9 +379,10 @@ var CreateTermModal = class extends import_obsidian.Modal {
     });
     cancelBtn.addEventListener("click", () => this.close());
     createBtn.addEventListener("click", submit);
-    setTimeout(() => input.focus(), 50);
+    this.focusTimer = setTimeout(() => input.focus(), 50);
   }
   onClose() {
+    if (this.focusTimer !== void 0) clearTimeout(this.focusTimer);
     this.contentEl.empty();
   }
 };
@@ -906,7 +907,7 @@ var NovelsNoteSettingTab = class extends import_obsidian2.PluginSettingTab {
     containerEl.createEl("h3", { text: "\u30A8\u30C7\u30A3\u30BF\u8868\u793A" });
     new import_obsidian2.Setting(containerEl).setName("\u30D5\u30A9\u30F3\u30C8\u30B5\u30A4\u30BA\uFF08px\uFF09").setDesc("\u5C0F\u8AAC\u672C\u6587\u30A8\u30C7\u30A3\u30BF\u306E\u30D5\u30A9\u30F3\u30C8\u30B5\u30A4\u30BA\u3002").addText(
       (text) => text.setValue(String(this.plugin.settings.fontSize)).onChange(async (value) => {
-        const n = parseInt(value);
+        const n = parseInt(value, 10);
         if (!isNaN(n) && n > 0) {
           this.plugin.settings.fontSize = n;
           await this.plugin.saveSettings();
@@ -926,7 +927,7 @@ var NovelsNoteSettingTab = class extends import_obsidian2.PluginSettingTab {
     );
     new import_obsidian2.Setting(containerEl).setName("\u6298\u308A\u8FD4\u3057\u6587\u5B57\u6570").setDesc("1\u884C\u306B\u8868\u793A\u3059\u308B\u5168\u89D2\u6587\u5B57\u6570\uFF08\u4F8B\uFF1A40\uFF09\u3002").addText(
       (text) => text.setValue(String(this.plugin.settings.wrapColumn)).onChange(async (value) => {
-        const n = parseInt(value);
+        const n = parseInt(value, 10);
         if (!isNaN(n) && n > 0) {
           this.plugin.settings.wrapColumn = n;
           await this.plugin.saveSettings();
@@ -1438,8 +1439,8 @@ function cleanNovelText(raw) {
   text = text.replace(/([\u4E00-\u9FFF\u3400-\u4DBF]+)《[^》]*》/g, "$1");
   text = text.replace(/\{([^|]+)\|[^}]+\}/g, "$1");
   text = text.replace(/^[-*_]{3,}\s*$/gm, "");
-  text = text.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
   text = text.replace(/!\[[^\]]*\]\([^)]+\)/g, "");
+  text = text.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
   return text;
 }
 function charWidth(ch) {
@@ -1678,9 +1679,14 @@ var ExportModal = class extends import_obsidian3.Modal {
   async doExport() {
     var _a;
     if (!this.sourceFile || !this.sourceText) return;
-    const outputName = (_a = this.fileNameEl) == null ? void 0 : _a.value.trim();
-    if (!outputName) {
+    const rawName = (_a = this.fileNameEl) == null ? void 0 : _a.value.trim();
+    if (!rawName) {
       new import_obsidian3.Notice("\u51FA\u529B\u30D5\u30A1\u30A4\u30EB\u540D\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044\u3002");
+      return;
+    }
+    const outputName = (0, import_obsidian3.normalizePath)(rawName);
+    if (!outputName || outputName === "." || outputName === "/") {
+      new import_obsidian3.Notice("\u51FA\u529B\u30D5\u30A1\u30A4\u30EB\u540D\u304C\u4E0D\u6B63\u3067\u3059\u3002\u6B63\u3057\u3044\u30D5\u30A1\u30A4\u30EB\u540D\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044\u3002");
       return;
     }
     const converted = exportText(this.sourceText, this.opts);
@@ -2222,7 +2228,8 @@ var NovelReadingView = class extends import_obsidian5.ItemView {
     await this.loadCurrentFile();
     let updateTimer = null;
     this.registerEvent(
-      this.app.workspace.on("editor-change", () => {
+      this.app.workspace.on("editor-change", (_editor, view) => {
+        if (!("file" in view) || view.file !== this._file) return;
         if (updateTimer) clearTimeout(updateTimer);
         updateTimer = setTimeout(() => this.loadCurrentFile(), 500);
       })

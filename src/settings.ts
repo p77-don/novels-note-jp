@@ -107,8 +107,8 @@ export const DEFAULT_SETTINGS: NovelsNoteSettings = {
   fontSize: 16,
   lineHeight: 2.0,
   highlightEnabled: true,
-  tagDefinitions: DEFAULT_TAG_DEFINITIONS,
-  bracketDefinitions: DEFAULT_BRACKET_DEFINITIONS,
+  tagDefinitions: DEFAULT_TAG_DEFINITIONS.map(v => ({ ...v })),
+  bracketDefinitions: DEFAULT_BRACKET_DEFINITIONS.map(v => ({ ...v })),
 
   // 全角スペース可視化
   showFullWidthSpace: true,

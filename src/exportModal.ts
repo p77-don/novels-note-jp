@@ -2,7 +2,7 @@
 // Novels Note JP — Export モーダル
 // ─────────────────────────────────────────
 
-import { App, Modal, Setting, TFile, Notice } from "obsidian";
+import { App, Modal, Setting, TFile, Notice, normalizePath } from "obsidian";
 import { RubyStyle } from "./settings";
 import {
   ExportOptions,
@@ -161,8 +161,16 @@ export class ExportModal extends Modal {
 
   private async doExport(): Promise<void> {
     if (!this.sourceFile || !this.sourceText) return;
-    const outputName = this.fileNameEl?.value.trim();
-    if (!outputName) { new Notice("出力ファイル名を入力してください。"); return; }
+    const rawName = this.fileNameEl?.value.trim();
+    if (!rawName) { new Notice("出力ファイル名を入力してください。"); return; }
+
+    // パストラバーサル（../ など）・不正文字を normalizePath で正規化する
+    const outputName = normalizePath(rawName);
+    // 正規化後に空になった場合や、ルート直下への不正アクセスを弾く
+    if (!outputName || outputName === "." || outputName === "/") {
+      new Notice("出力ファイル名が不正です。正しいファイル名を入力してください。");
+      return;
+    }
 
     const converted = exportText(this.sourceText, this.opts);
     try {
