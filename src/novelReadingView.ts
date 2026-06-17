@@ -167,6 +167,7 @@ export class NovelReadingView extends ItemView {
 
   private getRubyStyle:  () => RubyStyle = () => "narou";
   private getWrapColumn: () => number    = () => 40;
+  private getFontSize:   () => number    = () => 16;
 
   /** ファイルを外から設定する（activateNovelReadingView から呼ぶ） */
   setFile(file: TFile): void {
@@ -175,6 +176,7 @@ export class NovelReadingView extends ItemView {
 
   setRubyStyleGetter(fn: () => RubyStyle): void  { this.getRubyStyle  = fn; }
   setWrapColumnGetter(fn: () => number): void     { this.getWrapColumn = fn; }
+  setFontSizeGetter(fn: () => number): void       { this.getFontSize   = fn; }
 
   constructor(leaf: WorkspaceLeaf) { super(leaf); }
 
@@ -317,6 +319,15 @@ export class NovelReadingView extends ItemView {
     this.app.workspace.requestSaveLayout();
   }
 
+  // 実測の結果、本文の折り返し幅は wrapColumn(em) ちょうどでは
+  // 設定文字数より少ない文字数で折り返ってしまうため、
+  // 1.2em のマージンを加えて補正する。
+  // ※ verticalPreview.ts の PUNCTUATION_MARGIN_EM とは別の値・別要因
+  //   （縦書き側は句点グリフの縦幅特性による超過、横書き側は
+  //   このビュー特有の幅計算のズレによるもの）。
+  // ※ 使用フォントやレイアウトを変更した場合はこの補正値の再調整が必要。
+  private static readonly WRAP_MARGIN_EM = 1.2;
+
   private renderContent(source: string): void {
     if (!this.rootEl) return;
 
@@ -325,9 +336,16 @@ export class NovelReadingView extends ItemView {
       this.titleEl.textContent = this._file?.basename ?? "小説閲覧";
     }
 
-    // 折り返し幅を設定値に合わせる
+    // 折り返し幅を設定値に合わせる（補正マージンを加算）
     const wrapCol = this.getWrapColumn();
-    this.rootEl.style.maxWidth = `${wrapCol}em`;
+    const maxWidth = wrapCol + NovelReadingView.WRAP_MARGIN_EM;
+    this.rootEl.style.maxWidth = `${maxWidth}em`;
+
+    // フォントサイズをエディター設定値に合わせる
+    // （var(--font-text-size) は Obsidian 本体の外観設定であり、
+    //   プラグイン側の wrapColumn(em) 計算の前提とズレるため）
+    const fontSize = this.getFontSize();
+    this.rootEl.style.fontSize = `${fontSize}px`;
 
     const html = toReadingHtml(source, this.getRubyStyle());
     this.rootEl.innerHTML = html;

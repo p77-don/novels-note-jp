@@ -425,10 +425,14 @@ export class VerticalPreviewView extends ItemView {
   private lineSentences = new Map<number, string[]>();
 
   private getRubyStyle: () => RubyStyle = () => "narou";
+  private getFontSize:   () => number    = () => 16;
+  private getWrapColumn: () => number    = () => 40;
 
   constructor(leaf: WorkspaceLeaf) { super(leaf); }
 
   setRubyStyleGetter(fn: () => RubyStyle): void { this.getRubyStyle = fn; }
+  setFontSizeGetter(fn: () => number): void     { this.getFontSize   = fn; }
+  setWrapColumnGetter(fn: () => number): void   { this.getWrapColumn = fn; }
 
   getViewType(): string    { return VERTICAL_VIEW_TYPE; }
   getDisplayText(): string { return "縦書きプレビュー"; }
@@ -490,8 +494,35 @@ export class VerticalPreviewView extends ItemView {
 
   forceReload(): void { this.lastText = ""; this.loadFromActiveEditor(); }
 
+  // ─────────────────────────────────────────
+  // 設定値（フォントサイズ・折り返し文字数）を
+  // bodyEl の CSS 変数に反映する。
+  // エディター・小説閲覧ビューと折り返し位置を揃えるため、
+  // 縦書き（1列の文字数 = 横書きの max-width 相当）には
+  // max-height: ${wrapColumn}em を用いる。
+  // ─────────────────────────────────────────
+  // 句点（。）など一部のグリフは、指定フォントの仕様上
+  // 専有幅が 1em よりわずかに大きい（実測で句点1個あたり約 0.5em 超過）。
+  // 1行に句点が複数含まれると超過が累積し、本来の文字数より早く
+  // 折り返ってしまう。0.5em のマージンを加えることで、句点1個分の
+  // 超過までは許容し、最低限「句点1個でズレる」事態を防ぐ。
+  // ※ 句点3個以上が1行に集中する場合は、なお1文字分短くなることがある。
+  // ※ 使用フォントを変更した場合はこの補正値の再調整が必要。
+  private static readonly PUNCTUATION_MARGIN_EM = 0.5;
+
+  private applyLayoutSettings(): void {
+    if (!this.bodyEl) return;
+    const fontSize   = this.getFontSize();
+    const wrapColumn = this.getWrapColumn();
+    const maxHeight  = wrapColumn + VerticalPreviewView.PUNCTUATION_MARGIN_EM;
+    this.bodyEl.style.setProperty("--nn-vertical-font-size", `${fontSize}px`);
+    this.bodyEl.style.setProperty("--nn-vertical-max-height", `${maxHeight}em`);
+  }
+
   private renderContent(text: string): void {
     if (!this.bodyEl) return;
+
+    this.applyLayoutSettings();
 
     const mdView = this.app.workspace.getActiveViewOfType(MarkdownView);
     const sel = mdView?.editor.getSelection() ?? "";
@@ -516,6 +547,7 @@ export class VerticalPreviewView extends ItemView {
 
   private renderEmpty(message: string): void {
     if (!this.bodyEl) return;
+    this.applyLayoutSettings();
     this.bodyEl.empty();
     this.bodyEl.createEl("p", { text: message, cls: "nn-vertical-empty" });
     this.lineSentences = new Map();

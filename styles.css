@@ -3,6 +3,18 @@
    ══════════════════════════════════════════ */
 
 /* ─────────────────────────────────────────
+   フォント定義（一元管理）
+   ゴシック体・等幅フォントリスト。
+   エディター本体（main.ts）／エクスポートプレビュー／
+   小説閲覧ビューの3箇所で共通利用する。
+   フォントを変更する場合はここだけを編集すればよい。
+   ───────────────────────────────────────── */
+:root {
+  --nn-font-mono-gothic: "BIZ UDゴシック", "Noto Sans Mono CJK JP",
+                          "源ノ角ゴシック", "Yu Gothic", "Osaka-Mono", monospace;
+}
+
+/* ─────────────────────────────────────────
    サイドバー 全体
    ───────────────────────────────────────── */
 .novels-note-sidebar {
@@ -469,8 +481,7 @@
   overflow-y: auto;
   white-space: pre-wrap;
   word-break: break-all;
-  font-family: "BIZ UDゴシック", "Noto Sans Mono CJK JP",
-               "源ノ角ゴシック", "Yu Gothic", monospace;
+  font-family: var(--nn-font-mono-gothic);
   color: var(--text-normal);
 }
 
@@ -547,12 +558,16 @@
   flex-direction: row;           /* 右→左に列が並ぶ（direction:rtl のため） */
   writing-mode: vertical-rl;    /* 縦書き・右から左へ */
   text-orientation: mixed;       /* 英数字は横向き、日本語は縦向き */
-  height: 100%;                 /* 親コンテナ（scroller）の高さに合わせる */
+  height: 100%;                 /* 親コンテナ（scroller）の高さを上限とする */
+  max-height: var(--nn-vertical-max-height, 100%); /* JS から wrapColumn(em) で動的に設定 */
   min-height: 0;                /* flex 子要素の縮小を許可 */
   direction: ltr;                /* 内部は LTR に戻す（文字方向） */
-  font-family: "BIZ UDゴシック", "Noto Serif CJK JP",
-               "源ノ明朝", "Yu Mincho", "游明朝", serif;
-  font-size: 15px;              /* サイドバー幅に合わせて小さめに */
+  /* エディター・小説閲覧ビューと同一の等幅フォント・サイズに統一する。
+     折り返し（縦書きでは1列の文字数）を揃えるため、フォントは
+     プロポーショナルな明朝体ではなく等幅ゴシックを使用する。
+     font-size は JS から --nn-vertical-font-size で動的に設定する。 */
+  font-family: var(--nn-font-mono-gothic);
+  font-size: var(--nn-vertical-font-size, 16px);
   line-height: 2.0;
   color: var(--text-normal);
 }
@@ -754,19 +769,30 @@
 
 /* ─────────────────────────────────────────
    本文ルート：スクロール可能・文字選択可能
-   max-width は JS から style 属性で上書きする
+   max-width・font-size は JS から style 属性で上書きする
    ───────────────────────────────────────── */
 .nn-reading-root {
   height: 100%;
   overflow-y: auto;
   /* overflow: hidden は禁止 */
   padding: 2em 3em;
-  box-sizing: border-box;
+  /* content-box にする。border-box だと max-width(em) に
+     padding分が含まれてしまい、エディター側の wrapColumn(em)
+     よりも実質の折り返し文字数が少なくなる（padding 6em 分ズレる）。
+     content-box なら max-width は本文そのものの幅となり、
+     padding は外側に追加される。 */
+  box-sizing: content-box;
   /* max-width は JS (wrapColumn em) で動的に設定 */
   margin: 0 auto;
-  width: 100%;
+  max-width: 100%;
   line-height: 2;
-  font-size: var(--font-text-size, 16px);
+  /* エディターと同一の等幅フォントを指定。
+     プロポーショナルフォントだと wrapColumn(em) 計算の前提
+     （全角1文字=1em）が崩れ、エディターと折り返し位置がズレるため。 */
+  font-family: var(--nn-font-mono-gothic);
+  /* font-size は JS (settings.fontSize) で動的に設定する。
+     初期値はビュー初回描画前のフォールバック。 */
+  font-size: 16px;
   color: var(--text-normal);
   /* 文字選択を有効にする */
   user-select: text;

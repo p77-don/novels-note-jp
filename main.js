@@ -1972,7 +1972,7 @@ function toVerticalHtml(source, rubyStyle, selectedText = "") {
   }
   return { html: parts.join(""), lineSentences };
 }
-var VerticalPreviewView = class extends import_obsidian5.ItemView {
+var _VerticalPreviewView = class _VerticalPreviewView extends import_obsidian5.ItemView {
   constructor(leaf) {
     super(leaf);
     this.updateTimer = null;
@@ -1985,9 +1985,17 @@ var VerticalPreviewView = class extends import_obsidian5.ItemView {
     /** ソース行 → 文リスト（ソース原文、カーソル対応に使用） */
     this.lineSentences = /* @__PURE__ */ new Map();
     this.getRubyStyle = () => "narou";
+    this.getFontSize = () => 16;
+    this.getWrapColumn = () => 40;
   }
   setRubyStyleGetter(fn) {
     this.getRubyStyle = fn;
+  }
+  setFontSizeGetter(fn) {
+    this.getFontSize = fn;
+  }
+  setWrapColumnGetter(fn) {
+    this.getWrapColumn = fn;
   }
   getViewType() {
     return VERTICAL_VIEW_TYPE;
@@ -2046,9 +2054,18 @@ var VerticalPreviewView = class extends import_obsidian5.ItemView {
     this.lastText = "";
     this.loadFromActiveEditor();
   }
+  applyLayoutSettings() {
+    if (!this.bodyEl) return;
+    const fontSize = this.getFontSize();
+    const wrapColumn = this.getWrapColumn();
+    const maxHeight = wrapColumn + _VerticalPreviewView.PUNCTUATION_MARGIN_EM;
+    this.bodyEl.style.setProperty("--nn-vertical-font-size", `${fontSize}px`);
+    this.bodyEl.style.setProperty("--nn-vertical-max-height", `${maxHeight}em`);
+  }
   renderContent(text) {
     var _a;
     if (!this.bodyEl) return;
+    this.applyLayoutSettings();
     const mdView = this.app.workspace.getActiveViewOfType(import_obsidian5.MarkdownView);
     const sel = (_a = mdView == null ? void 0 : mdView.editor.getSelection()) != null ? _a : "";
     const { html, lineSentences } = toVerticalHtml(text, this.getRubyStyle(), sel);
@@ -2067,6 +2084,7 @@ var VerticalPreviewView = class extends import_obsidian5.ItemView {
   }
   renderEmpty(message) {
     if (!this.bodyEl) return;
+    this.applyLayoutSettings();
     this.bodyEl.empty();
     this.bodyEl.createEl("p", { text: message, cls: "nn-vertical-empty" });
     this.lineSentences = /* @__PURE__ */ new Map();
@@ -2145,6 +2163,22 @@ var VerticalPreviewView = class extends import_obsidian5.ItemView {
     }
   }
 };
+// ─────────────────────────────────────────
+// 設定値（フォントサイズ・折り返し文字数）を
+// bodyEl の CSS 変数に反映する。
+// エディター・小説閲覧ビューと折り返し位置を揃えるため、
+// 縦書き（1列の文字数 = 横書きの max-width 相当）には
+// max-height: ${wrapColumn}em を用いる。
+// ─────────────────────────────────────────
+// 句点（。）など一部のグリフは、指定フォントの仕様上
+// 専有幅が 1em よりわずかに大きい（実測で句点1個あたり約 0.5em 超過）。
+// 1行に句点が複数含まれると超過が累積し、本来の文字数より早く
+// 折り返ってしまう。0.5em のマージンを加えることで、句点1個分の
+// 超過までは許容し、最低限「句点1個でズレる」事態を防ぐ。
+// ※ 句点3個以上が1行に集中する場合は、なお1文字分短くなることがある。
+// ※ 使用フォントを変更した場合はこの補正値の再調整が必要。
+_VerticalPreviewView.PUNCTUATION_MARGIN_EM = 0.5;
+var VerticalPreviewView = _VerticalPreviewView;
 
 // src/novelReadingView.ts
 var import_obsidian6 = require("obsidian");
@@ -2207,13 +2241,14 @@ function toReadingHtml(source, rubyStyle) {
   }
   return parts.join("\n");
 }
-var NovelReadingView = class extends import_obsidian6.ItemView {
+var _NovelReadingView = class _NovelReadingView extends import_obsidian6.ItemView {
   constructor(leaf) {
     super(leaf);
     /** このビューが表示するファイル（タブ切り替え後も保持） */
     this._file = null;
     this.getRubyStyle = () => "narou";
     this.getWrapColumn = () => 40;
+    this.getFontSize = () => 16;
   }
   /** ファイルを外から設定する（activateNovelReadingView から呼ぶ） */
   setFile(file) {
@@ -2224,6 +2259,9 @@ var NovelReadingView = class extends import_obsidian6.ItemView {
   }
   setWrapColumnGetter(fn) {
     this.getWrapColumn = fn;
+  }
+  setFontSizeGetter(fn) {
+    this.getFontSize = fn;
   }
   getViewType() {
     return NOVEL_READING_VIEW_TYPE;
@@ -2347,7 +2385,10 @@ var NovelReadingView = class extends import_obsidian6.ItemView {
       this.titleEl.textContent = (_b = (_a = this._file) == null ? void 0 : _a.basename) != null ? _b : "\u5C0F\u8AAC\u95B2\u89A7";
     }
     const wrapCol = this.getWrapColumn();
-    this.rootEl.style.maxWidth = `${wrapCol}em`;
+    const maxWidth = wrapCol + _NovelReadingView.WRAP_MARGIN_EM;
+    this.rootEl.style.maxWidth = `${maxWidth}em`;
+    const fontSize = this.getFontSize();
+    this.rootEl.style.fontSize = `${fontSize}px`;
     const html = toReadingHtml(source, this.getRubyStyle());
     this.rootEl.innerHTML = html;
   }
@@ -2363,6 +2404,15 @@ var NovelReadingView = class extends import_obsidian6.ItemView {
     this.loadCurrentFile();
   }
 };
+// 実測の結果、本文の折り返し幅は wrapColumn(em) ちょうどでは
+// 設定文字数より少ない文字数で折り返ってしまうため、
+// 1.2em のマージンを加えて補正する。
+// ※ verticalPreview.ts の PUNCTUATION_MARGIN_EM とは別の値・別要因
+//   （縦書き側は句点グリフの縦幅特性による超過、横書き側は
+//   このビュー特有の幅計算のズレによるもの）。
+// ※ 使用フォントやレイアウトを変更した場合はこの補正値の再調整が必要。
+_NovelReadingView.WRAP_MARGIN_EM = 1.2;
+var NovelReadingView = _NovelReadingView;
 
 // src/main.ts
 var NovelsNoteJP = class extends import_obsidian7.Plugin {
@@ -2393,6 +2443,8 @@ var NovelsNoteJP = class extends import_obsidian7.Plugin {
       (leaf) => {
         const view = new VerticalPreviewView(leaf);
         view.setRubyStyleGetter(() => this.settings.rubyStyle);
+        view.setFontSizeGetter(() => this.settings.fontSize);
+        view.setWrapColumnGetter(() => this.settings.wrapColumn);
         return view;
       }
     );
@@ -2402,6 +2454,7 @@ var NovelsNoteJP = class extends import_obsidian7.Plugin {
         const view = new NovelReadingView(leaf);
         view.setRubyStyleGetter(() => this.settings.rubyStyle);
         view.setWrapColumnGetter(() => this.settings.wrapColumn);
+        view.setFontSizeGetter(() => this.settings.fontSize);
         return view;
       }
     );
@@ -2624,8 +2677,7 @@ var NovelsNoteJP = class extends import_obsidian7.Plugin {
    \u78BA\u5B9F\u306B\u30B9\u30B3\u30FC\u30D7\u3092\u7D5E\u308B
    \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
 .cm-editor[data-novel-mode="true"] .cm-content {
-  font-family: "BIZ UD\u30B4\u30B7\u30C3\u30AF", "Noto Sans Mono CJK JP",
-               "\u6E90\u30CE\u89D2\u30B4\u30B7\u30C3\u30AF", "Yu Gothic", monospace !important;
+  font-family: var(--nn-font-mono-gothic) !important;
   font-size: ${s.fontSize}px !important;
   line-height: ${s.lineHeight} !important;
   max-width: ${wrapWidth} !important;

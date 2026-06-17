@@ -56,6 +56,8 @@ export default class NovelsNoteJP extends Plugin {
       leaf => {
         const view = new VerticalPreviewView(leaf);
         view.setRubyStyleGetter(() => this.settings.rubyStyle);
+        view.setFontSizeGetter(()  => this.settings.fontSize);
+        view.setWrapColumnGetter(() => this.settings.wrapColumn);
         return view;
       }
     );
@@ -66,6 +68,7 @@ export default class NovelsNoteJP extends Plugin {
         const view = new NovelReadingView(leaf);
         view.setRubyStyleGetter(()  => this.settings.rubyStyle);
         view.setWrapColumnGetter(() => this.settings.wrapColumn);
+        view.setFontSizeGetter(()   => this.settings.fontSize);
         return view;
       }
     );
@@ -358,8 +361,7 @@ export default class NovelsNoteJP extends Plugin {
    確実にスコープを絞る
    ───────────────────────────────────────── */
 .cm-editor[data-novel-mode="true"] .cm-content {
-  font-family: "BIZ UDゴシック", "Noto Sans Mono CJK JP",
-               "源ノ角ゴシック", "Yu Gothic", monospace !important;
+  font-family: var(--nn-font-mono-gothic) !important;
   font-size: ${s.fontSize}px !important;
   line-height: ${s.lineHeight} !important;
   max-width: ${wrapWidth} !important;
