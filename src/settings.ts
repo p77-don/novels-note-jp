@@ -69,6 +69,7 @@ export interface NovelsNoteSettings {
   countMode: "raw" | "novel" | "manuscript";
   countFullWidthSpace: boolean;
   countEmptyLines: boolean;
+  countHashtags: boolean; // true: #tag も文字数に含める／false（デフォルト）: #tag を除外
 
   // 縦書きプレビュー
   verticalCursorHighlightColor: string;   // カーソル行の背景色
@@ -122,6 +123,7 @@ export const DEFAULT_SETTINGS: NovelsNoteSettings = {
   countMode: "raw",
   countFullWidthSpace: false,
   countEmptyLines: false,
+  countHashtags: false,
 
   // 縦書きプレビュー
   verticalCursorHighlightColor: "#3a5a8a",

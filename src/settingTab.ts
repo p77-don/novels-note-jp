@@ -723,6 +723,21 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
             this.plugin.updateWordCount();
           })
       );
+
+    new Setting(containerEl)
+      .setName("#tag を文字数に含める")
+      .setDesc(
+        "オンにすると原稿中に書いた #tag（キャラクター登録などの目印）も文字数としてカウントします。" +
+        "オフ（デフォルト）にすると #tag を除外します（エクスポート時の除去と同じ扱いになります）。"
+      )
+      .addToggle(toggle =>
+        toggle.setValue(this.plugin.settings.countHashtags)
+          .onChange(async value => {
+            this.plugin.settings.countHashtags = value;
+            await this.plugin.saveSettings();
+            this.plugin.updateWordCount();
+          })
+      );
   }
 
 }

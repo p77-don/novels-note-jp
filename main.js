@@ -66,6 +66,7 @@ var DEFAULT_SETTINGS = {
   countMode: "raw",
   countFullWidthSpace: false,
   countEmptyLines: false,
+  countHashtags: false,
   // 縦書きプレビュー
   verticalCursorHighlightColor: "#3a5a8a",
   verticalCursorHighlightEnabled: true,
@@ -1469,6 +1470,15 @@ var NovelsNoteSettingTab = class extends import_obsidian3.PluginSettingTab {
         this.plugin.updateWordCount();
       })
     );
+    new import_obsidian3.Setting(containerEl).setName("#tag \u3092\u6587\u5B57\u6570\u306B\u542B\u3081\u308B").setDesc(
+      "\u30AA\u30F3\u306B\u3059\u308B\u3068\u539F\u7A3F\u4E2D\u306B\u66F8\u3044\u305F #tag\uFF08\u30AD\u30E3\u30E9\u30AF\u30BF\u30FC\u767B\u9332\u306A\u3069\u306E\u76EE\u5370\uFF09\u3082\u6587\u5B57\u6570\u3068\u3057\u3066\u30AB\u30A6\u30F3\u30C8\u3057\u307E\u3059\u3002\u30AA\u30D5\uFF08\u30C7\u30D5\u30A9\u30EB\u30C8\uFF09\u306B\u3059\u308B\u3068 #tag \u3092\u9664\u5916\u3057\u307E\u3059\uFF08\u30A8\u30AF\u30B9\u30DD\u30FC\u30C8\u6642\u306E\u9664\u53BB\u3068\u540C\u3058\u6271\u3044\u306B\u306A\u308A\u307E\u3059\uFF09\u3002"
+    ).addToggle(
+      (toggle) => toggle.setValue(this.plugin.settings.countHashtags).onChange(async (value) => {
+        this.plugin.settings.countHashtags = value;
+        await this.plugin.saveSettings();
+        this.plugin.updateWordCount();
+      })
+    );
   }
 };
 
@@ -1498,6 +1508,12 @@ function cleanNovelText(raw) {
   text = text.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
   return text;
 }
+function stripHashtags(text) {
+  text = text.replace(/^[ \t\u3000]*#\S+[ \t\u3000]*$/gm, "");
+  text = text.replace(/#\S+[ \t\u3000]?/g, "");
+  text = text.replace(/[ \t\u3000]{2,}/g, " ");
+  return text;
+}
 function charWidth(ch) {
   var _a;
   const code = (_a = ch.codePointAt(0)) != null ? _a : 0;
@@ -1509,6 +1525,9 @@ function charWidth(ch) {
 }
 function countCharacters(text, settings) {
   let cleaned = cleanNovelText(text);
+  if (!settings.countHashtags) {
+    cleaned = stripHashtags(cleaned);
+  }
   if (!settings.countEmptyLines) {
     cleaned = cleaned.replace(/^[ \t\u3000]*\n/gm, "");
   }

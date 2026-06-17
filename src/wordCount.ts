@@ -93,6 +93,20 @@ export function cleanNovelText(raw: string): string {
 }
 
 // ─────────────────────────────────────────
+// #tag 除去（文字数カウントから #tag を除外する場合に使用）
+//
+// 1. タグだけの行はまるごと削除
+// 2. 文中の #タグ も削除（直後の空白1つも消費）
+// 3. 削除によって生じた連続空白を1つに圧縮
+// ─────────────────────────────────────────
+function stripHashtags(text: string): string {
+  text = text.replace(/^[ \t\u3000]*#\S+[ \t\u3000]*$/gm, "");
+  text = text.replace(/#\S+[ \t\u3000]?/g, "");
+  text = text.replace(/[ \t\u3000]{2,}/g, " ");
+  return text;
+}
+
+// ─────────────────────────────────────────
 // 文字数カウント本体
 // ─────────────────────────────────────────
 
@@ -115,7 +129,7 @@ function charWidth(ch: string): number {
 /**
  * テキストから文字数を集計する。
  * @param text     エディタの生テキスト
- * @param settings プラグイン設定（空白・空行カウント制御）
+ * @param settings プラグイン設定（空白・空行・#tag カウント制御）
  */
 export function countCharacters(
   text: string,
@@ -123,6 +137,11 @@ export function countCharacters(
 ): CountResult {
   // クリーニング
   let cleaned = cleanNovelText(text);
+
+  // #tag を文字数に含めない場合（デフォルト）：#tag を除去
+  if (!settings.countHashtags) {
+    cleaned = stripHashtags(cleaned);
+  }
 
   // 空行を除外する場合：空行（空白のみの行も含む）を除去
   if (!settings.countEmptyLines) {
