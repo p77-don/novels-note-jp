@@ -27,7 +27,7 @@ export interface CountResult {
 // 7. Markdown 引用記号（行頭の >）
 // 8. Markdown リスト記号（行頭の - * + と数字リスト）
 // 9. HTML タグ（<tag>）
-// 10. aozora ルビ：｜親《ルビ》→ 親
+// 10. aozora ルビ：[|｜]親《ルビ》→ 親（半角バー・全角バーの両方に対応、々を含む語にも対応）
 // 11. denden ルビ：{親|ルビ} → 親
 // 12. HTML ruby タグ：<ruby>親<rt>ルビ</rt></ruby> → 親
 // ─────────────────────────────────────────
@@ -72,10 +72,10 @@ export function cleanNovelText(raw: string): string {
   //     記号だけ除去し、内側のテキストは保持する
   text = text.replace(/(\*{1,3}|_{1,3})([\s\S]*?)\1/g, "$2");
 
-  // 12. aozora ルビ：｜親文字《ルビ》→ 親文字
-  text = text.replace(/｜([^《]+)《[^》]*》/g, "$1");
-  // ｜なし aozora：漢字直後《ルビ》→ 漢字（CJK統合漢字ブロックを対象）
-  text = text.replace(/([\u4E00-\u9FFF\u3400-\u4DBF]+)《[^》]*》/g, "$1");
+  // 12. aozora ルビ：[|｜]親文字《ルビ》→ 親文字（半角バー・全角バーの両方に対応）
+  text = text.replace(/[|｜]([^《\n]+)《[^》]*》/g, "$1");
+  // バーなし aozora：漢字直後《ルビ》→ 漢字（CJK統合漢字ブロック＋々を対象）
+  text = text.replace(/([\u3005\u4E00-\u9FFF\u3400-\u4DBF]+)《[^》]*》/g, "$1");
 
   // 13. denden ルビ：{親文字|ルビ} → 親文字
   text = text.replace(/\{([^|]+)\|[^}]+\}/g, "$1");

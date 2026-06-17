@@ -1490,8 +1490,8 @@ function cleanNovelText(raw) {
   text = text.replace(/^[ \t]*[-*+]\s+/gm, "");
   text = text.replace(/^[ \t]*\d+\.\s+/gm, "");
   text = text.replace(/(\*{1,3}|_{1,3})([\s\S]*?)\1/g, "$2");
-  text = text.replace(/｜([^《]+)《[^》]*》/g, "$1");
-  text = text.replace(/([\u4E00-\u9FFF\u3400-\u4DBF]+)《[^》]*》/g, "$1");
+  text = text.replace(/[|｜]([^《\n]+)《[^》]*》/g, "$1");
+  text = text.replace(/([\u3005\u4E00-\u9FFF\u3400-\u4DBF]+)《[^》]*》/g, "$1");
   text = text.replace(/\{([^|]+)\|[^}]+\}/g, "$1");
   text = text.replace(/^[-*_]{3,}\s*$/gm, "");
   text = text.replace(/!\[[^\]]*\]\([^)]+\)/g, "");
