@@ -70,7 +70,7 @@ export default class NovelsNoteJP extends Plugin {
       }
     );
 
-    this.addRibbonIcon("list-tree", "タグ情報一覧を開く", () =>
+    this.addRibbonIcon("list-tree", "用語インデックスを開く", () =>
       this.activateSidebar()
     );
     this.addRibbonIcon("square-kanban", "縦書きプレビューを開く", () =>

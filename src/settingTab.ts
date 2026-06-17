@@ -367,21 +367,21 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
   }
 
   // ─────────────────────────────────────────
-  // タグ定義セクション
+  // カテゴリ定義セクション
   // ─────────────────────────────────────────
   private renderTagSection(containerEl: HTMLElement): void {
-    containerEl.createEl("h3", { text: "タグ定義" });
+    containerEl.createEl("h3", { text: "カテゴリ定義" });
     containerEl.createEl("p", {
-      text: "用語ノートに付けるタグ名・表示名・色・オン/オフを設定します。",
+      text: "用語ノートに付けるカテゴリ名・表示名・色・オン/オフを設定します。",
       cls: "setting-item-description",
     });
     this.renderTagList(containerEl);
     new Setting(containerEl)
       .addButton(btn =>
-        btn.setButtonText("＋ タグを追加").setCta()
+        btn.setButtonText("＋ カテゴリを追加").setCta()
           .onClick(async () => {
             this.plugin.settings.tagDefinitions.push({
-              tag: "new-tag", label: "新しいタグ", color: "#aaaaaa", enabled: true,
+              tag: "new-tag", label: "新しいカテゴリ", color: "#aaaaaa", enabled: true,
             });
             await this.plugin.saveSettings();
             this.plugin.applyEditorStyles();
@@ -431,7 +431,7 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
       const capturedI = i; // クロージャ用
 
       setting.addText(text =>
-        text.setPlaceholder("タグ名").setValue(td.tag)
+        text.setPlaceholder("カテゴリ名").setValue(td.tag)
           .onChange(async value => {
             defs[capturedI].tag = value.trim();
             await saveAndRefresh();
@@ -483,7 +483,7 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
           })
       );
       setting.addExtraButton(btn =>
-        btn.setIcon("trash").setTooltip("このタグを削除")
+        btn.setIcon("trash").setTooltip("このカテゴリを削除")
           .onClick(async () => {
             defs.splice(capturedI, 1);
             await saveAndRefresh();
@@ -547,7 +547,7 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
   private renderBracketSection(containerEl: HTMLElement): void {
     containerEl.createEl("h3", { text: "カッコハイライト" });
     containerEl.createEl("p", {
-      text: "内側のカッコが外側より優先されます。用語タグはすべてのカッコより優先されます。",
+      text: "内側のカッコが外側より優先されます。用語の強調表示はすべてのカッコより優先されます。",
       cls: "setting-item-description",
     });
     this.renderBracketList(containerEl);

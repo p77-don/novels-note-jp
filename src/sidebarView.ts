@@ -55,7 +55,7 @@ class CreateTermModal extends Modal {
       cls: "nn-modal-value"
     });
     infoEl.createEl("br");
-    infoEl.createEl("span", { text: "タグ：", cls: "nn-modal-label" });
+    infoEl.createEl("span", { text: "カテゴリ：", cls: "nn-modal-label" });
     infoEl.createEl("span", {
       text: this.tagLabel,
       cls: "nn-modal-value"
@@ -270,7 +270,7 @@ export class NovelsNoteSidebarView extends ItemView {
   }
 
   getViewType(): string { return SIDEBAR_VIEW_TYPE; }
-  getDisplayText(): string { return "タグ情報一覧"; }
+  getDisplayText(): string { return "用語インデックス"; }
   getIcon(): string { return "list-tree"; }
 
   async onOpen(): Promise<void> {
@@ -298,7 +298,7 @@ export class NovelsNoteSidebarView extends ItemView {
 
     // ── ヘッダー ──
     const header = root.createEl("div", { cls: "nn-header" });
-    header.createEl("span", { text: "タグ情報一覧", cls: "nn-header-title" });
+    header.createEl("span", { text: "用語インデックス", cls: "nn-header-title" });
 
     // 全展開 / 全折りたたみボタン
     const btnBar = header.createEl("div", { cls: "nn-header-buttons" });
@@ -358,7 +358,7 @@ export class NovelsNoteSidebarView extends ItemView {
   }
 
   // ─────────────────────────────────────────
-  // ボディ（タグセクション一覧）の描画
+  // ボディ（カテゴリセクション一覧）の描画
   // ─────────────────────────────────────────
   private renderBody(body: HTMLElement): void {
     body.empty();
@@ -385,7 +385,7 @@ export class NovelsNoteSidebarView extends ItemView {
       if (visible === 0) continue;
       totalVisible += visible;
 
-      // タグセクションヘッダー
+      // カテゴリセクションヘッダー
       const sectionKey = `tag::${td.tag}`;
       if (!this.openState.has(sectionKey)) {
         this.openState.set(sectionKey, false);
@@ -429,7 +429,7 @@ export class NovelsNoteSidebarView extends ItemView {
         text:
           query !== ""
             ? `「${query}」は見つかりませんでした。`
-            : "タグが設定された .md ファイルを作成してください。",
+            : "カテゴリが設定された用語ノートを作成してください。",
         cls: "nn-empty",
       });
     }

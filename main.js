@@ -398,7 +398,7 @@ var CreateTermModal = class extends import_obsidian2.Modal {
       cls: "nn-modal-value"
     });
     infoEl.createEl("br");
-    infoEl.createEl("span", { text: "\u30BF\u30B0\uFF1A", cls: "nn-modal-label" });
+    infoEl.createEl("span", { text: "\u30AB\u30C6\u30B4\u30EA\uFF1A", cls: "nn-modal-label" });
     infoEl.createEl("span", {
       text: this.tagLabel,
       cls: "nn-modal-value"
@@ -550,7 +550,7 @@ var NovelsNoteSidebarView = class extends import_obsidian2.ItemView {
     return SIDEBAR_VIEW_TYPE;
   }
   getDisplayText() {
-    return "\u30BF\u30B0\u60C5\u5831\u4E00\u89A7";
+    return "\u7528\u8A9E\u30A4\u30F3\u30C7\u30C3\u30AF\u30B9";
   }
   getIcon() {
     return "list-tree";
@@ -577,7 +577,7 @@ var NovelsNoteSidebarView = class extends import_obsidian2.ItemView {
     root.empty();
     root.addClass("novels-note-sidebar");
     const header = root.createEl("div", { cls: "nn-header" });
-    header.createEl("span", { text: "\u30BF\u30B0\u60C5\u5831\u4E00\u89A7", cls: "nn-header-title" });
+    header.createEl("span", { text: "\u7528\u8A9E\u30A4\u30F3\u30C7\u30C3\u30AF\u30B9", cls: "nn-header-title" });
     const btnBar = header.createEl("div", { cls: "nn-header-buttons" });
     const btnExpand = btnBar.createEl("button", { cls: "nn-btn", title: "\u3059\u3079\u3066\u5C55\u958B" });
     btnExpand.innerHTML = `<svg viewBox="0 0 16 16" width="14" height="14"><path fill="currentColor" d="M2 5l6 6 6-6"/></svg>`;
@@ -626,7 +626,7 @@ var NovelsNoteSidebarView = class extends import_obsidian2.ItemView {
     this.renderBody(body);
   }
   // ─────────────────────────────────────────
-  // ボディ（タグセクション一覧）の描画
+  // ボディ（カテゴリセクション一覧）の描画
   // ─────────────────────────────────────────
   renderBody(body) {
     var _a;
@@ -680,7 +680,7 @@ var NovelsNoteSidebarView = class extends import_obsidian2.ItemView {
     }
     if (totalVisible === 0) {
       body.createEl("p", {
-        text: query !== "" ? `\u300C${query}\u300D\u306F\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3067\u3057\u305F\u3002` : "\u30BF\u30B0\u304C\u8A2D\u5B9A\u3055\u308C\u305F .md \u30D5\u30A1\u30A4\u30EB\u3092\u4F5C\u6210\u3057\u3066\u304F\u3060\u3055\u3044\u3002",
+        text: query !== "" ? `\u300C${query}\u300D\u306F\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3067\u3057\u305F\u3002` : "\u30AB\u30C6\u30B4\u30EA\u304C\u8A2D\u5B9A\u3055\u308C\u305F\u7528\u8A9E\u30CE\u30FC\u30C8\u3092\u4F5C\u6210\u3057\u3066\u304F\u3060\u3055\u3044\u3002",
         cls: "nn-empty"
       });
     }
@@ -1187,20 +1187,20 @@ var NovelsNoteSettingTab = class extends import_obsidian3.PluginSettingTab {
     );
   }
   // ─────────────────────────────────────────
-  // タグ定義セクション
+  // カテゴリ定義セクション
   // ─────────────────────────────────────────
   renderTagSection(containerEl) {
-    containerEl.createEl("h3", { text: "\u30BF\u30B0\u5B9A\u7FA9" });
+    containerEl.createEl("h3", { text: "\u30AB\u30C6\u30B4\u30EA\u5B9A\u7FA9" });
     containerEl.createEl("p", {
-      text: "\u7528\u8A9E\u30CE\u30FC\u30C8\u306B\u4ED8\u3051\u308B\u30BF\u30B0\u540D\u30FB\u8868\u793A\u540D\u30FB\u8272\u30FB\u30AA\u30F3/\u30AA\u30D5\u3092\u8A2D\u5B9A\u3057\u307E\u3059\u3002",
+      text: "\u7528\u8A9E\u30CE\u30FC\u30C8\u306B\u4ED8\u3051\u308B\u30AB\u30C6\u30B4\u30EA\u540D\u30FB\u8868\u793A\u540D\u30FB\u8272\u30FB\u30AA\u30F3/\u30AA\u30D5\u3092\u8A2D\u5B9A\u3057\u307E\u3059\u3002",
       cls: "setting-item-description"
     });
     this.renderTagList(containerEl);
     new import_obsidian3.Setting(containerEl).addButton(
-      (btn) => btn.setButtonText("\uFF0B \u30BF\u30B0\u3092\u8FFD\u52A0").setCta().onClick(async () => {
+      (btn) => btn.setButtonText("\uFF0B \u30AB\u30C6\u30B4\u30EA\u3092\u8FFD\u52A0").setCta().onClick(async () => {
         this.plugin.settings.tagDefinitions.push({
           tag: "new-tag",
-          label: "\u65B0\u3057\u3044\u30BF\u30B0",
+          label: "\u65B0\u3057\u3044\u30AB\u30C6\u30B4\u30EA",
           color: "#aaaaaa",
           enabled: true
         });
@@ -1239,7 +1239,7 @@ var NovelsNoteSettingTab = class extends import_obsidian3.PluginSettingTab {
       setting.settingEl.style.padding = "0";
       const capturedI = i;
       setting.addText(
-        (text) => text.setPlaceholder("\u30BF\u30B0\u540D").setValue(td.tag).onChange(async (value) => {
+        (text) => text.setPlaceholder("\u30AB\u30C6\u30B4\u30EA\u540D").setValue(td.tag).onChange(async (value) => {
           defs[capturedI].tag = value.trim();
           await saveAndRefresh();
         })
@@ -1283,7 +1283,7 @@ var NovelsNoteSettingTab = class extends import_obsidian3.PluginSettingTab {
         })
       );
       setting.addExtraButton(
-        (btn) => btn.setIcon("trash").setTooltip("\u3053\u306E\u30BF\u30B0\u3092\u524A\u9664").onClick(async () => {
+        (btn) => btn.setIcon("trash").setTooltip("\u3053\u306E\u30AB\u30C6\u30B4\u30EA\u3092\u524A\u9664").onClick(async () => {
           defs.splice(capturedI, 1);
           await saveAndRefresh();
           this.display();
@@ -1334,7 +1334,7 @@ var NovelsNoteSettingTab = class extends import_obsidian3.PluginSettingTab {
   renderBracketSection(containerEl) {
     containerEl.createEl("h3", { text: "\u30AB\u30C3\u30B3\u30CF\u30A4\u30E9\u30A4\u30C8" });
     containerEl.createEl("p", {
-      text: "\u5185\u5074\u306E\u30AB\u30C3\u30B3\u304C\u5916\u5074\u3088\u308A\u512A\u5148\u3055\u308C\u307E\u3059\u3002\u7528\u8A9E\u30BF\u30B0\u306F\u3059\u3079\u3066\u306E\u30AB\u30C3\u30B3\u3088\u308A\u512A\u5148\u3055\u308C\u307E\u3059\u3002",
+      text: "\u5185\u5074\u306E\u30AB\u30C3\u30B3\u304C\u5916\u5074\u3088\u308A\u512A\u5148\u3055\u308C\u307E\u3059\u3002\u7528\u8A9E\u306E\u5F37\u8ABF\u8868\u793A\u306F\u3059\u3079\u3066\u306E\u30AB\u30C3\u30B3\u3088\u308A\u512A\u5148\u3055\u308C\u307E\u3059\u3002",
       cls: "setting-item-description"
     });
     this.renderBracketList(containerEl);
@@ -2407,7 +2407,7 @@ var NovelsNoteJP = class extends import_obsidian7.Plugin {
     );
     this.addRibbonIcon(
       "list-tree",
-      "\u30BF\u30B0\u60C5\u5831\u4E00\u89A7\u3092\u958B\u304F",
+      "\u7528\u8A9E\u30A4\u30F3\u30C7\u30C3\u30AF\u30B9\u3092\u958B\u304F",
       () => this.activateSidebar()
     );
     this.addRibbonIcon(
