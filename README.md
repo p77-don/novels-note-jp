@@ -1,422 +1,300 @@
 # Novels Note JP
 
-> 日本語小説執筆に特化した Obsidian 用 統合執筆支援プラグイン  
-> 縦書き・ルビ・用語管理・小説閲覧ビュー・原稿 Export まで、日本語小説執筆に必要な機能を統合。
+An Obsidian plugin for Japanese fiction writers. It provides a writing environment optimized for Japanese novel composition, with `.txt` file support, vertical writing preview, term highlighting, and manuscript export.
 
 ---
 
-# 概要
+## Features
 
-Novels Note JP は、日本語 Web小説・ライトノベル・長編小説執筆向けに設計された Obsidian プラグインです。
-Markdown の自由さと Obsidian の知識管理能力を維持したまま、
+### Novel Mode
+Activate novel mode by adding `mode: novel` to a note's frontmatter. All plugin behaviors—fonts, formatting, highlighting—are scoped exclusively to novel-mode notes. Standard notes are unaffected.
 
-- 小説向けエディタ最適化
-- 用語・人物管理
-- 日本語縦書きプレビュー
-- 小説閲覧ビュー（横書き清書表示）
-- ルビ
-- 原稿整形
-- 小説向け文字数カウント
-
-などを統合し、Obsidian を「日本語小説執筆環境」として拡張します。
-
----
-
-# スクリーンショット
-
-## エディタ
-
-- 用語ハイライト
-- カッコ強調
-- 全角スペース可視化
-- 小説向け行幅
-
-![editor-preview](docs/editor.png)
-
----
-
-# 特徴
-
-## 日本語小説向けに最適化
-
-一般的な Markdown エディタでは扱いづらい、
-
-- 日本語ルビ
-- 縦書き
-- 会話カッコ
-- 全角スペース
-- 原稿用紙換算文字数
-
-などを、執筆時点から自然に扱えます。
-
----
-
-## Obsidian の機能をそのまま活用
-
-- WikiLink
-- Tags
-- Backlinks
-- Graph View
-- Vault 管理
-
-など、Obsidian 本来の知識管理機能を維持したまま、小説執筆へ特化できます。
-
----
-
-# 主な機能
-
-| 機能                 | 内容                                       |
-| -------------------- | ------------------------------------------ |
-| 用語ハイライト       | 登場人物・組織・用語を自動強調             |
-| 用語インデックス     | 用語一覧をサイドバー表示                   |
-| カッコハイライト     | 会話記号を視覚強調                         |
-| 全角スペース可視化   | 段落確認を容易化                           |
-| 縦書きプレビュー     | 日本語向け、縦書き表示                     |
-| 小説閲覧ビュー       | `mode: novel` ファイルを横書きで清書表示   |
-| ルビ対応             | なろう式 / 青空文庫式 等                   |
-| 小説向け文字数カウント | 原稿用紙換算対応                         |
-| 原稿 Export          | 投稿サイト向け整形                         |
-| エディタ最適化       | 行幅・行間・ガイドライン調整               |
-
----
-
-# インストール
-
-## Community Plugins
-
-Community Plugins からの配布予定はありません。
-
----
-
-## 手動インストール
-
-1. GitHub の右リスト `Releases` より最新の `novels-note-jp.zip` をダウンロードして解凍
-2. `Vault/.obsidian/plugins/novels-note-jp/` に配置
-3. Obsidian を再起動して有効化
-
-または
-
-1. ターミナルにて `git clone https://github.com/p77-don/novels-note-jp` を実行  
-   ※ Git のインストールが必要
-2. `Vault/.obsidian/plugins/novels-note-jp/` に配置
-3. Obsidian を再起動して有効化
-
----
-
-# クイックスタート
-
-## 1. 用語ノートを作成
-
-```
-File Name 猫.md
----
-tags:
-  - character
-aliases:
-  - 吾輩
----
-```
-ファイル名と`aliases`に登録された文字列がハイライト表示されます。
-
-![template](docs/character_card.png)
-
-### テンプレートのサンプル
-
-`.obsidian/plugins/novels-note-jp/templete/` にテンプレートのサンプルが用意してあります。`.obsidian` フォルダ内はテンプレートの対象外なので `vault root` 以下にコピーして使用してください。
-
----
-
-## 2. 原稿を書く
-
-原稿であることを示す `Frontmatter` を記述します。
-```Frontmatter
+```yaml
 ---
 mode: novel
 ---
 ```
-※この記述があるファイルが原稿ファイルとして認識され。編集モード時にハイライト表示されます。
 
-↓
+![editor](docs/editor.png)
 
-文章を書きます。
-```
-吾輩は猫である。
-```
+### Japanese Writing Environment
+- **Optimized monospace font** (BIZ UDGothic, Noto Sans Mono CJK JP, etc.) with adjustable **font size** and **line height**
+- **Full-width space (　) visualization** to catch accidental spacing errors
+- **Automatic paragraph indentation**
+- **Configurable line-wrap column** with a visual ruler/guideline
+- **`.txt` file support** — open and edit plain text files directly in Obsidian
 
-↓
+### Term Highlighting
+Notes tagged with a category (`character`, `location`, `glossary`, `organization`, `item`) register their filename as a term, which is then highlighted wherever it appears in novel-mode editors. Colors and on/off toggles are configurable per category. Additional names for the same term can be registered via `aliases`.
 
-`吾輩`と`猫`がハイライト表示されます。
-
+```yaml
 ---
-
-## 3. 縦書きプレビュー
-
-原稿を日本語向け縦書きレイアウトで表示します。
-- リボンアイコン　![icon-2](docs/icon-2.png)　をクリックする。
-- コマンド`縦書きプレビューを開く`を実行する。
-
-### 対応
-
-- 縦書き
-- ルビ
-- 日本語レイアウト
-- カーソル位置の自動スクロール
-
-![vertical-preview](docs/verticalPreview.png)
-
+tags: character
+aliases: (register alternative names here)
 ---
+```
 
-## 4. 小説閲覧ビューで読む
+### Bracket Highlighting
+Highlight Japanese brackets (`「」『』（）【】〈〉《》`) with individually configurable colors and toggles.
 
-原稿ファイルの Frontmatter に `mode: novel` が記述されていると、小説閲覧ビューで清書表示できます。
+### Term Index (Sidebar Panel)
+A right-sidebar panel displays all defined terms, organized in a folder-tree view. Features include:
+- Expandable folder hierarchy
+- Search/filter box with a clear button
+- Click-to-open any term note
+- Drag-and-drop to move terms between folders
+- Drag-and-drop a term into the main pane to insert it as a WikiLink
+- Tags collapsed by default on startup
+- Configurable exclude-folders list
 
-リボンアイコン　![icon-3](docs/icon-3.png)　「小説用ビューで表示」またはコマンドから開きます。
+### Word Count
+Three counting modes available:
+- **Raw** — total character count
+- **Novel-weighted** — counts only manuscript text
+- **Manuscript pages** — calculates standard Japanese manuscript page equivalents (400 characters/page)
 
+### Vertical Writing Preview
+Preview the current note in vertical writing (`tate-gumi`) layout. Features:
+- Cursor position synchronization between the editor and preview
+- Selection highlighting preserved through ruby notation
+- Export button in the toolbar
 
-`Frontmatter` に `mode: novel` が記述されているファイルを、横書きの清書レイアウトで表示します。  
+![verticalPreview](docs/verticalPreview.png)
 
-* リボンアイコン　![icon-3](docs/icon-3.png)　をクリックする。
-* コマンド`小説閲覧ビューを開く`を実行する。
-
-編集ビューと独立したタブとして開き、「編集に戻る」ボタンで元のエディタに切り替えられます。
-
-### 対応
-
-- ルビ変換表示
-- 折り返し文字数の設定値に連動
-- ツールバーから編集モードへの切り替え
-- 原稿エクスポート。※メインペイン右上のリボン　![icon-4](docs/icon-4.png)　をクリック
+### Novel Reading View
+A clean reading view that strips WikiLinks, tags, and non-manuscript content. Displays a notice for non-novel-mode files. Includes an export button alongside the standard edit button.
 
 ![novelReadingView](docs/novelReadingView.png)
 
----
+### Export
+Export the current note as clean manuscript text via a dedicated export dialog:
+- Strips Markdown and Obsidian syntax (WikiLinks, tags, frontmatter, etc.)
+- Choose the output format (`.txt` / `.md`) and how ruby notation is handled (keep as-is, convert to another style, or remove)
+- Always available via the command palette
+- Original files are never modified
 
-## 5. 原稿 Export
-
-投稿サイト向けにテキスト整形して Export できます。
-小説ビューページの右上にある　![icon-4](docs/icon-4.png)　アイコンをクリック、もしくはコマンド`現在のファイルを原稿 Export する`を実行する。
-
-### 対応形式
-
-- `.txt`
-- `.md`
-
-### 除去対象
-
-- Frontmatter
-- Markdown 装飾
-- WikiLink
-- コメント
-- コードブロック
-- Callout
-- タグ（`#タグ名` 形式）
-
-![export document](docs/export-document.png)
+![export-document](docs/export-document.png)
 
 ---
 
+## Installation
 
-# オプション設定
+### From Community Plugins (Recommended)
+1. Open **Settings** → **Community plugins** → **Browse**
+2. Search for `Novels Note JP`
+3. Click **Install**, then **Enable**
 
-
-## 1. 小説向けエディタ調整
-
-### 調整可能項目
-
-- フォントサイズ
-- 行間
-- 折り返し文字数
-
-![settings-01](docs/settings-01.png)
+### Manual Installation
+1. Download `main.js`, `manifest.json`, and `styles.css` from the [latest release](https://github.com/p77-don/novels-note-jp/releases)
+2. Copy the files to your vault's plugin folder: `<vault>/.obsidian/plugins/novels-note-jp/`
+3. Reload Obsidian and enable the plugin in **Settings** → **Community plugins**
 
 ---
 
-### ガイドライン表示
+## Usage
 
-折り返し位置へガイドラインを表示できます。
+### Getting Started
 
-![settings-02.png](docs/settings-02.png)
+1. Enable the plugin in **Settings** → **Community plugins**
+2. Add `mode: novel` to the frontmatter of any note you want to use as a novel manuscript
+3. Open **Settings** → **Novels Note JP** to configure font colors, term categories, and other options
 
----
+### Defining Terms
+Create notes for characters, locations, and other story elements, and add the matching category tag to the note's frontmatter `tags`:
 
-## 2. ルビ設定
+| Tag | Category |
+|---|---|
+| `character` | Character names |
+| `location` | Place names |
+| `glossary` | Terminology / worldbuilding |
+| `organization` | Groups and organizations |
+| `item` | Items and objects |
 
-複数のルビ形式に対応しています。
+The note's filename (or its `name` frontmatter field, if set) becomes the term, and is automatically highlighted in novel-mode editors.
 
-| 形式        | 記法               |
-| ----------- | ------------------ |
-| なろう式    | `｜漢字《ルビ》`   |
-| 青空文庫式  | `漢字《ルビ》`     |
-| でんでん式  | `{漢字\|ルビ}`     |
-| HTML        | `<ruby>`           |
+### Vertical Preview
+Use the command palette (`Ctrl/Cmd + P`) and run **縦書きプレビューを開く** (Open Vertical Preview) to open the tate-gumi preview panel.
 
-![settings-03](docs/settings-03.png)
+### Novel Reading View
+Run **小説閲覧ビューを開く** (Open Novel Reading View) from the command palette to switch the current note to the clean reading view.
 
-> ルビ設定は、縦書きプレビュー・小説閲覧ビューおよび Export 時の変換対象設定です。
-
----
-
-## 3. 縦書きプレビュー
-
-縦書きプレビューのハイライト表示の ON/OFF と配色を設定できます。
-
-![settings-04](docs/settings-04.png)
-
----
-
-## 4. 全角スペース可視化
-
-段落先頭の全角スペースを視覚化できます。
-
-### 表示モード
-
-- Dot
-- Underline
-- Box
-
-![settings-05](docs/settings-05.png)
-
-本文データ自体は変更されません。
+### Export
+Run **現在のファイルを原稿 Export する** (Export current file as manuscript) from the command palette to export the current manuscript as clean text.
 
 ---
 
-## 5. 文字数カウント
+## Settings
 
-### カウント方式
-
-| モード       | 内容                    |
-| ------------ | ----------------------- |
-| raw          | 実文字数                |
-| novel        | 全角=1 / 半角=0.5       |
-| manuscript   | 原稿用紙換算            |
-
-Markdown 記法などは自動除外されます。
-
-![settings-06](docs/settings-06.png)
-
----
-
-### 用語インデックス除外フォルダ
-
-テンプレート用フォルダなどを、インデックスの検索対象外に設定できます。
-
-![settings-07](docs/settings-07.png)
+| Setting | Description |
+|---|---|
+| Font size | Font size for novel-mode editors |
+| Line height | Line height for novel-mode editors |
+| Wrap column | Number of full-width characters per line |
+| Show guideline | Enable/disable the line-wrap ruler, with color, opacity, and style options |
+| Full-width space visualization | Enable/disable, with display style and color options |
+| Highlight: Global toggle | Enable or disable all highlighting |
+| Category colors / toggles | Color and enable/disable per term category |
+| Bracket colors / toggles | Color and enable/disable per bracket type |
+| Ruby notation style | Format used when rendering/exporting ruby notation |
+| Word count mode | Raw / Novel-weighted / Manuscript pages |
+| Word count options | Whether to include full-width spaces / blank lines in the count |
+| Vertical preview cursor highlight | Enable/disable and color for the cursor-line highlight in vertical preview |
+| Exclude folders | Folders excluded from the term index |
 
 ---
 
-## 6. ハイライト
+## Requirements
 
-ハイライト機能の ON/OFF を設定できます。
-
-![settings-08](docs/settings-08.png)
+- Obsidian v1.4.0 or later
+- Desktop only (uses Node.js file system APIs)
 
 ---
+
+## Development
+
+```bash
+git clone https://github.com/p77-don/novels-note-jp.git
+cd novels-note-jp
+npm install
+npm run dev
+```
+
+Copy `main.js`, `manifest.json`, and `styles.css` to your vault's plugin folder and reload Obsidian.
+
+---
+
+## License
+
+[MIT](LICENSE)
+
+---
+
+## 日本語説明
+
+# Novels Note JP
+
+日本語小説の執筆に特化した Obsidian プラグインです。`.txt` ファイルのサポート、縦書きプレビュー、用語ハイライト、原稿エクスポートなど、小説執筆ワークフローに必要な機能を提供します。
+
+---
+
+## 主な機能
+
+### ノベルモード
+フロントマターに `mode: novel` を記載したノートのみにプラグインの機能が適用されます。通常のノートには一切影響を与えません。
+
+```yaml
+---
+mode: novel
+---
+```
+
+![editor](docs/editor.png)
+
+### 日本語執筆環境
+- **日本語向けに最適化された等幅フォント**（BIZ UDゴシック、Noto Sans Mono CJK JP など）。フォントサイズ・行間は設定で調整可能
+- **全角スペースの可視化**（誤入力を防止）
+- **段落自動字下げ**
+- **折り返し桁数の設定**とビジュアル定規
+- **`.txt` ファイル対応** — プレーンテキストファイルを直接編集可能
 
 ### 用語ハイライト
+カテゴリタグ（`character`、`location`、`glossary`、`organization`、`item`）が付いたノートのファイル名（または `name` プロパティの値）が用語として登録され、エディター上でハイライト表示します。カテゴリごとに色と表示のオン/オフを設定できます。また、`aliases` にて別名を登録することもできます。
 
-Frontmatter のタグを持つノートを自動索引化し、本文中に登場した単語をハイライト表示します。
+```yaml
+---
+tags: character
+aliases: （別名を登録）
+---
+```
 
-#### 初期タグ
+### 括弧ハイライト
+日本語括弧（`「」『』（）【】〈〉《》`）を種類ごとに色設定・個別トグルでハイライト表示します。
 
-| タグ              | 用途         |
-| ----------------- | ------------ |
-| `#character`      | キャラクター |
-| `#location`       | 場所         |
-| `#glossary`       | 用語         |
-| `#organization`   | 組織         |
-| `#item`           | アイテム     |
+### 用語インデックス（サイドバーパネル）
+右サイドバーに用語の一覧をフォルダツリー形式で表示します。
+- フォルダ階層の展開表示
+- 検索・フィルタリング（クリアボタン付き）
+- クリックでノートを開く
+- ドラッグ＆ドロップでフォルダ階層を移動
+- ドラッグ＆ドロップでメインペインに用語を挿入（wikilink 形式）
+- 起動時はタグを折りたたんだ状態で表示
+- 除外フォルダの設定（オプションにて設定）
 
-![settings-09](docs/settings-09.png)
+### 文字数カウント
+3つのカウントモードを選択できます：
+- **生文字数** — 総文字数
+- **小説用重み付き** — 本文のみをカウント
+- **原稿用紙換算** — 400字詰め原稿用紙換算枚数
 
-* タグ名・表示名・配色・ハイライトのON/OFFをオプションにて任意で設定できます。
-* 設定画面に表示されている順番で、用語リストに表示されます。
+### 縦書きプレビュー
+現在のノートを縦書きレイアウトでプレビューします。
+- エディターとプレビュー間のカーソル位置同期
+- ルビ表記をまたいだ選択範囲のハイライト保持
+- ツールバーにエクスポートボタン配置
+
+![verticalPreview](docs/verticalPreview.png)
+
+### 小説閲覧ビュー
+WikiLink・タグ・本文以外のコンテンツを除去したクリーンな閲覧ビューです。ノベルモードでないファイルにはポップアップで通知します。
+
+![novelReadingView](docs/novelReadingView.png)
+
+### エクスポート
+専用のエクスポートダイアログから、現在のノートをクリーンな原稿テキストとして出力します。
+- Markdown・Obsidian記法（WikiLink、タグ、フロントマターなど）を除去
+- 出力形式（`.txt` / `.md`）とルビ記法の扱い（保持／他方式へ変換／除去）を選択可能
+- コマンドパレットから常に実行可能
+- **元のファイルは一切変更されません**
+
+![export-document](docs/export-document.png)
 
 ---
 
+## インストール
 
-### 用語インデックス
+### コミュニティプラグインから（推奨）
+1. **設定** → **コミュニティプラグイン** → **閲覧** を開く
+2. **Novels Note JP** を検索
+3. **インストール** → **有効化**
 
-リボンアイコン　![icon-1.png](docs/icon-1.png)　をクリックすると、右サイドバーに用語の一覧を表示します。
-
-#### 対応機能
-
-- フォルダ階層表示
-- タグ別分類
-- 検索フィルタ
-- 開閉状態保持
-- ノートジャンプ
-
----
-
-### カッコハイライト
-
-日本語小説で頻出する会話記号を視覚強調します。
-
-| 種類           | 記号 |
-| -------------- | ---- |
-| 鍵カッコ       | 「」 |
-| 二重鍵カッコ   | 『』 |
-| 丸カッコ       | （） |
-| 隅付きカッコ   | 【】 |
-| 山カッコ       | 〈〉 |
-| 二重山カッコ   | 《》 |
-
-![settings-10](docs/settings-10.png)
+### 手動インストール
+1. [最新リリース](https://github.com/p77-don/novels-note-jp/releases)から `main.js`、`manifest.json`、`styles.css` をダウンロード
+2. Vaultのプラグインフォルダへコピー：`<vault>/.obsidian/plugins/novels-note-jp/`
+3. Obsidianを再起動し、**設定** → **コミュニティプラグイン** でプラグインを有効化
 
 ---
 
-# コマンド一覧
+## 基本的な使い方
 
-| コマンド                       | 内容                 |
-| ------------------------------ | -------------------- |
-| 縦書きプレビューを開く         | 縦書きビュー表示     |
-| 小説閲覧ビューを開く           | 横書き清書ビュー表示 |
-| 現在のファイルを原稿 Export する | 投稿向け整形出力   |
+1. プラグインを有効化する
+2. 原稿として使用したいノートのフロントマターに `mode: novel` を追加する
+3. **設定** → **Novels Note JP** でハイライト色・用語カテゴリなどを設定する
 
----
+### 用語の定義
+登場人物・場所・用語などのノートを作成し、対応するカテゴリタグを付与します：
 
-# アイコン
+| タグ | カテゴリ |
+|---|---|
+| `character` | 人物名 |
+| `location` | 場所名 |
+| `glossary` | 用語・世界観設定 |
+| `organization` | 組織・団体 |
+| `item` | アイテム・道具 |
 
-| アイコン           | 機能                   |
-| ------------------ | ---------------------- |
-| ![icon-4](docs/icon-1.png)          | タグ情報一覧を開く     |
-| ![icon-4](docs/icon-2.png)      | 縦書きプレビューを開く |
-| ![icon-4](docs/icon-3.png) | 小説用ビューで表示     |
-| ![icon-4](docs/icon-4.png) | 原稿をエクスポート     |
+ノートのファイル名（または `name` プロパティを設定している場合はその値）が用語として登録され、ノベルモードのエディターで自動的にハイライトされます。
 
----
+### 縦書きプレビュー
+コマンドパレット（`Ctrl/Cmd + P`）から **Novels Note JP: 縦書きプレビューを開く** を実行します。
 
-# 想定用途
+### 小説閲覧ビュー
+コマンドパレットから **Novels Note JP: 小説閲覧ビューを開く** を実行すると、現在のノートを小説閲覧ビューに切り替えます。
 
-- Web小説執筆
-- ライトノベル執筆
-- 長編小説管理
-- キャラクター辞典管理
-- 世界観資料管理
-- 用語集管理
-- 投稿前整形
+### エクスポート
+コマンドパレットから **Novels Note JP: 現在のファイルを原稿 Export する** を実行します。
 
 ---
 
-# 対応ファイル
+## 動作環境
 
-- `.md`
-- `.txt`
-
----
-
-## 更新履歴
-
-| 日時         | バージョン | 内容                                                                                                                                                                                                                    |
-| ---- | ---- | ---- |
-| 2026/06/07 | v0.3.1 | ・用語一覧の検索ボックスに入力クリアボタンを設置<br>・小説用ビューにエクスポートボタンを設置 |
-| 2026/06/05   | v0.3.0     | ・小説用ビュー機能を追加。※`Frontmatter`に`mode: novel`を指定したファイルが対象<br> ・`Frontmatter`が入ることによって、縦書きプレビューの表示位置とハイライトがズレるバグを修正<br> ・縦書きプレビューで二文字分字下げされるバグを修正 |
-| 2026/05/30   | v0.2.1     | ・縦書きプレビューの選択ハイライトを修正<br> ・縦書きプレビューにて、区切り線`---`を文字として表示するように修正<br>・タグ情報の一覧表示を微調整<br>・タグ情報一覧の`すべて折りたたむ`を修正<br>・エクスポート時のタグ排除機能を修正<br>・リボンアイコンを変更 |
-| 2026/05/27   | v0.2.0     | ・タグ定義の順番を変更できるように修正。   これにより、用語リストに表示する順番を変えることができます。|
-| 2026/05/26   | v0.1.0     | ・Obsidian プラグイン Novels Note JP 公開 |
-
----
-
-# ライセンス
-
-MIT License
+- Obsidian v1.4.0 以降
+- デスクトップ版のみ（Node.js API を使用）
