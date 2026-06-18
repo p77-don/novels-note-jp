@@ -5,6 +5,7 @@
 // ─────────────────────────────────────────
 
 import { RubyStyle } from "./settings";
+import { stripHashtags } from "./hashtags";
 
 // ─────────────────────────────────────────
 // Export 設定
@@ -103,7 +104,11 @@ export function convertRubyStyle(
     }
 
     case "html": {
-      const re = /<ruby>([^<]+)<rt>([^<]*)<\/rt><\/ruby>/g;
+      // <rt>...</rt> と </ruby> の間（あるいは <ruby> と本文の間）に
+      // 改行・インデントが入っている記法にも対応するため、
+      // タグの境界部分にのみ \s* を許容する。
+      //   例）<ruby>\n  親\n  <rt>ルビ</rt>\n</ruby> も検出できる
+      const re = /<ruby>\s*([^<]+?)\s*<rt>\s*([^<]*?)\s*<\/rt>\s*<\/ruby>/g;
       return text.replace(re, (_m: string, base: string, ruby: string) =>
         rubyPairToStyle(base, ruby, target)
       );
@@ -138,21 +143,11 @@ export function exportText(source: string, opts: ExportOptions): string {
   text = text.replace(/\[\[([^\]]+)\]\]/g, "$1");
 
   // ── Step 5: タグ削除 ────────────────────────────
+  // タグの判定ロジックは hashtags.ts に共通化されている
+  // （Export・小説閲覧ビュー・文字数カウントで判定基準を統一するため）。
+  text = stripHashtags(text);
   //
-  // タグの定義：「#」+「スペース（半角・全角）以外の1文字以上」
-  // タグの終端：スペース（半角・全角）または行末
-  //   例）「この文章 #確認 は後で見直す」→「この文章は後で見直す」
-  //       「この文章 #確認、重要 は後で見直す」→「この文章は後で見直す」
-  //       「#メモ この行は仮」→「この行は仮」
-  //
-  // ① 行全体がタグだけの行 → 行ごと削除
-  text = text.replace(/^[ \t\u3000]*#\S+[ \t\u3000]*$/gm, "");
-  //
-  // ② タグ本体＋直後スペースを除去（前後スペースは後工程で正規化）
-  //    行頭・行中どちらでも対応。連続タグも1パスですべて除去できる。
-  text = text.replace(/#\S+[ \t\u3000]?/g, "");
-  //
-  // ③ タグ除去後に残った連続スペース・行頭末尾スペースを正規化
+  // タグ除去後に残った連続スペース・行頭末尾スペースを正規化
   text = text.replace(/[ \t\u3000]{2,}/g, " ");
   text = text.replace(/^[ \t\u3000]+$/gm, "");
 

@@ -18,6 +18,7 @@ import { NOVEL_READING_VIEW_TYPE } from "./types";
 import { RubyStyle } from "./settings";
 import { convertRuby } from "./verticalPreview";
 import { ExportModal } from "./exportModal";
+import { stripHashtags } from "./hashtags";
 
 // ─────────────────────────────────────────
 // Frontmatter 除去
@@ -46,11 +47,10 @@ function cleanSource(source: string): string {
   text = text.replace(/\[\[([^\]]+)\]\]/g, "$1");
 
   // タグ削除
-  // ① 行全体がタグだけの行 → 行ごと削除
-  text = text.replace(/^[ \t\u3000]*#\S+[ \t\u3000]*$/gm, "");
-  // ② タグ本体＋直後スペースを除去
-  text = text.replace(/#\S+[ \t\u3000]?/g, "");
-  // ③ タグ除去後の連続スペース・行頭末尾スペースを正規化
+  // タグの判定ロジックは hashtags.ts に共通化されている
+  // （Export・小説閲覧ビュー・文字数カウントで判定基準を統一するため）。
+  text = stripHashtags(text);
+  // タグ除去後の連続スペース・行頭末尾スペースを正規化
   text = text.replace(/[ \t]{2,}/g, " ");
   text = text.replace(/^[ \t]+$/gm, "");
 

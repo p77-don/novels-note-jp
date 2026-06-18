@@ -31,13 +31,12 @@ export default class NovelsNoteJP extends Plugin {
   settings: NovelsNoteSettings = DEFAULT_SETTINGS;
   private styleEl: HTMLStyleElement | null = null;
   private statusBarEl: HTMLElement | null = null;
+  private rebuildTimer: ReturnType<typeof setTimeout> | null = null;
 
   // ─────────────────────────────────────────
   // ロード
   // ─────────────────────────────────────────
   async onload(): Promise<void> {
-    console.log("Novels Note JP: loading...");
-
     await this.loadSettings();
     this.registerExtensions(["txt"], "markdown");
 
@@ -137,14 +136,36 @@ export default class NovelsNoteJP extends Plugin {
 
     this.registerVaultEvents();
     this.initWordCount();
-
-    console.log("Novels Note JP: loaded.");
   }
 
   async onunload(): Promise<void> {
+    if (this.rebuildTimer !== null) {
+      clearTimeout(this.rebuildTimer);
+      this.rebuildTimer = null;
+    }
     if (this.styleEl) this.styleEl.remove();
     if (this.statusBarEl) this.statusBarEl.remove();
-    console.log("Novels Note JP: unloaded.");
+  }
+
+  // ─────────────────────────────────────────
+  // 用語インデックス再構築のデバウンス
+  //
+  // modify / create / delete / rename / metadataCache.changed は
+  // 1回の保存操作でも複数回連続して発火することがあるため、
+  // 短時間に連続した呼び出しを1回にまとめてから
+  // buildTermIndex() / updateSidebar() / refreshEditors() を実行する。
+  // 大規模 Vault（数百〜数千ファイル）での連続再構築によるCPU負荷を防ぐ。
+  // ─────────────────────────────────────────
+  private scheduleRebuild(delay = 400): void {
+    if (this.rebuildTimer !== null) {
+      clearTimeout(this.rebuildTimer);
+    }
+    this.rebuildTimer = setTimeout(async () => {
+      this.rebuildTimer = null;
+      await this.buildTermIndex();
+      this.updateSidebar();
+      this.refreshEditors();
+    }, delay);
   }
 
   // ─────────────────────────────────────────
@@ -155,9 +176,7 @@ export default class NovelsNoteJP extends Plugin {
       this.app.vault.on("modify", async file => {
         if (file instanceof TFile && file.extension === "md") {
           await this.waitForMetadata(file);
-          await this.buildTermIndex();
-          this.updateSidebar();
-          this.refreshEditors();
+          this.scheduleRebuild();
         }
       })
     );
@@ -165,17 +184,13 @@ export default class NovelsNoteJP extends Plugin {
       this.app.vault.on("create", async file => {
         if (file instanceof TFile && file.extension === "md") {
           await this.waitForMetadata(file);
-          await this.buildTermIndex();
-          this.updateSidebar();
-          this.refreshEditors();
+          this.scheduleRebuild();
         }
       })
     );
     this.registerEvent(
-      this.app.vault.on("delete", async () => {
-        await this.buildTermIndex();
-        this.updateSidebar();
-        this.refreshEditors();
+      this.app.vault.on("delete", () => {
+        this.scheduleRebuild();
       })
     );
     this.registerEvent(
@@ -183,16 +198,12 @@ export default class NovelsNoteJP extends Plugin {
         if (file instanceof TFile && file.extension === "md") {
           await this.waitForMetadata(file);
         }
-        await this.buildTermIndex();
-        this.updateSidebar();
-        this.refreshEditors();
+        this.scheduleRebuild();
       })
     );
     this.registerEvent(
-      this.app.metadataCache.on("changed", async () => {
-        await this.buildTermIndex();
-        this.updateSidebar();
-        this.refreshEditors();
+      this.app.metadataCache.on("changed", () => {
+        this.scheduleRebuild();
       })
     );
 

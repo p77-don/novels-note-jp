@@ -261,8 +261,9 @@ export function toVerticalHtml(
 
       // inner 内の <ruby>BASE<rt>RT</rt></ruby> を
       // <ruby><mark>BASE</mark><rt>RT</rt></ruby> へ組み替える
+      // （タグ境界に空白・改行が入る記法にも \s* で対応する）
       const rubyReplaced = inner.replace(
-        /<ruby>([\s\S]*?)<rt>([\s\S]*?)<\/rt><\/ruby>/g,
+        /<ruby>\s*([^<]+?)\s*<rt>\s*([^<]*?)\s*<\/rt>\s*<\/ruby>/g,
         (_, base, rt) =>
           `<ruby><mark class="nn-sel">${base}</mark><rt>${rt}</rt></ruby>`
       );

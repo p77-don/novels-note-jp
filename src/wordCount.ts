@@ -3,6 +3,7 @@
 // ─────────────────────────────────────────
 
 import { NovelsNoteSettings } from "./settings";
+import { stripHashtags } from "./hashtags";
 
 // ─────────────────────────────────────────
 // カウント結果
@@ -95,16 +96,10 @@ export function cleanNovelText(raw: string): string {
 // ─────────────────────────────────────────
 // #tag 除去（文字数カウントから #tag を除外する場合に使用）
 //
-// 1. タグだけの行はまるごと削除
-// 2. 文中の #タグ も削除（直後の空白1つも消費）
-// 3. 削除によって生じた連続空白を1つに圧縮
+// タグの判定ロジックは hashtags.ts に共通化されている
+// （Export・小説閲覧ビューと判定基準を統一するため）。
+// 判定後に残る連続空白の圧縮はこのファイル独自の処理として維持する。
 // ─────────────────────────────────────────
-function stripHashtags(text: string): string {
-  text = text.replace(/^[ \t\u3000]*#\S+[ \t\u3000]*$/gm, "");
-  text = text.replace(/#\S+[ \t\u3000]?/g, "");
-  text = text.replace(/[ \t\u3000]{2,}/g, " ");
-  return text;
-}
 
 // ─────────────────────────────────────────
 // 文字数カウント本体
@@ -141,6 +136,7 @@ export function countCharacters(
   // #tag を文字数に含めない場合（デフォルト）：#tag を除去
   if (!settings.countHashtags) {
     cleaned = stripHashtags(cleaned);
+    cleaned = cleaned.replace(/[ \t\u3000]{2,}/g, " ");
   }
 
   // 空行を除外する場合：空行（空白のみの行も含む）を除去

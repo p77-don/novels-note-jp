@@ -1482,6 +1482,13 @@ var NovelsNoteSettingTab = class extends import_obsidian3.PluginSettingTab {
   }
 };
 
+// src/hashtags.ts
+function stripHashtags(text) {
+  text = text.replace(/^[ \t\u3000]*#\S+[ \t\u3000]*$/gm, "");
+  text = text.replace(/(?<=^|\s)#\S+[ \t\u3000]?/gm, "");
+  return text;
+}
+
 // src/wordCount.ts
 function cleanNovelText(raw) {
   let text = raw;
@@ -1508,12 +1515,6 @@ function cleanNovelText(raw) {
   text = text.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
   return text;
 }
-function stripHashtags(text) {
-  text = text.replace(/^[ \t\u3000]*#\S+[ \t\u3000]*$/gm, "");
-  text = text.replace(/#\S+[ \t\u3000]?/g, "");
-  text = text.replace(/[ \t\u3000]{2,}/g, " ");
-  return text;
-}
 function charWidth(ch) {
   var _a;
   const code = (_a = ch.codePointAt(0)) != null ? _a : 0;
@@ -1527,6 +1528,7 @@ function countCharacters(text, settings) {
   let cleaned = cleanNovelText(text);
   if (!settings.countHashtags) {
     cleaned = stripHashtags(cleaned);
+    cleaned = cleaned.replace(/[ \t\u3000]{2,}/g, " ");
   }
   if (!settings.countEmptyLines) {
     cleaned = cleaned.replace(/^[ \t\u3000]*\n/gm, "");
@@ -1606,7 +1608,7 @@ function convertRubyStyle(text, sourceStyle, target) {
       );
     }
     case "html": {
-      const re = /<ruby>([^<]+)<rt>([^<]*)<\/rt><\/ruby>/g;
+      const re = /<ruby>\s*([^<]+?)\s*<rt>\s*([^<]*?)\s*<\/rt>\s*<\/ruby>/g;
       return text.replace(
         re,
         (_m, base, ruby) => rubyPairToStyle(base, ruby, target)
@@ -1623,8 +1625,7 @@ function exportText(source, opts) {
   text = text.replace(/^(>[ \t]*\[![\w-]+\][^\n]*\n(?:>[ \t]*[^\n]*\n?)*)/gm, "");
   text = text.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, "$2");
   text = text.replace(/\[\[([^\]]+)\]\]/g, "$1");
-  text = text.replace(/^[ \t\u3000]*#\S+[ \t\u3000]*$/gm, "");
-  text = text.replace(/#\S+[ \t\u3000]?/g, "");
+  text = stripHashtags(text);
   text = text.replace(/[ \t\u3000]{2,}/g, " ");
   text = text.replace(/^[ \t\u3000]+$/gm, "");
   text = text.replace(/^#{1,6}[ \t]+/gm, "");
@@ -1911,7 +1912,7 @@ function toVerticalHtml(source, rubyStyle, selectedText = "") {
       hlResult += cleaned.slice(pos, start);
       const inner = cleaned.slice(start + SEL_START.length, end);
       const rubyReplaced = inner.replace(
-        /<ruby>([\s\S]*?)<rt>([\s\S]*?)<\/rt><\/ruby>/g,
+        /<ruby>\s*([^<]+?)\s*<rt>\s*([^<]*?)\s*<\/rt>\s*<\/ruby>/g,
         (_, base, rt) => `<ruby><mark class="nn-sel">${base}</mark><rt>${rt}</rt></ruby>`
       );
       const parts2 = rubyReplaced.split(/(<ruby>[\s\S]*?<\/ruby>)/g);
@@ -2210,8 +2211,7 @@ function cleanSource(source) {
   text = text.replace(/^(>[ \t]*\[![\w-]+\][^\n]*\n(?:>[ \t]*[^\n]*\n?)*)/gm, "");
   text = text.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, "$2");
   text = text.replace(/\[\[([^\]]+)\]\]/g, "$1");
-  text = text.replace(/^[ \t\u3000]*#\S+[ \t\u3000]*$/gm, "");
-  text = text.replace(/#\S+[ \t\u3000]?/g, "");
+  text = stripHashtags(text);
   text = text.replace(/[ \t]{2,}/g, " ");
   text = text.replace(/^[ \t]+$/gm, "");
   text = text.replace(/^#{1,6}[ \t]+/gm, "");
@@ -2441,12 +2441,12 @@ var NovelsNoteJP = class extends import_obsidian7.Plugin {
     this.settings = DEFAULT_SETTINGS;
     this.styleEl = null;
     this.statusBarEl = null;
+    this.rebuildTimer = null;
   }
   // ─────────────────────────────────────────
   // ロード
   // ─────────────────────────────────────────
   async onload() {
-    console.log("Novels Note JP: loading...");
     await this.loadSettings();
     this.registerExtensions(["txt"], "markdown");
     this.registerView(
@@ -2524,12 +2524,34 @@ var NovelsNoteJP = class extends import_obsidian7.Plugin {
     });
     this.registerVaultEvents();
     this.initWordCount();
-    console.log("Novels Note JP: loaded.");
   }
   async onunload() {
+    if (this.rebuildTimer !== null) {
+      clearTimeout(this.rebuildTimer);
+      this.rebuildTimer = null;
+    }
     if (this.styleEl) this.styleEl.remove();
     if (this.statusBarEl) this.statusBarEl.remove();
-    console.log("Novels Note JP: unloaded.");
+  }
+  // ─────────────────────────────────────────
+  // 用語インデックス再構築のデバウンス
+  //
+  // modify / create / delete / rename / metadataCache.changed は
+  // 1回の保存操作でも複数回連続して発火することがあるため、
+  // 短時間に連続した呼び出しを1回にまとめてから
+  // buildTermIndex() / updateSidebar() / refreshEditors() を実行する。
+  // 大規模 Vault（数百〜数千ファイル）での連続再構築によるCPU負荷を防ぐ。
+  // ─────────────────────────────────────────
+  scheduleRebuild(delay = 400) {
+    if (this.rebuildTimer !== null) {
+      clearTimeout(this.rebuildTimer);
+    }
+    this.rebuildTimer = setTimeout(async () => {
+      this.rebuildTimer = null;
+      await this.buildTermIndex();
+      this.updateSidebar();
+      this.refreshEditors();
+    }, delay);
   }
   // ─────────────────────────────────────────
   // Vault イベント登録
@@ -2539,9 +2561,7 @@ var NovelsNoteJP = class extends import_obsidian7.Plugin {
       this.app.vault.on("modify", async (file) => {
         if (file instanceof import_obsidian7.TFile && file.extension === "md") {
           await this.waitForMetadata(file);
-          await this.buildTermIndex();
-          this.updateSidebar();
-          this.refreshEditors();
+          this.scheduleRebuild();
         }
       })
     );
@@ -2549,17 +2569,13 @@ var NovelsNoteJP = class extends import_obsidian7.Plugin {
       this.app.vault.on("create", async (file) => {
         if (file instanceof import_obsidian7.TFile && file.extension === "md") {
           await this.waitForMetadata(file);
-          await this.buildTermIndex();
-          this.updateSidebar();
-          this.refreshEditors();
+          this.scheduleRebuild();
         }
       })
     );
     this.registerEvent(
-      this.app.vault.on("delete", async () => {
-        await this.buildTermIndex();
-        this.updateSidebar();
-        this.refreshEditors();
+      this.app.vault.on("delete", () => {
+        this.scheduleRebuild();
       })
     );
     this.registerEvent(
@@ -2567,16 +2583,12 @@ var NovelsNoteJP = class extends import_obsidian7.Plugin {
         if (file instanceof import_obsidian7.TFile && file.extension === "md") {
           await this.waitForMetadata(file);
         }
-        await this.buildTermIndex();
-        this.updateSidebar();
-        this.refreshEditors();
+        this.scheduleRebuild();
       })
     );
     this.registerEvent(
-      this.app.metadataCache.on("changed", async () => {
-        await this.buildTermIndex();
-        this.updateSidebar();
-        this.refreshEditors();
+      this.app.metadataCache.on("changed", () => {
+        this.scheduleRebuild();
       })
     );
     this.registerEvent(
