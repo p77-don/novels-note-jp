@@ -79,10 +79,8 @@ Export the current note as clean manuscript text via a dedicated export dialog:
 
 ## Installation
 
-### From Community Plugins (Recommended)
-1. Open **Settings** → **Community plugins** → **Browse**
-2. Search for `Novels Note JP`
-3. Click **Install**, then **Enable**
+### From Community Plugins
+**This will not be distributed via the community plugin.**
 
 ### Manual Installation
 1. Download `main.js`, `manifest.json`, and `styles.css` from the [latest release](https://github.com/p77-don/novels-note-jp/releases)
@@ -252,10 +250,8 @@ WikiLink・タグ・本文以外のコンテンツを除去したクリーンな
 
 ## インストール
 
-### コミュニティプラグインから（推奨）
-1. **設定** → **コミュニティプラグイン** → **閲覧** を開く
-2. **Novels Note JP** を検索
-3. **インストール** → **有効化**
+### コミュニティプラグイン
+**コミュニティプラグインからの配布予定はありません。**
 
 ### 手動インストール
 1. [最新リリース](https://github.com/p77-don/novels-note-jp/releases)から `main.js`、`manifest.json`、`styles.css` をダウンロード
