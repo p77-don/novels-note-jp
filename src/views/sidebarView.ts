@@ -4,8 +4,8 @@
 // ─────────────────────────────────────────
 
 import { ItemView, WorkspaceLeaf, TFile, Plugin, Notice, Modal, Menu, App } from "obsidian";
-import { SIDEBAR_VIEW_TYPE, TermEntry, TERM_DRAG_MIME_TYPE } from "./types";
-import { TagDefinition } from "./settings";
+import { SIDEBAR_VIEW_TYPE, TermEntry, TERM_DRAG_MIME_TYPE } from "../types";
+import { TagDefinition } from "../settings";
 
 // ─────────────────────────────────────────
 // ツリーノード型
@@ -364,26 +364,27 @@ export class NovelsNoteSidebarView extends ItemView {
     body.empty();
 
     const query = this.searchQuery;
-    let totalVisible = 0;
+
+    // 検索中に表示するカテゴリが 1 つもなかった場合のフラグ
+    let anyVisibleInSearch = false;
 
     for (const td of this.tagDefs) {
       const tagTerms = this.terms.filter(t => t.tag === td.tag);
-      if (tagTerms.length === 0) continue;
 
       // ツリー構築
       let tree = buildFolderTree(tagTerms);
       sortTree(tree);
 
-      // 検索フィルタ
+      // 検索フィルタ：検索中はヒットしたカテゴリのみ表示
+      let visible = countTerms(tree);
       if (query !== "") {
         const filtered = filterTree(tree, query);
         if (!filtered) continue;
         tree = filtered;
+        visible = countTerms(tree);
+        if (visible === 0) continue;
+        anyVisibleInSearch = true;
       }
-
-      const visible = countTerms(tree);
-      if (visible === 0) continue;
-      totalVisible += visible;
 
       // カテゴリセクションヘッダー
       const sectionKey = `tag::${td.tag}`;
@@ -403,16 +404,20 @@ export class NovelsNoteSidebarView extends ItemView {
         text: td.label,
         cls: `nn-section-label novel-hl-${td.tag}`,
       });
-      sectionHeader.createEl("span", {
-        text: String(visible),
-        cls: "nn-count",
-      });
+      // 用語が 1 件以上あるときだけカウントバッジを表示
+      if (visible > 0) {
+        sectionHeader.createEl("span", {
+          text: String(visible),
+          cls: "nn-count",
+        });
+      }
 
       const sectionBody = section.createEl("div", {
         cls: "nn-section-body",
       });
       sectionBody.style.display = isTagOpen ? "" : "none";
 
+      // クリック：開閉
       sectionHeader.addEventListener("click", () => {
         const next = !(this.openState.get(sectionKey) ?? false);
         this.openState.set(sectionKey, next);
@@ -420,16 +425,29 @@ export class NovelsNoteSidebarView extends ItemView {
         sectionBody.style.display = next ? "" : "none";
       });
 
+      // 右クリック：カテゴリコンテキストメニュー
+      sectionHeader.addEventListener("contextmenu", (e: MouseEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this.showCategoryContextMenu(e, td);
+      });
+
       // ツリー描画（ルート直下の用語 → サブフォルダ）
-      this.renderFolderNode(sectionBody, tree, td, query !== "");
+      if (visible > 0) {
+        this.renderFolderNode(sectionBody, tree, td, query !== "");
+      } else {
+        // 用語 0 件のカテゴリには案内テキストを表示
+        sectionBody.createEl("p", {
+          text: "用語ノートがありません。右クリックで新規作成できます。",
+          cls: "nn-empty nn-empty-hint",
+        });
+      }
     }
 
-    if (totalVisible === 0) {
+    // 検索中に何もヒットしなかった場合のみ「見つかりません」を表示
+    if (query !== "" && !anyVisibleInSearch) {
       body.createEl("p", {
-        text:
-          query !== ""
-            ? `「${query}」は見つかりませんでした。`
-            : "カテゴリが設定された用語ノートを作成してください。",
+        text: `「${query}」は見つかりませんでした。`,
         cls: "nn-empty",
       });
     }
@@ -596,6 +614,33 @@ export class NovelsNoteSidebarView extends ItemView {
       this.dragTerm = null;
       row.removeClass("nn-dragging");
     });
+  }
+
+  // ─────────────────────────────────────────
+  // 右クリックメニュー（カテゴリヘッダー）
+  // ─────────────────────────────────────────
+  private showCategoryContextMenu(e: MouseEvent, td: TagDefinition): void {
+    const menu = new Menu();
+
+    menu.addItem(item => {
+      item
+        .setTitle("用語ノートを新規作成する")
+        .setIcon("file-plus")
+        .onClick(() => {
+          // フォルダパスは空文字（Vault ルート）で作成ダイアログを開く
+          new CreateTermModal(
+            this.app,
+            "",
+            td.tag,
+            td.label,
+            async (termName: string) => {
+              await this.createTermNote(termName, "", td.tag);
+            }
+          ).open();
+        });
+    });
+
+    menu.showAtMouseEvent(e);
   }
 
   // ─────────────────────────────────────────

@@ -3,7 +3,7 @@
 // ─────────────────────────────────────────
 
 import { App, Modal, Setting, TFile, Notice, normalizePath } from "obsidian";
-import { RubyStyle } from "./settings";
+import { RubyStyle } from "../settings";
 import {
   ExportOptions,
   DEFAULT_EXPORT_OPTIONS,

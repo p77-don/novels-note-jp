@@ -3,8 +3,8 @@
 // ─────────────────────────────────────────
 
 import { ItemView, WorkspaceLeaf, MarkdownView, TFile } from "obsidian";
-import { VERTICAL_VIEW_TYPE } from "./types";
-import { RubyStyle } from "./settings";
+import { VERTICAL_VIEW_TYPE } from "../types";
+import { RubyStyle } from "../settings";
 
 // ─────────────────────────────────────────
 // ルビ変換

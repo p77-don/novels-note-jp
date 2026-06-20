@@ -9,10 +9,13 @@ import {
   Decoration,
   ViewUpdate,
 } from "@codemirror/view";
+
+// ルビ表示 Extension（別ファイルで定義）
+export { buildRubyExtension } from "./rubyWidget";
 import { RangeSetBuilder, Prec } from "@codemirror/state";
 import { App, MarkdownView, TFile } from "obsidian";
-import { NovelsNoteSettings } from "./settings";
-import { TermEntry, settingsEffect, novelModeField, TERM_DRAG_MIME_TYPE } from "./types";
+import { NovelsNoteSettings } from "../settings";
+import { TermEntry, settingsEffect, novelModeField, TERM_DRAG_MIME_TYPE } from "../types";
 import { parseBrackets } from "./bracketParser";
 
 // ─────────────────────────────────────────

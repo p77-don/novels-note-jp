@@ -14,11 +14,11 @@
 // ─────────────────────────────────────────
 
 import { ItemView, WorkspaceLeaf, TFile } from "obsidian";
-import { NOVEL_READING_VIEW_TYPE } from "./types";
-import { RubyStyle } from "./settings";
+import { NOVEL_READING_VIEW_TYPE } from "../types";
+import { RubyStyle } from "../settings";
 import { convertRuby } from "./verticalPreview";
-import { ExportModal } from "./exportModal";
-import { stripHashtags } from "./hashtags";
+import { ExportModal } from "../export/exportModal";
+import { stripHashtags } from "../core/hashtags";
 
 // ─────────────────────────────────────────
 // Frontmatter 除去

@@ -26,8 +26,8 @@ __export(main_exports, {
   default: () => NovelsNoteJP
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian7 = require("obsidian");
-var import_view2 = require("@codemirror/view");
+var import_obsidian8 = require("obsidian");
+var import_view3 = require("@codemirror/view");
 
 // src/settings.ts
 var DEFAULT_TAG_DEFINITIONS = [
@@ -92,12 +92,168 @@ var novelModeField = import_state.StateField.define({
 });
 var TERM_DRAG_MIME_TYPE = "application/x-novels-note-term";
 
-// src/extensions.ts
+// src/editor/extensions.ts
+var import_view2 = require("@codemirror/view");
+
+// src/editor/rubyWidget.ts
 var import_view = require("@codemirror/view");
 var import_state2 = require("@codemirror/state");
+var RubyWidget = class extends import_view.WidgetType {
+  constructor(base, ruby) {
+    super();
+    this.base = base;
+    this.ruby = ruby;
+  }
+  eq(other) {
+    return this.base === other.base && this.ruby === other.ruby;
+  }
+  toDOM() {
+    const rubyEl = document.createElement("ruby");
+    rubyEl.className = "nn-editor-ruby";
+    rubyEl.appendChild(document.createTextNode(this.base));
+    const rt = document.createElement("rt");
+    rt.textContent = this.ruby;
+    rubyEl.appendChild(rt);
+    return rubyEl;
+  }
+  ignoreEvent() {
+    return false;
+  }
+};
+var CJK = "\u3005\u4E00-\u9FFF\u3400-\u4DBF\uF900-\uFAFF";
+function findRubyMatches(text, style) {
+  const matches = [];
+  switch (style) {
+    case "narou":
+    case "aozora": {
+      const re = new RegExp(
+        "[|\uFF5C]([^\u300A\n]+)\u300A([^\u300B\n]*)\u300B|([" + CJK + "]+)\u300A([^\u300B\n]*)\u300B",
+        "g"
+      );
+      let m;
+      while ((m = re.exec(text)) !== null) {
+        const hasBar = m[1] !== void 0;
+        const base = hasBar ? m[1] : m[3];
+        const ruby = hasBar ? m[2] : m[4];
+        const from = m.index;
+        const to = from + m[0].length;
+        const baseFrom = hasBar ? from + 1 : from;
+        const baseTo = baseFrom + base.length;
+        matches.push({ from, to, baseFrom, baseTo, base, ruby });
+      }
+      break;
+    }
+    case "denden": {
+      const re = /\{([^|\n]+)\|([^}\n]+)\}/g;
+      let m;
+      while ((m = re.exec(text)) !== null) {
+        const base = m[1];
+        const ruby = m[2];
+        const from = m.index;
+        const to = from + m[0].length;
+        const baseFrom = from + 1;
+        const baseTo = baseFrom + base.length;
+        matches.push({ from, to, baseFrom, baseTo, base, ruby });
+      }
+      break;
+    }
+    case "html": {
+      const re = /<ruby>\s*([^<]+?)\s*<rt>\s*([^<]*?)\s*<\/rt>\s*<\/ruby>/g;
+      let m;
+      while ((m = re.exec(text)) !== null) {
+        const base = m[1];
+        const ruby = m[2];
+        const from = m.index;
+        const to = from + m[0].length;
+        const baseFrom = from + 6;
+        const baseTo = baseFrom + base.length;
+        matches.push({ from, to, baseFrom, baseTo, base, ruby });
+      }
+      break;
+    }
+  }
+  return matches;
+}
+function buildRubyExtension(getSettings) {
+  return import_view.ViewPlugin.fromClass(
+    class {
+      constructor(view) {
+        this.decorations = this.build(view);
+      }
+      update(update) {
+        if (update.docChanged || update.viewportChanged || update.selectionSet || update.transactions.some(
+          (tr) => tr.effects.some((e) => e.is(settingsEffect))
+        )) {
+          this.decorations = this.build(update.view);
+        }
+      }
+      build(view) {
+        const builder = new import_state2.RangeSetBuilder();
+        if (!view.state.field(novelModeField, false)) return builder.finish();
+        const settings = getSettings();
+        const style = settings.rubyStyle;
+        const cursorPositions = /* @__PURE__ */ new Set();
+        const ranges = [];
+        for (const range of view.state.selection.ranges) {
+          if (range.from !== range.to) {
+            ranges.push({ from: range.from, to: range.to });
+          }
+          cursorPositions.add(range.head);
+          cursorPositions.add(range.anchor);
+        }
+        const docText = view.state.doc.toString();
+        const allMatches = [];
+        for (const { from: vFrom, to: vTo } of view.visibleRanges) {
+          const scanFrom = Math.max(0, vFrom - 200);
+          const scanTo = Math.min(docText.length, vTo + 200);
+          const slice = docText.slice(scanFrom, scanTo);
+          const sliceMatches = findRubyMatches(slice, style);
+          for (const m of sliceMatches) {
+            allMatches.push({
+              from: m.from + scanFrom,
+              to: m.to + scanFrom,
+              baseFrom: m.baseFrom + scanFrom,
+              baseTo: m.baseTo + scanFrom,
+              base: m.base,
+              ruby: m.ruby
+            });
+          }
+        }
+        const seen = /* @__PURE__ */ new Set();
+        const unique = allMatches.filter((m) => {
+          if (seen.has(m.from)) return false;
+          seen.add(m.from);
+          return true;
+        });
+        unique.sort((a, b) => a.from - b.from);
+        for (const m of unique) {
+          const cursorTouches = (
+            // 点カーソル
+            [...cursorPositions].some((p) => p >= m.from && p <= m.to) || // 範囲選択が構文全体にオーバーラップ
+            ranges.some((r) => r.from < m.to && r.to > m.from)
+          );
+          if (cursorTouches) continue;
+          builder.add(
+            m.from,
+            m.to,
+            import_view.Decoration.replace({
+              widget: new RubyWidget(m.base, m.ruby),
+              inclusive: false
+            })
+          );
+        }
+        return builder.finish();
+      }
+    },
+    { decorations: (v) => v.decorations }
+  );
+}
+
+// src/editor/extensions.ts
+var import_state3 = require("@codemirror/state");
 var import_obsidian = require("obsidian");
 
-// src/bracketParser.ts
+// src/editor/bracketParser.ts
 function parseBrackets(docText, enabledBrackets) {
   const results = [];
   if (enabledBrackets.length === 0) return results;
@@ -141,10 +297,10 @@ function parseBrackets(docText, enabledBrackets) {
   return results;
 }
 
-// src/extensions.ts
+// src/editor/extensions.ts
 function buildBracketExtension(getSettings) {
-  return import_state2.Prec.lowest(
-    import_view.ViewPlugin.fromClass(
+  return import_state3.Prec.lowest(
+    import_view2.ViewPlugin.fromClass(
       class {
         constructor(view) {
           this.decorations = this.build(view);
@@ -155,7 +311,7 @@ function buildBracketExtension(getSettings) {
           }
         }
         build(view) {
-          const builder = new import_state2.RangeSetBuilder();
+          const builder = new import_state3.RangeSetBuilder();
           if (!view.state.field(novelModeField, false)) return builder.finish();
           const settings = getSettings();
           if (!settings.highlightEnabled) return builder.finish();
@@ -168,7 +324,7 @@ function buildBracketExtension(getSettings) {
             builder.add(
               m.start,
               m.end,
-              import_view.Decoration.mark({
+              import_view2.Decoration.mark({
                 class: `novel-bracket-${m.id}`,
                 inclusive: true
               })
@@ -182,8 +338,8 @@ function buildBracketExtension(getSettings) {
   );
 }
 function buildTermExtension(getTerms, getSettings) {
-  return import_state2.Prec.highest(
-    import_view.ViewPlugin.fromClass(
+  return import_state3.Prec.highest(
+    import_view2.ViewPlugin.fromClass(
       class {
         constructor(view) {
           this.decorations = this.build(view);
@@ -194,7 +350,7 @@ function buildTermExtension(getTerms, getSettings) {
           }
         }
         build(view) {
-          const builder = new import_state2.RangeSetBuilder();
+          const builder = new import_state3.RangeSetBuilder();
           if (!view.state.field(novelModeField, false)) return builder.finish();
           const settings = getSettings();
           if (!settings.highlightEnabled) return builder.finish();
@@ -240,7 +396,7 @@ function buildTermExtension(getTerms, getSettings) {
           }
           matches.sort((a, b) => a.start - b.start);
           for (const m of matches) {
-            builder.add(m.start, m.end, import_view.Decoration.mark({
+            builder.add(m.start, m.end, import_view2.Decoration.mark({
               class: m.cssClass,
               inclusive: false
             }));
@@ -253,7 +409,7 @@ function buildTermExtension(getTerms, getSettings) {
   );
 }
 function buildRulerExtension(getSettings) {
-  return import_view.ViewPlugin.fromClass(
+  return import_view2.ViewPlugin.fromClass(
     class {
       constructor(view) {
         this.decorations = this.build(view);
@@ -264,7 +420,7 @@ function buildRulerExtension(getSettings) {
         }
       }
       build(view) {
-        const builder = new import_state2.RangeSetBuilder();
+        const builder = new import_state3.RangeSetBuilder();
         if (!view.state.field(novelModeField, false)) return builder.finish();
         const settings = getSettings();
         if (!settings.showRuler) return builder.finish();
@@ -275,7 +431,7 @@ function buildRulerExtension(getSettings) {
             builder.add(
               line.from,
               line.from,
-              import_view.Decoration.line({ attributes: { class: "novel-ruler-line" } })
+              import_view2.Decoration.line({ attributes: { class: "novel-ruler-line" } })
             );
             if (line.to >= to) break;
             pos = line.to + 1;
@@ -288,7 +444,7 @@ function buildRulerExtension(getSettings) {
   );
 }
 function buildFullWidthSpaceExtension(getSettings) {
-  return import_view.ViewPlugin.fromClass(
+  return import_view2.ViewPlugin.fromClass(
     class {
       constructor(view) {
         this.decorations = this.build(view);
@@ -299,7 +455,7 @@ function buildFullWidthSpaceExtension(getSettings) {
         }
       }
       build(view) {
-        const builder = new import_state2.RangeSetBuilder();
+        const builder = new import_state3.RangeSetBuilder();
         if (!view.state.field(novelModeField, false)) return builder.finish();
         const settings = getSettings();
         if (!settings.showFullWidthSpace || settings.fullWidthSpaceStyle === "none") {
@@ -317,7 +473,7 @@ function buildFullWidthSpaceExtension(getSettings) {
             builder.add(
               idx,
               idx + 1,
-              import_view.Decoration.mark({ class: styleClass, inclusive: false })
+              import_view2.Decoration.mark({ class: styleClass, inclusive: false })
             );
             pos = idx + 1;
           }
@@ -329,7 +485,7 @@ function buildFullWidthSpaceExtension(getSettings) {
   );
 }
 function buildTermDropExtension(app) {
-  return import_view.EditorView.domEventHandlers({
+  return import_view2.EditorView.domEventHandlers({
     dragover(event, _view) {
       var _a;
       if (!((_a = event.dataTransfer) == null ? void 0 : _a.types.includes(TERM_DRAG_MIME_TYPE))) return false;
@@ -377,7 +533,7 @@ function buildTermDropExtension(app) {
   });
 }
 
-// src/sidebarView.ts
+// src/views/sidebarView.ts
 var import_obsidian2 = require("obsidian");
 var CreateTermModal = class extends import_obsidian2.Modal {
   constructor(app, folderPath, tag, tagLabel, onSubmit) {
@@ -633,20 +789,20 @@ var NovelsNoteSidebarView = class extends import_obsidian2.ItemView {
     var _a;
     body.empty();
     const query = this.searchQuery;
-    let totalVisible = 0;
+    let anyVisibleInSearch = false;
     for (const td of this.tagDefs) {
       const tagTerms = this.terms.filter((t) => t.tag === td.tag);
-      if (tagTerms.length === 0) continue;
       let tree = buildFolderTree(tagTerms);
       sortTree(tree);
+      let visible = countTerms(tree);
       if (query !== "") {
         const filtered = filterTree(tree, query);
         if (!filtered) continue;
         tree = filtered;
+        visible = countTerms(tree);
+        if (visible === 0) continue;
+        anyVisibleInSearch = true;
       }
-      const visible = countTerms(tree);
-      if (visible === 0) continue;
-      totalVisible += visible;
       const sectionKey = `tag::${td.tag}`;
       if (!this.openState.has(sectionKey)) {
         this.openState.set(sectionKey, false);
@@ -662,10 +818,12 @@ var NovelsNoteSidebarView = class extends import_obsidian2.ItemView {
         text: td.label,
         cls: `nn-section-label novel-hl-${td.tag}`
       });
-      sectionHeader.createEl("span", {
-        text: String(visible),
-        cls: "nn-count"
-      });
+      if (visible > 0) {
+        sectionHeader.createEl("span", {
+          text: String(visible),
+          cls: "nn-count"
+        });
+      }
       const sectionBody = section.createEl("div", {
         cls: "nn-section-body"
       });
@@ -677,11 +835,23 @@ var NovelsNoteSidebarView = class extends import_obsidian2.ItemView {
         arrow.classList.toggle("nn-arrow-open", next);
         sectionBody.style.display = next ? "" : "none";
       });
-      this.renderFolderNode(sectionBody, tree, td, query !== "");
+      sectionHeader.addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this.showCategoryContextMenu(e, td);
+      });
+      if (visible > 0) {
+        this.renderFolderNode(sectionBody, tree, td, query !== "");
+      } else {
+        sectionBody.createEl("p", {
+          text: "\u7528\u8A9E\u30CE\u30FC\u30C8\u304C\u3042\u308A\u307E\u305B\u3093\u3002\u53F3\u30AF\u30EA\u30C3\u30AF\u3067\u65B0\u898F\u4F5C\u6210\u3067\u304D\u307E\u3059\u3002",
+          cls: "nn-empty nn-empty-hint"
+        });
+      }
     }
-    if (totalVisible === 0) {
+    if (query !== "" && !anyVisibleInSearch) {
       body.createEl("p", {
-        text: query !== "" ? `\u300C${query}\u300D\u306F\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3067\u3057\u305F\u3002` : "\u30AB\u30C6\u30B4\u30EA\u304C\u8A2D\u5B9A\u3055\u308C\u305F\u7528\u8A9E\u30CE\u30FC\u30C8\u3092\u4F5C\u6210\u3057\u3066\u304F\u3060\u3055\u3044\u3002",
+        text: `\u300C${query}\u300D\u306F\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3067\u3057\u305F\u3002`,
         cls: "nn-empty"
       });
     }
@@ -806,6 +976,26 @@ var NovelsNoteSidebarView = class extends import_obsidian2.ItemView {
       this.dragTerm = null;
       row.removeClass("nn-dragging");
     });
+  }
+  // ─────────────────────────────────────────
+  // 右クリックメニュー（カテゴリヘッダー）
+  // ─────────────────────────────────────────
+  showCategoryContextMenu(e, td) {
+    const menu = new import_obsidian2.Menu();
+    menu.addItem((item) => {
+      item.setTitle("\u7528\u8A9E\u30CE\u30FC\u30C8\u3092\u65B0\u898F\u4F5C\u6210\u3059\u308B").setIcon("file-plus").onClick(() => {
+        new CreateTermModal(
+          this.app,
+          "",
+          td.tag,
+          td.label,
+          async (termName) => {
+            await this.createTermNote(termName, "", td.tag);
+          }
+        ).open();
+      });
+    });
+    menu.showAtMouseEvent(e);
   }
   // ─────────────────────────────────────────
   // 右クリックメニュー（フォルダ）
@@ -934,7 +1124,7 @@ tags:
   }
 };
 
-// src/settingTab.ts
+// src/core/settingTab.ts
 var import_obsidian3 = require("obsidian");
 var NovelsNoteSettingTab = class extends import_obsidian3.PluginSettingTab {
   constructor(app, plugin) {
@@ -1482,14 +1672,14 @@ var NovelsNoteSettingTab = class extends import_obsidian3.PluginSettingTab {
   }
 };
 
-// src/hashtags.ts
+// src/core/hashtags.ts
 function stripHashtags(text) {
   text = text.replace(/^[ \t\u3000]*#\S+[ \t\u3000]*$/gm, "");
   text = text.replace(/(?<=^|\s)#\S+[ \t\u3000]?/gm, "");
   return text;
 }
 
-// src/wordCount.ts
+// src/core/wordCount.ts
 function cleanNovelText(raw) {
   let text = raw;
   text = text.replace(/^---[\s\S]*?^---\s*\n?/m, "");
@@ -1558,10 +1748,10 @@ function formatCount(result, mode) {
   }
 }
 
-// src/exportModal.ts
+// src/export/exportModal.ts
 var import_obsidian4 = require("obsidian");
 
-// src/exporter.ts
+// src/export/exporter.ts
 var DEFAULT_EXPORT_OPTIONS = {
   format: "txt",
   removeBlankLines: true,
@@ -1586,12 +1776,12 @@ function rubyPairToStyle(base, ruby, target) {
 }
 function convertRubyStyle(text, sourceStyle, target) {
   if (target === "none") return text;
-  const CJK = "\u3005\u4E00-\u9FFF\u3400-\u4DBF\uF900-\uFAFF";
+  const CJK2 = "\u3005\u4E00-\u9FFF\u3400-\u4DBF\uF900-\uFAFF";
   switch (sourceStyle) {
     case "narou":
     case "aozora": {
       const re = new RegExp(
-        "[|\uFF5C]([^\u300A\\n]+)\u300A([^\u300B\\n]*)\u300B|([" + CJK + "]+)\u300A([^\u300B\\n]*)\u300B",
+        "[|\uFF5C]([^\u300A\\n]+)\u300A([^\u300B\\n]*)\u300B|([" + CJK2 + "]+)\u300A([^\u300B\\n]*)\u300B",
         "g"
       );
       return text.replace(re, (_m, b1, r1, b2, r2) => {
@@ -1655,7 +1845,7 @@ function makeExportFilename(originalName, format) {
   return `${base}_export.${format}`;
 }
 
-// src/exportModal.ts
+// src/export/exportModal.ts
 var ExportModal = class extends import_obsidian4.Modal {
   constructor(app, activeFile, rubyStyle) {
     super(app);
@@ -1782,7 +1972,7 @@ var ExportModal = class extends import_obsidian4.Modal {
   }
 };
 
-// src/verticalPreview.ts
+// src/views/verticalPreview.ts
 var import_obsidian5 = require("obsidian");
 function convertRuby(text, style) {
   switch (style) {
@@ -2200,7 +2390,7 @@ var _VerticalPreviewView = class _VerticalPreviewView extends import_obsidian5.I
 _VerticalPreviewView.PUNCTUATION_MARGIN_EM = 0.5;
 var VerticalPreviewView = _VerticalPreviewView;
 
-// src/novelReadingView.ts
+// src/views/novelReadingView.ts
 var import_obsidian6 = require("obsidian");
 function stripFrontmatter(source) {
   return source.replace(/^---[ \t]*\n[\s\S]*?\n---[ \t]*\n?/, "");
@@ -2433,8 +2623,111 @@ var _NovelReadingView = class _NovelReadingView extends import_obsidian6.ItemVie
 _NovelReadingView.WRAP_MARGIN_EM = 1.2;
 var NovelReadingView = _NovelReadingView;
 
+// src/editor/rubyInserter.ts
+var import_obsidian7 = require("obsidian");
+function buildRubyText(base, ruby, style) {
+  switch (style) {
+    case "narou":
+      return `|${base}\u300A${ruby}\u300B`;
+    case "aozora":
+      return `\uFF5C${base}\u300A${ruby}\u300B`;
+    case "denden":
+      return `{${base}|${ruby}}`;
+    case "html":
+      return `<ruby>${base}<rt>${ruby}</rt></ruby>`;
+  }
+}
+function buildBoutenText(selected, style) {
+  return Array.from(selected).map((ch) => buildRubyText(ch, "\u30FB", style)).join("");
+}
+var RubyInputModal = class extends import_obsidian7.Modal {
+  constructor(app, baseText, style, onSubmit) {
+    super(app);
+    this.baseText = baseText;
+    this.style = style;
+    this.onSubmit = onSubmit;
+  }
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.addClass("nn-ruby-modal");
+    contentEl.createEl("h3", { text: "\u30EB\u30D3\u3092\u632F\u308B", cls: "nn-modal-title" });
+    const infoEl = contentEl.createEl("div", { cls: "nn-modal-info" });
+    infoEl.createEl("span", { text: "\u89AA\u6587\u5B57\uFF1A", cls: "nn-modal-label" });
+    infoEl.createEl("span", { text: this.baseText, cls: "nn-modal-value nn-ruby-base-preview" });
+    const inputWrap = contentEl.createEl("div", { cls: "nn-modal-input-wrap" });
+    inputWrap.createEl("label", { text: "\u30EB\u30D3\uFF08\u8AAD\u307F\u4EEE\u540D\uFF09", cls: "nn-modal-field-label" });
+    const input = inputWrap.createEl("input", {
+      type: "text",
+      placeholder: "\u3075\u308A\u304C\u306A\u3092\u5165\u529B",
+      cls: "nn-modal-input"
+    });
+    const previewWrap = contentEl.createEl("div", { cls: "nn-ruby-preview-wrap" });
+    previewWrap.createEl("span", { text: "\u30D7\u30EC\u30D3\u30E5\u30FC\uFF1A", cls: "nn-modal-label" });
+    const preview = previewWrap.createEl("ruby", { cls: "nn-ruby-preview" });
+    preview.appendChild(document.createTextNode(this.baseText));
+    const rt = preview.createEl("rt");
+    rt.textContent = "";
+    input.addEventListener("input", () => {
+      rt.textContent = input.value;
+    });
+    const btnRow = contentEl.createEl("div", { cls: "nn-modal-btn-row" });
+    const cancelBtn = btnRow.createEl("button", {
+      text: "\u30AD\u30E3\u30F3\u30BB\u30EB",
+      cls: "nn-modal-btn nn-modal-btn-cancel"
+    });
+    const insertBtn = btnRow.createEl("button", {
+      text: "\u633F\u5165",
+      cls: "nn-modal-btn nn-modal-btn-create"
+    });
+    const submit = () => {
+      const ruby = input.value.trim();
+      if (!ruby) {
+        input.addClass("nn-modal-input-error");
+        input.focus();
+        return;
+      }
+      this.close();
+      this.onSubmit(buildRubyText(this.baseText, ruby, this.style));
+    };
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") submit();
+      if (e.key === "Escape") this.close();
+    });
+    cancelBtn.addEventListener("click", () => this.close());
+    insertBtn.addEventListener("click", submit);
+    this.focusTimer = setTimeout(() => input.focus(), 50);
+  }
+  onClose() {
+    if (this.focusTimer !== void 0) clearTimeout(this.focusTimer);
+    this.contentEl.empty();
+  }
+};
+function onEditorMenuForRuby(app, getSettings, menu, editor, _info) {
+  const selected = editor.getSelection();
+  if (!selected || selected.length === 0) return;
+  menu.addSeparator();
+  menu.addItem((item) => {
+    item.setTitle("\u30EB\u30D3\u3092\u632F\u308B").setIcon("text-cursor-input").onClick(() => {
+      const settings = getSettings();
+      new RubyInputModal(app, selected, settings.rubyStyle, (rubyText) => {
+        editor.replaceSelection(rubyText);
+        new import_obsidian7.Notice(`\u30EB\u30D3\u3092\u633F\u5165\u3057\u307E\u3057\u305F\u3002`);
+      }).open();
+    });
+  });
+  menu.addItem((item) => {
+    item.setTitle("\u508D\u70B9\u3092\u632F\u308B").setIcon("dot").onClick(() => {
+      const settings = getSettings();
+      const boutenText = buildBoutenText(selected, settings.rubyStyle);
+      editor.replaceSelection(boutenText);
+      new import_obsidian7.Notice(`\u508D\u70B9\u3092\u633F\u5165\u3057\u307E\u3057\u305F\u3002`);
+    });
+  });
+}
+
 // src/main.ts
-var NovelsNoteJP = class extends import_obsidian7.Plugin {
+var NovelsNoteJP = class extends import_obsidian8.Plugin {
   constructor() {
     super(...arguments);
     this.terms = [];
@@ -2497,7 +2790,7 @@ var NovelsNoteJP = class extends import_obsidian7.Plugin {
     this.registerVerticalPreviewCommand();
     this.registerNovelReadingViewCommand();
     this.registerEditorExtension(novelModeField);
-    this.registerEditorExtension(import_view2.EditorView.lineWrapping);
+    this.registerEditorExtension(import_view3.EditorView.lineWrapping);
     this.registerEditorExtension(
       buildBracketExtension(() => this.settings)
     );
@@ -2515,6 +2808,15 @@ var NovelsNoteJP = class extends import_obsidian7.Plugin {
     );
     this.registerEditorExtension(
       buildTermDropExtension(this.app)
+    );
+    this.registerEditorExtension(
+      buildRubyExtension(() => this.settings)
+    );
+    this.registerEvent(
+      this.app.workspace.on("editor-menu", (menu, editor, info) => {
+        if (!(info instanceof import_obsidian8.MarkdownView)) return;
+        onEditorMenuForRuby(this.app, () => this.settings, menu, editor, info);
+      })
     );
     this.applyEditorStyles();
     this.app.workspace.onLayoutReady(async () => {
@@ -2559,7 +2861,7 @@ var NovelsNoteJP = class extends import_obsidian7.Plugin {
   registerVaultEvents() {
     this.registerEvent(
       this.app.vault.on("modify", async (file) => {
-        if (file instanceof import_obsidian7.TFile && file.extension === "md") {
+        if (file instanceof import_obsidian8.TFile && file.extension === "md") {
           await this.waitForMetadata(file);
           this.scheduleRebuild();
         }
@@ -2567,7 +2869,7 @@ var NovelsNoteJP = class extends import_obsidian7.Plugin {
     );
     this.registerEvent(
       this.app.vault.on("create", async (file) => {
-        if (file instanceof import_obsidian7.TFile && file.extension === "md") {
+        if (file instanceof import_obsidian8.TFile && file.extension === "md") {
           await this.waitForMetadata(file);
           this.scheduleRebuild();
         }
@@ -2580,7 +2882,7 @@ var NovelsNoteJP = class extends import_obsidian7.Plugin {
     );
     this.registerEvent(
       this.app.vault.on("rename", async (file) => {
-        if (file instanceof import_obsidian7.TFile && file.extension === "md") {
+        if (file instanceof import_obsidian8.TFile && file.extension === "md") {
           await this.waitForMetadata(file);
         }
         this.scheduleRebuild();
@@ -2790,7 +3092,7 @@ var NovelsNoteJP = class extends import_obsidian7.Plugin {
     this.app.workspace.iterateAllLeaves((leaf) => {
       var _a;
       const view = leaf.view;
-      if (view instanceof import_obsidian7.MarkdownView) {
+      if (view instanceof import_obsidian8.MarkdownView) {
         const file = (_a = view.file) != null ? _a : null;
         const isNovel = this.isNovelModeFile(file);
         const cm = view.editor.cm;
@@ -2845,7 +3147,7 @@ var NovelsNoteJP = class extends import_obsidian7.Plugin {
    */
   updateWordCount() {
     if (!this.statusBarEl) return;
-    const view = this.app.workspace.getActiveViewOfType(import_obsidian7.MarkdownView);
+    const view = this.app.workspace.getActiveViewOfType(import_obsidian8.MarkdownView);
     if (!view) {
       this.statusBarEl.setText("\u2014");
       return;
@@ -2925,7 +3227,7 @@ var NovelsNoteJP = class extends import_obsidian7.Plugin {
       name: "\u73FE\u5728\u306E\u30D5\u30A1\u30A4\u30EB\u3092\u539F\u7A3F Export \u3059\u308B",
       callback: () => {
         let file = null;
-        const mdView = this.app.workspace.getActiveViewOfType(import_obsidian7.MarkdownView);
+        const mdView = this.app.workspace.getActiveViewOfType(import_obsidian8.MarkdownView);
         if (mdView == null ? void 0 : mdView.file) {
           file = mdView.file;
         }
@@ -2936,7 +3238,7 @@ var NovelsNoteJP = class extends import_obsidian7.Plugin {
           }
         }
         if (!file) {
-          new import_obsidian7.Notice("\u30A8\u30AF\u30B9\u30DD\u30FC\u30C8\u5BFE\u8C61\u306E\u30D5\u30A1\u30A4\u30EB\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3002");
+          new import_obsidian8.Notice("\u30A8\u30AF\u30B9\u30DD\u30FC\u30C8\u5BFE\u8C61\u306E\u30D5\u30A1\u30A4\u30EB\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3002");
           return;
         }
         new ExportModal(this.app, file, this.settings.rubyStyle).open();
@@ -2981,7 +3283,7 @@ var NovelsNoteJP = class extends import_obsidian7.Plugin {
     const activeLeaf = workspace.getMostRecentLeaf();
     let targetLeaf = activeLeaf;
     let targetFile = null;
-    if (activeLeaf && activeLeaf.view.getViewType() === "markdown" && activeLeaf.view.file instanceof import_obsidian7.TFile) {
+    if (activeLeaf && activeLeaf.view.getViewType() === "markdown" && activeLeaf.view.file instanceof import_obsidian8.TFile) {
       targetFile = activeLeaf.view.file;
     }
     if (!targetFile) {
@@ -2990,7 +3292,7 @@ var NovelsNoteJP = class extends import_obsidian7.Plugin {
         if (targetFile) return;
         if (leaf.view.getViewType() !== "markdown") return;
         const f = leaf.view.file;
-        if (!(f instanceof import_obsidian7.TFile)) return;
+        if (!(f instanceof import_obsidian8.TFile)) return;
         const cache2 = this.app.metadataCache.getFileCache(f);
         if (((_a2 = cache2 == null ? void 0 : cache2.frontmatter) == null ? void 0 : _a2.mode) === "novel") {
           targetFile = f;
@@ -2999,12 +3301,12 @@ var NovelsNoteJP = class extends import_obsidian7.Plugin {
       });
     }
     if (!targetFile) {
-      new import_obsidian7.Notice("\u5C0F\u8AAC\u7528\u30D3\u30E5\u30FC\u306E\u5BFE\u8C61\u5916\u3067\u3059\u3002Frontmatter \u306B mode: novel \u306E\u30D7\u30ED\u30D1\u30C6\u30A3\u3092\u8A2D\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044\u3002");
+      new import_obsidian8.Notice("\u5C0F\u8AAC\u7528\u30D3\u30E5\u30FC\u306E\u5BFE\u8C61\u5916\u3067\u3059\u3002Frontmatter \u306B mode: novel \u306E\u30D7\u30ED\u30D1\u30C6\u30A3\u3092\u8A2D\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044\u3002");
       return;
     }
     const cache = this.app.metadataCache.getFileCache(targetFile);
     if (((_a = cache == null ? void 0 : cache.frontmatter) == null ? void 0 : _a.mode) !== "novel") {
-      new import_obsidian7.Notice("\u5C0F\u8AAC\u7528\u30D3\u30E5\u30FC\u306E\u5BFE\u8C61\u5916\u3067\u3059\u3002Frontmatter \u306B mode: novel \u306E\u30D7\u30ED\u30D1\u30C6\u30A3\u3092\u8A2D\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044\u3002");
+      new import_obsidian8.Notice("\u5C0F\u8AAC\u7528\u30D3\u30E5\u30FC\u306E\u5BFE\u8C61\u5916\u3067\u3059\u3002Frontmatter \u306B mode: novel \u306E\u30D7\u30ED\u30D1\u30C6\u30A3\u3092\u8A2D\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044\u3002");
       const existing2 = workspace.getLeavesOfType(NOVEL_READING_VIEW_TYPE);
       if (existing2.length > 0) {
         workspace.revealLeaf(existing2[0]);

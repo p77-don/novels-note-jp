@@ -4,8 +4,8 @@
 // 本文ファイルは一切変更しない（Read Only Export）。
 // ─────────────────────────────────────────
 
-import { RubyStyle } from "./settings";
-import { stripHashtags } from "./hashtags";
+import { RubyStyle } from "../settings";
+import { stripHashtags } from "../core/hashtags";
 
 // ─────────────────────────────────────────
 // Export 設定

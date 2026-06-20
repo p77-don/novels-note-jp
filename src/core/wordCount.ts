@@ -2,8 +2,8 @@
 // Novels Note JP — 文字数カウント
 // ─────────────────────────────────────────
 
-import { NovelsNoteSettings } from "./settings";
-import { stripHashtags } from "./hashtags";
+import { NovelsNoteSettings } from "../settings";
+import { stripHashtags } from "../core/hashtags";
 
 // ─────────────────────────────────────────
 // カウント結果

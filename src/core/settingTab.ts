@@ -3,7 +3,7 @@
 // ─────────────────────────────────────────
 
 import { App, PluginSettingTab, Setting } from "obsidian";
-import NovelsNoteJP from "./main";
+import NovelsNoteJP from "../main";
 
 export class NovelsNoteSettingTab extends PluginSettingTab {
   plugin: NovelsNoteJP;

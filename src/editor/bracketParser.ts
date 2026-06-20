@@ -2,8 +2,8 @@
 // Novels Note JP — カッコ解析
 // ─────────────────────────────────────────
 
-import { BracketDefinition } from "./settings";
-import { BracketMatch } from "./types";
+import { BracketDefinition } from "../settings";
+import { BracketMatch } from "../types";
 
 /**
  * テキスト全体からカッコの対応範囲を解析する。

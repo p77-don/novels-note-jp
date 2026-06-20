@@ -862,3 +862,45 @@
   user-select: none;
   -webkit-user-select: none;
 }
+
+/* ─────────────────────────────────────────
+   エディタ内ルビ表示（mode:novel）
+   WidgetType で挿入される <ruby class="nn-editor-ruby"> に対するスタイル。
+   CM6 の cm-content 内に直接配置されるため、
+   通常の行高・フォントサイズを継承したまま動作する。
+   ───────────────────────────────────────── */
+.cm-editor[data-novel-mode="true"] .cm-content ruby.nn-editor-ruby {
+  ruby-align: center;
+  /* カーソルが乗ったときの選択色を自然に見せる */
+  cursor: text;
+}
+
+.cm-editor[data-novel-mode="true"] .cm-content ruby.nn-editor-ruby rt {
+  font-size: 0.5em;
+  color: var(--text-muted);
+  /* ルビが行高に余計な空白を作らないよう調整 */
+  line-height: 1;
+}
+
+/* ルビ入力モーダル — プレビュー */
+.nn-ruby-modal .nn-ruby-base-preview {
+  font-weight: bold;
+}
+
+.nn-ruby-modal .nn-ruby-preview-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  margin: 0.75em 0 0.25em;
+}
+
+.nn-ruby-modal ruby.nn-ruby-preview {
+  font-size: 1.3em;
+  ruby-align: center;
+}
+
+.nn-ruby-modal ruby.nn-ruby-preview rt {
+  font-size: 0.55em;
+  color: var(--text-muted);
+}
+

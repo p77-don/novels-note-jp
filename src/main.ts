@@ -18,13 +18,15 @@ import {
   buildRulerExtension,
   buildFullWidthSpaceExtension,
   buildTermDropExtension,
-} from "./extensions";
-import { NovelsNoteSidebarView } from "./sidebarView";
-import { NovelsNoteSettingTab } from "./settingTab";
-import { countCharacters, formatCount, CountMode } from "./wordCount";
-import { ExportModal } from "./exportModal";
-import { VerticalPreviewView } from "./verticalPreview";
-import { NovelReadingView } from "./novelReadingView";
+  buildRubyExtension,
+} from "./editor/extensions";
+import { NovelsNoteSidebarView } from "./views/sidebarView";
+import { NovelsNoteSettingTab } from "./core/settingTab";
+import { countCharacters, formatCount, CountMode } from "./core/wordCount";
+import { ExportModal } from "./export/exportModal";
+import { VerticalPreviewView } from "./views/verticalPreview";
+import { NovelReadingView } from "./views/novelReadingView";
+import { onEditorMenuForRuby } from "./editor/rubyInserter";
 
 export default class NovelsNoteJP extends Plugin {
   private terms: TermEntry[] = [];
@@ -124,6 +126,24 @@ export default class NovelsNoteJP extends Plugin {
     // ─────────────────────────────────────────
     this.registerEditorExtension(
       buildTermDropExtension(this.app)
+    );
+
+    // ─────────────────────────────────────────
+    // ルビ表示 Extension
+    // mode:novel のエディタ上でルビ記法をインライン描画する
+    // ─────────────────────────────────────────
+    this.registerEditorExtension(
+      buildRubyExtension(() => this.settings)
+    );
+
+    // ─────────────────────────────────────────
+    // 右クリック「ルビを振る」メニュー
+    // ─────────────────────────────────────────
+    this.registerEvent(
+      this.app.workspace.on("editor-menu", (menu, editor, info) => {
+        if (!(info instanceof MarkdownView)) return;
+        onEditorMenuForRuby(this.app, () => this.settings, menu, editor, info);
+      })
     );
 
     this.applyEditorStyles();

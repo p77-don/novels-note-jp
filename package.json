@@ -1,6 +1,6 @@
 {
   "name": "novels-note-jp",
-  "version": "0.5.5",
+  "version": "0.6.0",
   "description": "Japanese novel writing support tools for Obsidian.",
   "main": "main.js",
   "scripts": {
