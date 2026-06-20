@@ -36,7 +36,8 @@ export function cleanNovelText(raw: string): string {
   let text = raw;
 
   // 1. Frontmatter（ファイル先頭の ---〜--- ブロック）
-  text = text.replace(/^---[\s\S]*?^---\s*\n?/m, "");
+  //    行頭の --- のみにマッチさせ、値に --- を含む YAML キーの誤検出を防ぐ
+  text = text.replace(/^---[ \t]*\n[\s\S]*?\n---[ \t]*\n?/, "");
 
   // 2. Obsidian コメント %%〜%%（複数行対応）
   text = text.replace(/%%[\s\S]*?%%/g, "");
@@ -75,8 +76,9 @@ export function cleanNovelText(raw: string): string {
 
   // 12. aozora ルビ：[|｜]親文字《ルビ》→ 親文字（半角バー・全角バーの両方に対応）
   text = text.replace(/[|｜]([^《\n]+)《[^》]*》/g, "$1");
-  // バーなし aozora：漢字直後《ルビ》→ 漢字（CJK統合漢字ブロック＋々を対象）
-  text = text.replace(/([\u3005\u4E00-\u9FFF\u3400-\u4DBF]+)《[^》]*》/g, "$1");
+  // バーなし aozora：漢字直後《ルビ》→ 漢字
+  //   u フラグ: \u{20000}-\u{3FFFF}（BMP外CJK Extension B-G）を正しく解釈するために必須
+  text = text.replace(/([\u3005\u4E00-\u9FFF\u3400-\u4DBF\uF900-\uFAFF\u{20000}-\u{3FFFF}]+)《[^》]*》/gu, "$1");
 
   // 13. denden ルビ：{親文字|ルビ} → 親文字
   text = text.replace(/\{([^|]+)\|[^}]+\}/g, "$1");
@@ -155,7 +157,9 @@ export function countCharacters(
   // 改行は文字数に含めない
   cleaned = cleaned.replace(/\n/g, "");
 
-  const raw = cleaned.length;
+  // スプレッド構文でコードポイント単位に分解（絵文字・拡張漢字などの
+  // サロゲートペアを UTF-16 コードユニット 2 個と誤計上しないため）
+  const raw = [...cleaned].length;
 
   // novel 換算（全角1・半角0.5）
   let novel = 0;

@@ -1734,7 +1734,7 @@ function stripHashtags(text) {
 // src/core/wordCount.ts
 function cleanNovelText(raw) {
   let text = raw;
-  text = text.replace(/^---[\s\S]*?^---\s*\n?/m, "");
+  text = text.replace(/^---[ \t]*\n[\s\S]*?\n---[ \t]*\n?/, "");
   text = text.replace(/%%[\s\S]*?%%/g, "");
   text = text.replace(/<rt[^>]*>[\s\S]*?<\/rt>/gi, "");
   text = text.replace(/<\/?ruby[^>]*>/gi, "");
@@ -1750,7 +1750,7 @@ function cleanNovelText(raw) {
   text = text.replace(/^[ \t]*\d+\.\s+/gm, "");
   text = text.replace(/(\*{1,3}|_{1,3})([\s\S]*?)\1/g, "$2");
   text = text.replace(/[|｜]([^《\n]+)《[^》]*》/g, "$1");
-  text = text.replace(/([\u3005\u4E00-\u9FFF\u3400-\u4DBF]+)《[^》]*》/g, "$1");
+  text = text.replace(/([\u3005\u4E00-\u9FFF\u3400-\u4DBF\uF900-\uFAFF\u{20000}-\u{3FFFF}]+)《[^》]*》/gu, "$1");
   text = text.replace(/\{([^|]+)\|[^}]+\}/g, "$1");
   text = text.replace(/^[-*_]{3,}\s*$/gm, "");
   text = text.replace(/!\[[^\]]*\]\([^)]+\)/g, "");
@@ -1780,7 +1780,7 @@ function countCharacters(text, settings) {
   }
   cleaned = cleaned.replace(/[ \t]/g, "");
   cleaned = cleaned.replace(/\n/g, "");
-  const raw = cleaned.length;
+  const raw = [...cleaned].length;
   let novel = 0;
   for (const ch of cleaned) {
     novel += charWidth(ch);
@@ -1828,13 +1828,13 @@ function rubyPairToStyle(base, ruby, target) {
 }
 function convertRubyStyle(text, sourceStyle, target) {
   if (target === "none") return text;
-  const CJK2 = "\u3005\u4E00-\u9FFF\u3400-\u4DBF\uF900-\uFAFF";
+  const CJK2 = "\u3005\u4E00-\u9FFF\u3400-\u4DBF\uF900-\uFAFF\\u{20000}-\\u{3FFFF}";
   switch (sourceStyle) {
     case "narou":
     case "aozora": {
       const re = new RegExp(
         "[|\uFF5C]([^\u300A\\n]+)\u300A([^\u300B\\n]*)\u300B|([" + CJK2 + "]+)\u300A([^\u300B\\n]*)\u300B",
-        "g"
+        "gu"
       );
       return text.replace(re, (_m, b1, r1, b2, r2) => {
         const base = b1 !== void 0 ? b1 : b2;
@@ -1862,7 +1862,7 @@ function convertRubyStyle(text, sourceStyle, target) {
 }
 function exportText(source, opts) {
   let text = source;
-  text = text.replace(/^---[\s\S]*?^---[ \t]*\n?/m, "");
+  text = text.replace(/^---[ \t]*\n[\s\S]*?\n---[ \t]*\n?/, "");
   text = text.replace(/%%[\s\S]*?%%/g, "");
   text = text.replace(/^(>[ \t]*\[![\w-]+\][^\n]*\n(?:>[ \t]*[^\n]*\n?)*)/gm, "");
   text = text.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, "$2");
@@ -2030,11 +2030,11 @@ function convertRuby(text, style) {
   switch (style) {
     case "narou":
       text = text.replace(/\|([^《\n]+)《([^》\n]*)》/g, "<ruby>$1<rt>$2</rt></ruby>");
-      text = text.replace(/([\u3005\u4E00-\u9FFF\u3400-\u4DBF\uF900-\uFAFF]+)《([^》\n]*)》/g, "<ruby>$1<rt>$2</rt></ruby>");
+      text = text.replace(/([\u3005\u4E00-\u9FFF\u3400-\u4DBF\uF900-\uFAFF\u{20000}-\u{3FFFF}]+)《([^》\n]*)》/gu, "<ruby>$1<rt>$2</rt></ruby>");
       return text;
     case "aozora":
       text = text.replace(/｜([^《\n]+)《([^》\n]*)》/g, "<ruby>$1<rt>$2</rt></ruby>");
-      text = text.replace(/([\u3005\u4E00-\u9FFF\u3400-\u4DBF\uF900-\uFAFF]+)《([^》\n]*)》/g, "<ruby>$1<rt>$2</rt></ruby>");
+      text = text.replace(/([\u3005\u4E00-\u9FFF\u3400-\u4DBF\uF900-\uFAFF\u{20000}-\u{3FFFF}]+)《([^》\n]*)》/gu, "<ruby>$1<rt>$2</rt></ruby>");
       return text;
     case "denden":
       text = text.replace(/\{([^|\n]+)\|([^}\n]+)\}/g, "<ruby>$1<rt>$2</rt></ruby>");

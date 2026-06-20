@@ -75,7 +75,9 @@ export function convertRubyStyle(
 ): string {
   if (target === "none") return text;
 
-  const CJK = "\u3005\u4E00-\u9FFF\u3400-\u4DBF\uF900-\uFAFF";
+  // CJK統合漢字 + 互換漢字 + Extension A/B/C/D/E/F/G（近年の人名漢字対応）
+  // \u{20000}-\u{3FFFF} は BMP 外の拡張ブロック（u フラグで解釈される）
+  const CJK = "\u3005\u4E00-\u9FFF\u3400-\u4DBF\uF900-\uFAFF\\u{20000}-\\u{3FFFF}";
 
   switch (sourceStyle) {
     case "narou":
@@ -84,10 +86,11 @@ export function convertRubyStyle(
       // パターン1：[|｜]base《ruby》
       // パターン2：CJK漢字《ruby》（縦棒なし）
       // 1つの正規表現で左から1パスで処理する。
+      // u フラグ: \u{20000}-\u{3FFFF}（BMP外CJK拡張）を正しく解釈するために必須
       const re = new RegExp(
         "[|｜]([^\u300A\\n]+)\u300A([^\u300B\\n]*)\u300B" +
         "|([" + CJK + "]+)\u300A([^\u300B\\n]*)\u300B",
-        "g"
+        "gu"
       );
       return text.replace(re, (_m: string, b1: string, r1: string, b2: string, r2: string) => {
         const base = b1 !== undefined ? b1 : b2;
@@ -130,7 +133,8 @@ export function exportText(source: string, opts: ExportOptions): string {
   let text = source;
 
   // ── Step 1: Frontmatter 削除 ──────────────────
-  text = text.replace(/^---[\s\S]*?^---[ \t]*\n?/m, "");
+  //    行頭の --- のみにマッチさせ、値に --- を含む YAML キーの誤検出を防ぐ
+  text = text.replace(/^---[ \t]*\n[\s\S]*?\n---[ \t]*\n?/, "");
 
   // ── Step 2: Obsidian コメント削除 ──────────────
   text = text.replace(/%%[\s\S]*?%%/g, "");

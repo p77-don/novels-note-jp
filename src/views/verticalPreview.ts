@@ -13,11 +13,12 @@ export function convertRuby(text: string, style: RubyStyle): string {
   switch (style) {
     case "narou":
       text = text.replace(/\|([^《\n]+)《([^》\n]*)》/g, "<ruby>$1<rt>$2</rt></ruby>");
-      text = text.replace(/([\u3005\u4E00-\u9FFF\u3400-\u4DBF\uF900-\uFAFF]+)《([^》\n]*)》/g, "<ruby>$1<rt>$2</rt></ruby>");
+      // u フラグ: \u{20000}-\u{3FFFF}（BMP外CJK Extension B-G）を正しく解釈するために必須
+      text = text.replace(/([\u3005\u4E00-\u9FFF\u3400-\u4DBF\uF900-\uFAFF\u{20000}-\u{3FFFF}]+)《([^》\n]*)》/gu, "<ruby>$1<rt>$2</rt></ruby>");
       return text;
     case "aozora":
       text = text.replace(/｜([^《\n]+)《([^》\n]*)》/g, "<ruby>$1<rt>$2</rt></ruby>");
-      text = text.replace(/([\u3005\u4E00-\u9FFF\u3400-\u4DBF\uF900-\uFAFF]+)《([^》\n]*)》/g, "<ruby>$1<rt>$2</rt></ruby>");
+      text = text.replace(/([\u3005\u4E00-\u9FFF\u3400-\u4DBF\uF900-\uFAFF\u{20000}-\u{3FFFF}]+)《([^》\n]*)》/gu, "<ruby>$1<rt>$2</rt></ruby>");
       return text;
     case "denden":
       text = text.replace(/\{([^|\n]+)\|([^}\n]+)\}/g, "<ruby>$1<rt>$2</rt></ruby>");
