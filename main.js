@@ -549,17 +549,16 @@ var CreateTermModal = class extends import_obsidian2.Modal {
     contentEl.addClass("nn-create-term-modal");
     contentEl.createEl("h3", { text: "\u7528\u8A9E\u30CE\u30FC\u30C8\u3092\u65B0\u898F\u4F5C\u6210", cls: "nn-modal-title" });
     const infoEl = contentEl.createEl("div", { cls: "nn-modal-info" });
-    infoEl.createEl("span", { text: "\u30D5\u30A9\u30EB\u30C0\uFF1A", cls: "nn-modal-label" });
-    infoEl.createEl("span", {
-      text: this.folderPath || "\uFF08\u30EB\u30FC\u30C8\uFF09",
-      cls: "nn-modal-value"
-    });
-    infoEl.createEl("br");
     infoEl.createEl("span", { text: "\u30AB\u30C6\u30B4\u30EA\uFF1A", cls: "nn-modal-label" });
-    infoEl.createEl("span", {
-      text: this.tagLabel,
-      cls: "nn-modal-value"
+    infoEl.createEl("span", { text: this.tagLabel, cls: "nn-modal-value" });
+    const folderWrap = contentEl.createEl("div", { cls: "nn-modal-input-wrap" });
+    folderWrap.createEl("label", { text: "\u30D5\u30A9\u30EB\u30C0\uFF08\u4EFB\u610F\uFF09", cls: "nn-modal-field-label" });
+    const folderInput = folderWrap.createEl("input", {
+      type: "text",
+      placeholder: "\u4F8B: characters/heroes \uFF08\u7A7A\u6B04\u3067\u30EB\u30FC\u30C8\u306B\u4F5C\u6210\uFF09",
+      cls: "nn-modal-input nn-modal-input-folder"
     });
+    folderInput.value = this.folderPath;
     const inputWrap = contentEl.createEl("div", { cls: "nn-modal-input-wrap" });
     inputWrap.createEl("label", { text: "\u7528\u8A9E\u540D", cls: "nn-modal-field-label" });
     const input = inputWrap.createEl("input", {
@@ -577,19 +576,68 @@ var CreateTermModal = class extends import_obsidian2.Modal {
         input.focus();
         return;
       }
+      const folder = folderInput.value.trim().replace(/\/+$/, "");
       this.close();
-      this.onSubmit(name);
+      this.onSubmit(name, folder);
     };
+    folderInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        input.focus();
+      }
+      if (e.key === "Escape") this.close();
+    });
     input.addEventListener("keydown", (e) => {
       if (e.key === "Enter") submit();
       if (e.key === "Escape") this.close();
     });
     cancelBtn.addEventListener("click", () => this.close());
     createBtn.addEventListener("click", submit);
-    this.focusTimer = setTimeout(() => input.focus(), 50);
+    this.focusTimer = setTimeout(() => {
+      if (this.folderPath) {
+        input.focus();
+      } else {
+        folderInput.focus();
+      }
+    }, 50);
   }
   onClose() {
     if (this.focusTimer !== void 0) clearTimeout(this.focusTimer);
+    this.contentEl.empty();
+  }
+};
+var ConfirmFolderCreateModal = class extends import_obsidian2.Modal {
+  constructor(app, folderPath, onResult) {
+    super(app);
+    this.folderPath = folderPath;
+    this.onResult = onResult;
+  }
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.addClass("nn-confirm-modal");
+    contentEl.createEl("h3", { text: "\u30D5\u30A9\u30EB\u30C0\u306E\u4F5C\u6210", cls: "nn-modal-title" });
+    contentEl.createEl("p", {
+      text: "\u6307\u5B9A\u3055\u308C\u305F\u30D5\u30A9\u30EB\u30C0\u306F\u5B58\u5728\u3057\u307E\u305B\u3093\u3002\u30D5\u30A9\u30EB\u30C0\u3092\u4F5C\u6210\u3057\u307E\u3059\u304B\uFF1F",
+      cls: "nn-modal-text"
+    });
+    contentEl.createEl("p", {
+      text: this.folderPath,
+      cls: "nn-modal-path"
+    });
+    const btnRow = contentEl.createEl("div", { cls: "nn-modal-btn-row" });
+    const cancelBtn = btnRow.createEl("button", { text: "\u30AD\u30E3\u30F3\u30BB\u30EB", cls: "nn-modal-btn nn-modal-btn-cancel" });
+    const confirmBtn = btnRow.createEl("button", { text: "\u4F5C\u6210\u3059\u308B", cls: "nn-modal-btn nn-modal-btn-create" });
+    cancelBtn.addEventListener("click", () => {
+      this.close();
+      this.onResult(false);
+    });
+    confirmBtn.addEventListener("click", () => {
+      this.close();
+      this.onResult(true);
+    });
+  }
+  onClose() {
     this.contentEl.empty();
   }
 };
@@ -989,8 +1037,8 @@ var NovelsNoteSidebarView = class extends import_obsidian2.ItemView {
           "",
           td.tag,
           td.label,
-          async (termName) => {
-            await this.createTermNote(termName, "", td.tag);
+          async (termName, folderPath) => {
+            await this.createTermNote(termName, folderPath, td.tag);
           }
         ).open();
       });
@@ -1009,8 +1057,8 @@ var NovelsNoteSidebarView = class extends import_obsidian2.ItemView {
           node.fullPath,
           td.tag,
           td.label,
-          async (termName) => {
-            await this.createTermNote(termName, node.fullPath, td.tag);
+          async (termName, folderPath) => {
+            await this.createTermNote(termName, folderPath, td.tag);
           }
         ).open();
       });
@@ -1046,6 +1094,10 @@ var NovelsNoteSidebarView = class extends import_obsidian2.ItemView {
       if (folderPath) {
         const folder = this.app.vault.getAbstractFileByPath(folderPath);
         if (!folder) {
+          const confirmed = await new Promise((resolve) => {
+            new ConfirmFolderCreateModal(this.app, folderPath, resolve).open();
+          });
+          if (!confirmed) return;
           await this.app.vault.createFolder(folderPath);
         }
       }

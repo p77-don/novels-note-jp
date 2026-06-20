@@ -24,7 +24,7 @@ class CreateTermModal extends Modal {
   private folderPath: string;
   private tag: string;
   private tagLabel: string;
-  private onSubmit: (termName: string) => void;
+  private onSubmit: (termName: string, folderPath: string) => void;
   private focusTimer?: ReturnType<typeof setTimeout>;
 
   constructor(
@@ -32,7 +32,7 @@ class CreateTermModal extends Modal {
     folderPath: string,
     tag: string,
     tagLabel: string,
-    onSubmit: (termName: string) => void
+    onSubmit: (termName: string, folderPath: string) => void
   ) {
     super(app);
     this.folderPath = folderPath;
@@ -48,19 +48,22 @@ class CreateTermModal extends Modal {
 
     contentEl.createEl("h3", { text: "用語ノートを新規作成", cls: "nn-modal-title" });
 
+    // カテゴリ表示（読み取り専用）
     const infoEl = contentEl.createEl("div", { cls: "nn-modal-info" });
-    infoEl.createEl("span", { text: "フォルダ：", cls: "nn-modal-label" });
-    infoEl.createEl("span", {
-      text: this.folderPath || "（ルート）",
-      cls: "nn-modal-value"
-    });
-    infoEl.createEl("br");
     infoEl.createEl("span", { text: "カテゴリ：", cls: "nn-modal-label" });
-    infoEl.createEl("span", {
-      text: this.tagLabel,
-      cls: "nn-modal-value"
-    });
+    infoEl.createEl("span", { text: this.tagLabel, cls: "nn-modal-value" });
 
+    // フォルダパス入力（任意）
+    const folderWrap = contentEl.createEl("div", { cls: "nn-modal-input-wrap" });
+    folderWrap.createEl("label", { text: "フォルダ（任意）", cls: "nn-modal-field-label" });
+    const folderInput = folderWrap.createEl("input", {
+      type: "text",
+      placeholder: "例: characters/heroes （空欄でルートに作成）",
+      cls: "nn-modal-input nn-modal-input-folder",
+    });
+    folderInput.value = this.folderPath;
+
+    // 用語名入力
     const inputWrap = contentEl.createEl("div", { cls: "nn-modal-input-wrap" });
     inputWrap.createEl("label", { text: "用語名", cls: "nn-modal-field-label" });
     const input = inputWrap.createEl("input", {
@@ -80,10 +83,17 @@ class CreateTermModal extends Modal {
         input.focus();
         return;
       }
+      // フォルダパスの末尾スラッシュを除去して正規化
+      const folder = folderInput.value.trim().replace(/\/+$/, "");
       this.close();
-      this.onSubmit(name);
+      this.onSubmit(name, folder);
     };
 
+    // Tab キーでフォルダ入力 → 用語名入力へ移動
+    folderInput.addEventListener("keydown", (e: KeyboardEvent) => {
+      if (e.key === "Enter") { e.preventDefault(); input.focus(); }
+      if (e.key === "Escape") this.close();
+    });
     input.addEventListener("keydown", (e: KeyboardEvent) => {
       if (e.key === "Enter") submit();
       if (e.key === "Escape") this.close();
@@ -91,11 +101,63 @@ class CreateTermModal extends Modal {
     cancelBtn.addEventListener("click", () => this.close());
     createBtn.addEventListener("click", submit);
 
-    this.focusTimer = setTimeout(() => input.focus(), 50);
+    // フォルダパスが空のときは用語名にフォーカス、入力済みなら用語名に
+    this.focusTimer = setTimeout(() => {
+      if (this.folderPath) {
+        input.focus();
+      } else {
+        folderInput.focus();
+      }
+    }, 50);
   }
 
   onClose(): void {
     if (this.focusTimer !== undefined) clearTimeout(this.focusTimer);
+    this.contentEl.empty();
+  }
+}
+
+// ─────────────────────────────────────────
+// フォルダ作成確認ダイアログ
+// ─────────────────────────────────────────
+class ConfirmFolderCreateModal extends Modal {
+  private folderPath: string;
+  private onResult: (confirmed: boolean) => void;
+
+  constructor(
+    app: App,
+    folderPath: string,
+    onResult: (confirmed: boolean) => void
+  ) {
+    super(app);
+    this.folderPath = folderPath;
+    this.onResult = onResult;
+  }
+
+  onOpen(): void {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.addClass("nn-confirm-modal");
+
+    contentEl.createEl("h3", { text: "フォルダの作成", cls: "nn-modal-title" });
+    contentEl.createEl("p", {
+      text: "指定されたフォルダは存在しません。フォルダを作成しますか？",
+      cls: "nn-modal-text"
+    });
+    contentEl.createEl("p", {
+      text: this.folderPath,
+      cls: "nn-modal-path"
+    });
+
+    const btnRow = contentEl.createEl("div", { cls: "nn-modal-btn-row" });
+    const cancelBtn = btnRow.createEl("button", { text: "キャンセル", cls: "nn-modal-btn nn-modal-btn-cancel" });
+    const confirmBtn = btnRow.createEl("button", { text: "作成する", cls: "nn-modal-btn nn-modal-btn-create" });
+
+    cancelBtn.addEventListener("click", () => { this.close(); this.onResult(false); });
+    confirmBtn.addEventListener("click", () => { this.close(); this.onResult(true); });
+  }
+
+  onClose(): void {
     this.contentEl.empty();
   }
 }
@@ -627,14 +689,14 @@ export class NovelsNoteSidebarView extends ItemView {
         .setTitle("用語ノートを新規作成する")
         .setIcon("file-plus")
         .onClick(() => {
-          // フォルダパスは空文字（Vault ルート）で作成ダイアログを開く
+          // フォルダパスは空文字（Vault ルート）をデフォルトとして渡す
           new CreateTermModal(
             this.app,
             "",
             td.tag,
             td.label,
-            async (termName: string) => {
-              await this.createTermNote(termName, "", td.tag);
+            async (termName: string, folderPath: string) => {
+              await this.createTermNote(termName, folderPath, td.tag);
             }
           ).open();
         });
@@ -654,13 +716,14 @@ export class NovelsNoteSidebarView extends ItemView {
         .setTitle("用語ノートを新規作成する")
         .setIcon("file-plus")
         .onClick(() => {
+          // フォルダのフルパスをプリセットとして渡す
           new CreateTermModal(
             this.app,
             node.fullPath,
             td.tag,
             td.label,
-            async (termName: string) => {
-              await this.createTermNote(termName, node.fullPath, td.tag);
+            async (termName: string, folderPath: string) => {
+              await this.createTermNote(termName, folderPath, td.tag);
             }
           ).open();
         });
@@ -706,10 +769,14 @@ export class NovelsNoteSidebarView extends ItemView {
   // ─────────────────────────────────────────
   private async createTermNote(termName: string, folderPath: string, tag: string): Promise<void> {
     try {
-      // フォルダが存在しない場合は作成
+      // フォルダが指定されている場合、存在確認 → 不存在なら確認ダイアログ
       if (folderPath) {
         const folder = this.app.vault.getAbstractFileByPath(folderPath);
         if (!folder) {
+          const confirmed = await new Promise<boolean>(resolve => {
+            new ConfirmFolderCreateModal(this.app, folderPath, resolve).open();
+          });
+          if (!confirmed) return;
           await this.app.vault.createFolder(folderPath);
         }
       }

@@ -365,6 +365,15 @@
   border-color: var(--interactive-accent);
   box-shadow: 0 0 0 2px var(--interactive-accent-hover);
 }
+.nn-modal-input.nn-modal-input-folder {
+  font-family: var(--font-monospace);
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.nn-modal-input.nn-modal-input-folder:focus {
+  color: var(--text-normal);
+}
+
 .nn-modal-input.nn-modal-input-error {
   border-color: var(--text-error);
   animation: nn-shake 0.25s ease;
