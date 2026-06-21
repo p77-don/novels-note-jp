@@ -143,11 +143,6 @@ function cursorChToSentIdx(sentences: string[], ch: number): number {
 // ─────────────────────────────────────────
 // 変換結果の型
 // ─────────────────────────────────────────
-interface SentenceInfo {
-  line: number;  // ソース行番号
-  sent: number;  // 行内文インデックス
-  text: string;  // 文のテキスト（ソース原文）
-}
 
 interface VerticalHtmlResult {
   html: string;

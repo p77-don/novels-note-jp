@@ -14,6 +14,10 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
   }
 
   display(): void {
+    this.refresh();
+  }
+
+  private refresh(): void {
     const { containerEl } = this;
     containerEl.empty();
 
@@ -279,7 +283,7 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
             void this.addExcludeFolder(folderInput, containerEl).then(() => {
               folderInput = "";
               // テキストフィールドをクリア（再描画で反映）
-              this.display();
+              this.refresh();
             });
           })
       );
@@ -307,7 +311,7 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
 
       // フォルダアイコン＋パス
       const label = row.createEl("span", { cls: "setting-item-name nn-folder-label" });
-      const icon = label.createEl("span", { cls: "nn-folder-icon", text: "📁" });
+      label.createEl("span", { cls: "nn-folder-icon", text: "📁" });
       label.createEl("code", { text: folders[i] });
 
       // 削除ボタン
@@ -318,7 +322,7 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
           void this.plugin.buildTermIndex();
           this.plugin.updateSidebar();
           this.plugin.refreshEditors();
-          this.display();
+          this.refresh();
         });
       });
     }
@@ -340,7 +344,7 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
     await this.plugin.buildTermIndex();
     this.plugin.updateSidebar();
     this.plugin.refreshEditors();
-    this.display(); // セクション全体を再描画
+    this.refresh(); // セクション全体を再描画
   }
 
   // ─────────────────────────────────────────
@@ -382,7 +386,7 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
             });
             await this.plugin.saveSettings();
             this.plugin.applyEditorStyles();
-            this.display();
+            this.refresh();
           })
       );
   }
@@ -462,7 +466,7 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
             if (capturedI === 0) return;
             [defs[capturedI - 1], defs[capturedI]] = [defs[capturedI], defs[capturedI - 1]];
             await saveAndRefresh();
-            this.display();
+            this.refresh();
           })
       );
       setting.addExtraButton(btn =>
@@ -471,7 +475,7 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
             if (capturedI === defs.length - 1) return;
             [defs[capturedI], defs[capturedI + 1]] = [defs[capturedI + 1], defs[capturedI]];
             await saveAndRefresh();
-            this.display();
+            this.refresh();
           })
       );
       setting.addExtraButton(btn =>
@@ -479,7 +483,7 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
           .onClick(async () => {
             defs.splice(capturedI, 1);
             await saveAndRefresh();
-            this.display();
+            this.refresh();
           })
       );
 
@@ -527,7 +531,7 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
         defs.splice(dst, 0, removed);
         dragSrcIdx = -1;
 
-        void saveAndRefresh().then(() => this.display());
+        void saveAndRefresh().then(() => this.refresh());
       });
     }
   }
@@ -553,7 +557,7 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
             });
             await this.plugin.saveSettings();
             this.plugin.applyEditorStyles();
-            this.display();
+            this.refresh();
           })
       );
   }
@@ -613,7 +617,7 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
             await this.plugin.saveSettings();
             this.plugin.applyEditorStyles();
             this.plugin.refreshEditors();
-            this.display();
+            this.refresh();
           })
       );
     }

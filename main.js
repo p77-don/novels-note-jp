@@ -1184,6 +1184,9 @@ var NovelsNoteSettingTab = class extends import_obsidian3.PluginSettingTab {
     this.plugin = plugin;
   }
   display() {
+    this.refresh();
+  }
+  refresh() {
     const { containerEl } = this;
     containerEl.empty();
     this.renderEditorSection(containerEl);
@@ -1361,7 +1364,7 @@ var NovelsNoteSettingTab = class extends import_obsidian3.PluginSettingTab {
       (btn) => btn.setButtonText("\u8FFD\u52A0").setCta().onClick(() => {
         void this.addExcludeFolder(folderInput, containerEl).then(() => {
           folderInput = "";
-          this.display();
+          this.refresh();
         });
       })
     );
@@ -1384,7 +1387,7 @@ var NovelsNoteSettingTab = class extends import_obsidian3.PluginSettingTab {
       });
       row.addClass("nn-exclude-folder-item-row");
       const label = row.createEl("span", { cls: "setting-item-name nn-folder-label" });
-      const icon = label.createEl("span", { cls: "nn-folder-icon", text: "\u{1F4C1}" });
+      label.createEl("span", { cls: "nn-folder-icon", text: "\u{1F4C1}" });
       label.createEl("code", { text: folders[i] });
       const delBtn = row.createEl("button", { text: "\u524A\u9664", cls: "mod-warning nn-folder-del-btn" });
       delBtn.addEventListener("click", () => {
@@ -1393,7 +1396,7 @@ var NovelsNoteSettingTab = class extends import_obsidian3.PluginSettingTab {
           void this.plugin.buildTermIndex();
           this.plugin.updateSidebar();
           this.plugin.refreshEditors();
-          this.display();
+          this.refresh();
         });
       });
     }
@@ -1410,7 +1413,7 @@ var NovelsNoteSettingTab = class extends import_obsidian3.PluginSettingTab {
     await this.plugin.buildTermIndex();
     this.plugin.updateSidebar();
     this.plugin.refreshEditors();
-    this.display();
+    this.refresh();
   }
   // ─────────────────────────────────────────
   // ハイライト全体のオン/オフセクション
@@ -1446,7 +1449,7 @@ var NovelsNoteSettingTab = class extends import_obsidian3.PluginSettingTab {
         });
         await this.plugin.saveSettings();
         this.plugin.applyEditorStyles();
-        this.display();
+        this.refresh();
       })
     );
   }
@@ -1506,7 +1509,7 @@ var NovelsNoteSettingTab = class extends import_obsidian3.PluginSettingTab {
           if (capturedI === 0) return;
           [defs[capturedI - 1], defs[capturedI]] = [defs[capturedI], defs[capturedI - 1]];
           await saveAndRefresh();
-          this.display();
+          this.refresh();
         })
       );
       setting.addExtraButton(
@@ -1514,14 +1517,14 @@ var NovelsNoteSettingTab = class extends import_obsidian3.PluginSettingTab {
           if (capturedI === defs.length - 1) return;
           [defs[capturedI], defs[capturedI + 1]] = [defs[capturedI + 1], defs[capturedI]];
           await saveAndRefresh();
-          this.display();
+          this.refresh();
         })
       );
       setting.addExtraButton(
         (btn) => btn.setIcon("trash").setTooltip("\u3053\u306E\u30AB\u30C6\u30B4\u30EA\u3092\u524A\u9664").onClick(async () => {
           defs.splice(capturedI, 1);
           await saveAndRefresh();
-          this.display();
+          this.refresh();
         })
       );
       rowEl.addEventListener("dragstart", (e) => {
@@ -1558,7 +1561,7 @@ var NovelsNoteSettingTab = class extends import_obsidian3.PluginSettingTab {
         const [removed] = defs.splice(src, 1);
         defs.splice(dst, 0, removed);
         dragSrcIdx = -1;
-        void saveAndRefresh().then(() => this.display());
+        void saveAndRefresh().then(() => this.refresh());
       });
     }
   }
@@ -1585,7 +1588,7 @@ var NovelsNoteSettingTab = class extends import_obsidian3.PluginSettingTab {
         });
         await this.plugin.saveSettings();
         this.plugin.applyEditorStyles();
-        this.display();
+        this.refresh();
       })
     );
   }
@@ -1638,7 +1641,7 @@ var NovelsNoteSettingTab = class extends import_obsidian3.PluginSettingTab {
           await this.plugin.saveSettings();
           this.plugin.applyEditorStyles();
           this.plugin.refreshEditors();
-          this.display();
+          this.refresh();
         })
       );
     }
