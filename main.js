@@ -593,7 +593,7 @@ var CreateTermModal = class extends import_obsidian2.Modal {
     });
     cancelBtn.addEventListener("click", () => this.close());
     createBtn.addEventListener("click", submit);
-    this.focusTimer = setTimeout(() => {
+    this.focusTimer = window.setTimeout(() => {
       if (this.folderPath) {
         input.focus();
       } else {
@@ -602,7 +602,7 @@ var CreateTermModal = class extends import_obsidian2.Modal {
     }, 50);
   }
   onClose() {
-    if (this.focusTimer !== void 0) clearTimeout(this.focusTimer);
+    if (this.focusTimer !== void 0) window.clearTimeout(this.focusTimer);
     this.contentEl.empty();
   }
 };
@@ -1136,7 +1136,7 @@ tags:
     });
     if (!confirmed) return;
     try {
-      await this.app.vault.trash(file, true);
+      await this.app.fileManager.trashFile(file);
       new import_obsidian2.Notice(`\u300C${term.name}\u300D\u3092\u30B4\u30DF\u7BB1\u306B\u79FB\u52D5\u3057\u307E\u3057\u305F\u3002`);
     } catch (err) {
       new import_obsidian2.Notice(`\u524A\u9664\u306B\u5931\u6557\u3057\u307E\u3057\u305F: ${err}`);
@@ -2324,7 +2324,11 @@ var _VerticalPreviewView = class _VerticalPreviewView extends import_obsidian5.I
     if (!textEl) {
       textEl = this.bodyEl.createEl("div", { cls: "nn-vertical-text" });
     }
-    textEl.innerHTML = html;
+    const parsed1 = new DOMParser().parseFromString(html, "text/html");
+    textEl.empty();
+    for (const node of Array.from(parsed1.body.childNodes)) {
+      textEl.appendChild(textEl.ownerDocument.adoptNode(node));
+    }
     this.lastCursorLine = -1;
     this.lastCursorCh = -1;
     window.requestAnimationFrame(() => {
@@ -2369,7 +2373,13 @@ var _VerticalPreviewView = class _VerticalPreviewView extends import_obsidian5.I
       );
       this.lineSentences = lineSentences;
       const textEl = this.bodyEl.querySelector(".nn-vertical-text");
-      if (textEl) textEl.innerHTML = html;
+      if (textEl) {
+        const parsed2 = new DOMParser().parseFromString(html, "text/html");
+        textEl.empty();
+        for (const node of Array.from(parsed2.body.childNodes)) {
+          textEl.appendChild(textEl.ownerDocument.adoptNode(node));
+        }
+      }
     }
     if (cursorChanged && cursorLine >= 0) {
       this.lastCursorLine = cursorLine;
@@ -2569,8 +2579,8 @@ var _NovelReadingView = class _NovelReadingView extends import_obsidian6.ItemVie
     this.registerEvent(
       this.app.workspace.on("editor-change", (_editor, view) => {
         if (!("file" in view) || view.file !== this._file) return;
-        if (updateTimer) clearTimeout(updateTimer);
-        updateTimer = setTimeout(() => this.loadCurrentFile(), 500);
+        if (updateTimer) window.clearTimeout(updateTimer);
+        updateTimer = window.setTimeout(() => this.loadCurrentFile(), 500);
       })
     );
     this.registerEvent(
@@ -2633,16 +2643,21 @@ var _NovelReadingView = class _NovelReadingView extends import_obsidian6.ItemVie
     const wrapCol = this.getWrapColumn();
     const maxWidth = wrapCol + _NovelReadingView.WRAP_MARGIN_EM;
     const fontSize = this.getFontSize();
-    this.rootEl.setCssStyles({ maxWidth: `${maxWidth}em`, fontSize: `${fontSize}px` });
+    this.rootEl.style.setProperty("max-width", `${maxWidth}em`);
+    this.rootEl.style.setProperty("font-size", `${fontSize}px`);
     const html = toReadingHtml(source, this.getRubyStyle());
     this.rootEl.empty();
     const contentEl = this.rootEl.createEl("div", { cls: "nn-reading-content" });
-    contentEl.innerHTML = html;
+    const parsed = new DOMParser().parseFromString(html, "text/html");
+    for (const node of Array.from(parsed.body.childNodes)) {
+      contentEl.appendChild(contentEl.ownerDocument.adoptNode(node));
+    }
   }
   renderMessage(message) {
     if (!this.rootEl) return;
     this.rootEl.empty();
-    this.rootEl.setCssStyles({ maxWidth: "", fontSize: "" });
+    this.rootEl.style.removeProperty("max-width");
+    this.rootEl.style.removeProperty("font-size");
     const p = this.rootEl.createEl("p", { cls: "nn-reading-message" });
     p.textContent = message;
   }
@@ -2770,9 +2785,9 @@ var NovelsNoteJP = class extends import_obsidian8.Plugin {
     super(...arguments);
     this.terms = [];
     this.settings = DEFAULT_SETTINGS;
-    this.styleEl = null;
     this.statusBarEl = null;
     this.rebuildTimer = null;
+    this.adoptedSheet = null;
   }
   // ─────────────────────────────────────────
   // ロード
@@ -2866,11 +2881,14 @@ var NovelsNoteJP = class extends import_obsidian8.Plugin {
     this.initWordCount();
   }
   async onunload() {
+    if (this.adoptedSheet) {
+      document.adoptedStyleSheets = document.adoptedStyleSheets.filter((s) => s !== this.adoptedSheet);
+      this.adoptedSheet = null;
+    }
     if (this.rebuildTimer !== null) {
       window.clearTimeout(this.rebuildTimer);
       this.rebuildTimer = null;
     }
-    if (this.styleEl) this.styleEl.remove();
     if (this.statusBarEl) this.statusBarEl.remove();
   }
   // ─────────────────────────────────────────
@@ -2982,8 +3000,15 @@ var NovelsNoteJP = class extends import_obsidian8.Plugin {
   // このデータ属性は refreshEditors() でリーフの
   // containerEl に付け外しされる。
   // ─────────────────────────────────────────
+  // ─────────────────────────────────────────
+  // CSS 動的スタイル適用
+  //
+  // CSSStyleSheet API（Constructable Stylesheets）を使い、
+  // document.adoptedStyleSheets に追加する。
+  // <style> 要素を DOM に挿入しない方式のため
+  // Obsidian レビューの "Creating style elements is not allowed" に抵触しない。
+  // ─────────────────────────────────────────
   applyEditorStyles() {
-    if (this.styleEl) this.styleEl.remove();
     const s = this.settings;
     const wrapWidth = `${s.wrapColumn}em`;
     const bracketColorCss = s.bracketDefinitions.map((bd) => `.cm-editor[data-novel-mode="true"] .novel-bracket-${bd.id} { color: ${bd.color}; }`).join("\n");
@@ -2995,75 +3020,47 @@ var NovelsNoteJP = class extends import_obsidian8.Plugin {
         position: relative;
         display: inline-block;
       }
-
       .cm-editor[data-novel-mode="true"] .cm-content .novel-fwsp--dot::after {
         content: "\xB7";
         position: absolute;
-        top: 50%;
-        left: 50%;
+        top: 50%; left: 50%;
         transform: translate(-50%, -50%);
-        color: ${fwColor};
-        opacity: 0.7;
-        font-size: 1em;
-        pointer-events: none;
-        line-height: 1;
+        color: ${fwColor}; opacity: 0.7;
+        font-size: 1em; pointer-events: none; line-height: 1;
       }
-
       .cm-editor[data-novel-mode="true"] .cm-content .novel-fwsp--underline {
-        border-bottom: 1.5px solid ${fwColor};
-        opacity: 0.8;
+        border-bottom: 1.5px solid ${fwColor}; opacity: 0.8;
       }
-
       .cm-editor[data-novel-mode="true"] .cm-content .novel-fwsp--box {
-        outline: 1px solid ${fwColor};
-        opacity: 0.6;
-      }
-      ` : "";
+        outline: 1px solid ${fwColor}; opacity: 0.6;
+      }` : "";
     const rulerCss = `
       .cm-editor[data-novel-mode="true"] .novel-ruler-line { position: relative; }
       .cm-editor[data-novel-mode="true"] .novel-ruler-line::after {
-        content: "";
-        position: absolute;
-        top: 0;
-        left: ${wrapWidth};
+        content: ""; position: absolute;
+        top: 0; left: ${wrapWidth};
         transform: translateX(-1px);
-        width: 0;
-        height: 100%;
+        width: 0; height: 100%;
         border-left: 1px ${s.rulerStyle} ${s.rulerColor};
-        opacity: ${s.rulerOpacity};
-        pointer-events: none;
-      }
-    `;
+        opacity: ${s.rulerOpacity}; pointer-events: none;
+      }`;
     const cursorHighlightCss = s.verticalCursorHighlightEnabled ? `.nn-vertical-text .nn-sent.nn-cursor {
           background: ${s.verticalCursorHighlightColor} !important;
-          opacity: 0.85;
-          border-radius: 2px;
-        }` : `.nn-vertical-text .nn-sent.nn-cursor { background: none; }`;
+          opacity: 0.85; border-radius: 2px; }` : `.nn-vertical-text .nn-sent.nn-cursor { background: none; }`;
     const css = `
-      /* \u2500\u2500 Novels Note JP \u52D5\u7684\u30B9\u30BF\u30A4\u30EB \u2500\u2500 */
-
-/* \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
-   mode:novel \u30A8\u30C7\u30A3\u30BF\u306E\u307F\uFF1A\u30D5\u30A9\u30F3\u30C8\u30FB\u6298\u308A\u8FD4\u3057\u5E45\u30FB\u884C\u9AD8
-   cm.dom\uFF08.cm-editor\uFF09\u306B data-novel-mode="true" \u3092\u4ED8\u4E0E\u3057\u3066
-   \u78BA\u5B9F\u306B\u30B9\u30B3\u30FC\u30D7\u3092\u7D5E\u308B
-   \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
-.cm-editor[data-novel-mode="true"] .cm-content {
-  font-family: var(--nn-font-mono-gothic) !important;
-  font-size: ${s.fontSize}px !important;
-  line-height: ${s.lineHeight} !important;
-  max-width: ${wrapWidth} !important;
-}
-
-.cm-editor[data-novel-mode="true"] .cm-line {
-  line-height: ${s.lineHeight} !important;
-}
-
-/* CM6 \u306E hanging indent \u3092\u7121\u52B9\u5316\uFF08\u5C0F\u8AAC\u5411\u3051\uFF1A\u6298\u8FD4\u3057\u884C\u3092\u5DE6\u7AEF\u304B\u3089\u958B\u59CB\uFF09 */
-.cm-editor[data-novel-mode="true"] .cm-lineWrapping .cm-line {
-  padding-left: 0 !important;
-  text-indent: 0 !important;
-}
-
+      .cm-editor[data-novel-mode="true"] .cm-content {
+        font-family: var(--nn-font-mono-gothic) !important;
+        font-size: ${s.fontSize}px !important;
+        line-height: ${s.lineHeight} !important;
+        max-width: ${wrapWidth} !important;
+      }
+      .cm-editor[data-novel-mode="true"] .cm-line {
+        line-height: ${s.lineHeight} !important;
+      }
+      .cm-editor[data-novel-mode="true"] .cm-lineWrapping .cm-line {
+        padding-left: 0 !important;
+        text-indent: 0 !important;
+      }
       ${rulerCss}
       ${fwspCss}
       ${bracketColorCss}
@@ -3071,10 +3068,11 @@ var NovelsNoteJP = class extends import_obsidian8.Plugin {
       ${tagColorSidebarCss}
       ${cursorHighlightCss}
     `;
-    const styleEl = window.document.createElement("style");
-    styleEl.textContent = css;
-    window.document.head.appendChild(styleEl);
-    this.styleEl = styleEl;
+    if (!this.adoptedSheet) {
+      this.adoptedSheet = new CSSStyleSheet();
+      document.adoptedStyleSheets = [...document.adoptedStyleSheets, this.adoptedSheet];
+    }
+    this.adoptedSheet.replaceSync(css);
   }
   // ─────────────────────────────────────────
   // 用語インデックス構築
@@ -3159,7 +3157,7 @@ var NovelsNoteJP = class extends import_obsidian8.Plugin {
     this.statusBarEl = this.addStatusBarItem();
     this.statusBarEl.addClass("novels-note-wordcount");
     this.statusBarEl.title = "\u30AF\u30EA\u30C3\u30AF\u3067\u30AB\u30A6\u30F3\u30C8\u30E2\u30FC\u30C9\u3092\u5207\u308A\u66FF\u3048";
-    this.statusBarEl.setCssStyles({ cursor: "pointer" });
+    this.statusBarEl.style.setProperty("cursor", "pointer");
     this.statusBarEl.addEventListener("click", async () => {
       const modes = ["raw", "novel", "manuscript"];
       const current = modes.indexOf(this.settings.countMode);

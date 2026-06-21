@@ -247,8 +247,8 @@ export class NovelReadingView extends ItemView {
       this.app.workspace.on("editor-change", (_editor, view) => {
         // 現在このビューが表示しているファイル以外の変更は無視する
         if (!("file" in view) || (view as { file: unknown }).file !== this._file) return;
-        if (updateTimer) clearTimeout(updateTimer);
-        updateTimer = setTimeout(() => this.loadCurrentFile(), 500);
+        if (updateTimer) window.clearTimeout(updateTimer);
+        updateTimer = window.setTimeout(() => this.loadCurrentFile(), 500);
       })
     );
 
@@ -337,19 +337,24 @@ export class NovelReadingView extends ItemView {
     const wrapCol = this.getWrapColumn();
     const maxWidth = wrapCol + NovelReadingView.WRAP_MARGIN_EM;
     const fontSize = this.getFontSize();
-    this.rootEl.setCssStyles({ maxWidth: `${maxWidth}em`, fontSize: `${fontSize}px` });
+    this.rootEl.style.setProperty("max-width", `${maxWidth}em`);
+    this.rootEl.style.setProperty("font-size", `${fontSize}px`);
 
     const html = toReadingHtml(source, this.getRubyStyle());
     this.rootEl.empty();
     const contentEl = this.rootEl.createEl("div", { cls: "nn-reading-content" });
-    // toReadingHtml はこのプラグイン自身が生成する安全なHTMLのみを返す
-    contentEl.innerHTML = html;
+    // DOMParser でパースしてノードを直接追加（innerHTML 不使用）
+    const parsed = new DOMParser().parseFromString(html, "text/html");
+    for (const node of Array.from(parsed.body.childNodes)) {
+      contentEl.appendChild(contentEl.ownerDocument.adoptNode(node));
+    }
   }
 
   private renderMessage(message: string): void {
     if (!this.rootEl) return;
     this.rootEl.empty();
-    this.rootEl.setCssStyles({ maxWidth: "", fontSize: "" });
+    this.rootEl.style.removeProperty("max-width");
+    this.rootEl.style.removeProperty("font-size");
     const p = this.rootEl.createEl("p", { cls: "nn-reading-message" });
     p.textContent = message;
   }

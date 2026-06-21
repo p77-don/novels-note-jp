@@ -102,7 +102,7 @@ class CreateTermModal extends Modal {
     createBtn.addEventListener("click", submit);
 
     // フォルダパスが空のときは用語名にフォーカス、入力済みなら用語名に
-    this.focusTimer = setTimeout(() => {
+    this.focusTimer = window.setTimeout(() => {
       if (this.folderPath) {
         input.focus();
       } else {
@@ -112,7 +112,7 @@ class CreateTermModal extends Modal {
   }
 
   onClose(): void {
-    if (this.focusTimer !== undefined) clearTimeout(this.focusTimer);
+    if (this.focusTimer !== undefined) window.clearTimeout(this.focusTimer);
     this.contentEl.empty();
   }
 }
@@ -821,7 +821,7 @@ export class NovelsNoteSidebarView extends ItemView {
     if (!confirmed) return;
 
     try {
-      await this.app.vault.trash(file, true);
+      await this.app.fileManager.trashFile(file);
       new Notice(`「${term.name}」をゴミ箱に移動しました。`);
     } catch (err) {
       new Notice(`削除に失敗しました: ${err}`);

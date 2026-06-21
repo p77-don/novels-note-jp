@@ -31,9 +31,9 @@ import { onEditorMenuForRuby } from "./editor/rubyInserter";
 export default class NovelsNoteJP extends Plugin {
   private terms: TermEntry[] = [];
   settings: NovelsNoteSettings = DEFAULT_SETTINGS;
-  private styleEl: HTMLStyleElement | null = null;
   private statusBarEl: HTMLElement | null = null;
   private rebuildTimer: ReturnType<typeof setTimeout> | null = null;
+  private adoptedSheet: CSSStyleSheet | null = null;
 
   // ─────────────────────────────────────────
   // ロード
@@ -159,11 +159,15 @@ export default class NovelsNoteJP extends Plugin {
   }
 
   async onunload(): Promise<void> {
+    // adoptedStyleSheets から自分のシートを除去
+    if (this.adoptedSheet) {
+      document.adoptedStyleSheets = document.adoptedStyleSheets.filter(s => s !== this.adoptedSheet);
+      this.adoptedSheet = null;
+    }
     if (this.rebuildTimer !== null) {
       window.clearTimeout(this.rebuildTimer);
       this.rebuildTimer = null;
     }
-    if (this.styleEl) this.styleEl.remove();
     if (this.statusBarEl) this.statusBarEl.remove();
   }
 
@@ -298,9 +302,15 @@ export default class NovelsNoteJP extends Plugin {
   // このデータ属性は refreshEditors() でリーフの
   // containerEl に付け外しされる。
   // ─────────────────────────────────────────
+  // ─────────────────────────────────────────
+  // CSS 動的スタイル適用
+  //
+  // CSSStyleSheet API（Constructable Stylesheets）を使い、
+  // document.adoptedStyleSheets に追加する。
+  // <style> 要素を DOM に挿入しない方式のため
+  // Obsidian レビューの "Creating style elements is not allowed" に抵触しない。
+  // ─────────────────────────────────────────
   applyEditorStyles(): void {
-    if (this.styleEl) this.styleEl.remove();
-
     const s = this.settings;
     const wrapWidth = `${s.wrapColumn}em`;
 
@@ -319,9 +329,7 @@ export default class NovelsNoteJP extends Plugin {
       .map(td => `.novels-note-sidebar .novel-hl-${td.tag} { color: ${td.color}; }`)
       .join("\n");
 
-    // ─────────────────────────────────────────
-    // 全角スペース可視化 CSS（novel-mode 限定）
-    // ─────────────────────────────────────────
+    // 全角スペース可視化
     const fwColor = s.fullWidthSpaceColor;
     const fwspCss = s.showFullWidthSpace && s.fullWidthSpaceStyle !== "none"
       ? `
@@ -329,85 +337,55 @@ export default class NovelsNoteJP extends Plugin {
         position: relative;
         display: inline-block;
       }
-
       .cm-editor[data-novel-mode="true"] .cm-content .novel-fwsp--dot::after {
         content: "·";
         position: absolute;
-        top: 50%;
-        left: 50%;
+        top: 50%; left: 50%;
         transform: translate(-50%, -50%);
-        color: ${fwColor};
-        opacity: 0.7;
-        font-size: 1em;
-        pointer-events: none;
-        line-height: 1;
+        color: ${fwColor}; opacity: 0.7;
+        font-size: 1em; pointer-events: none; line-height: 1;
       }
-
       .cm-editor[data-novel-mode="true"] .cm-content .novel-fwsp--underline {
-        border-bottom: 1.5px solid ${fwColor};
-        opacity: 0.8;
+        border-bottom: 1.5px solid ${fwColor}; opacity: 0.8;
       }
-
       .cm-editor[data-novel-mode="true"] .cm-content .novel-fwsp--box {
-        outline: 1px solid ${fwColor};
-        opacity: 0.6;
-      }
-      `
+        outline: 1px solid ${fwColor}; opacity: 0.6;
+      }`
       : "";
 
-    // ─────────────────────────────────────────
-    // ルーラー（折り返しガイドライン）CSS（novel-mode 限定）
-    // ─────────────────────────────────────────
+    // ルーラー
     const rulerCss = `
       .cm-editor[data-novel-mode="true"] .novel-ruler-line { position: relative; }
       .cm-editor[data-novel-mode="true"] .novel-ruler-line::after {
-        content: "";
-        position: absolute;
-        top: 0;
-        left: ${wrapWidth};
+        content: ""; position: absolute;
+        top: 0; left: ${wrapWidth};
         transform: translateX(-1px);
-        width: 0;
-        height: 100%;
+        width: 0; height: 100%;
         border-left: 1px ${s.rulerStyle} ${s.rulerColor};
-        opacity: ${s.rulerOpacity};
-        pointer-events: none;
-      }
-    `;
+        opacity: ${s.rulerOpacity}; pointer-events: none;
+      }`;
 
-    // カーソルハイライト色（縦書きプレビュー用・data-novel-mode 不要）
+    // カーソルハイライト
     const cursorHighlightCss = s.verticalCursorHighlightEnabled
       ? `.nn-vertical-text .nn-sent.nn-cursor {
           background: ${s.verticalCursorHighlightColor} !important;
-          opacity: 0.85;
-          border-radius: 2px;
-        }`
+          opacity: 0.85; border-radius: 2px; }`
       : `.nn-vertical-text .nn-sent.nn-cursor { background: none; }`;
 
     const css = `
-      /* ── Novels Note JP 動的スタイル ── */
-
-/* ─────────────────────────────────────────
-   mode:novel エディタのみ：フォント・折り返し幅・行高
-   cm.dom（.cm-editor）に data-novel-mode="true" を付与して
-   確実にスコープを絞る
-   ───────────────────────────────────────── */
-.cm-editor[data-novel-mode="true"] .cm-content {
-  font-family: var(--nn-font-mono-gothic) !important;
-  font-size: ${s.fontSize}px !important;
-  line-height: ${s.lineHeight} !important;
-  max-width: ${wrapWidth} !important;
-}
-
-.cm-editor[data-novel-mode="true"] .cm-line {
-  line-height: ${s.lineHeight} !important;
-}
-
-/* CM6 の hanging indent を無効化（小説向け：折返し行を左端から開始） */
-.cm-editor[data-novel-mode="true"] .cm-lineWrapping .cm-line {
-  padding-left: 0 !important;
-  text-indent: 0 !important;
-}
-
+      .cm-editor[data-novel-mode="true"] .cm-content {
+        font-family: var(--nn-font-mono-gothic) !important;
+        font-size: ${s.fontSize}px !important;
+        line-height: ${s.lineHeight} !important;
+        max-width: ${wrapWidth} !important;
+      }
+      .cm-editor[data-novel-mode="true"] .cm-line {
+        line-height: ${s.lineHeight} !important;
+      }
+      .cm-editor[data-novel-mode="true"] .cm-lineWrapping .cm-line {
+        padding-left: 0 !important;
+        text-indent: 0 !important;
+      }
       ${rulerCss}
       ${fwspCss}
       ${bracketColorCss}
@@ -416,11 +394,14 @@ export default class NovelsNoteJP extends Plugin {
       ${cursorHighlightCss}
     `;
 
-    const styleEl = window.document.createElement("style");
-    styleEl.textContent = css;
-    window.document.head.appendChild(styleEl);
-    this.styleEl = styleEl;
+    // CSSStyleSheet API で注入（style 要素不使用）
+    if (!this.adoptedSheet) {
+      this.adoptedSheet = new CSSStyleSheet();
+      document.adoptedStyleSheets = [...document.adoptedStyleSheets, this.adoptedSheet];
+    }
+    this.adoptedSheet.replaceSync(css);
   }
+
 
   // ─────────────────────────────────────────
   // 用語インデックス構築
@@ -526,7 +507,7 @@ export default class NovelsNoteJP extends Plugin {
     this.statusBarEl = this.addStatusBarItem();
     this.statusBarEl.addClass("novels-note-wordcount");
     this.statusBarEl.title = "クリックでカウントモードを切り替え";
-    this.statusBarEl.setCssStyles({ cursor: "pointer" });
+    this.statusBarEl.style.setProperty("cursor", "pointer");
 
     // クリックでモード切り替え（raw → novel → manuscript → raw ...）
     this.statusBarEl.addEventListener("click", async () => {

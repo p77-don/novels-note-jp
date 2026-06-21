@@ -536,8 +536,12 @@ export class VerticalPreviewView extends ItemView {
     if (!textEl) {
       textEl = this.bodyEl.createEl("div", { cls: "nn-vertical-text" });
     }
-    // toVerticalHtml はこのプラグイン自身が生成する安全なHTMLのみを返す
-    textEl.innerHTML = html;
+    // DOMParser でパースしてノードを直接追加（innerHTML 不使用）
+    const parsed1 = new DOMParser().parseFromString(html, "text/html");
+    textEl.empty();
+    for (const node of Array.from(parsed1.body.childNodes)) {
+      textEl.appendChild(textEl.ownerDocument.adoptNode(node));
+    }
 
     // DOM 確定後に右端→カーソル位置へ同期
     this.lastCursorLine = -1;
@@ -589,8 +593,14 @@ export class VerticalPreviewView extends ItemView {
       );
       this.lineSentences = lineSentences;
       const textEl = this.bodyEl.querySelector<HTMLElement>(".nn-vertical-text");
-      // toVerticalHtml はこのプラグイン自身が生成する安全なHTMLのみを返す
-      if (textEl) textEl.innerHTML = html;
+      // DOMParser でパースしてノードを直接追加（innerHTML 不使用）
+      if (textEl) {
+        const parsed2 = new DOMParser().parseFromString(html, "text/html");
+        textEl.empty();
+        for (const node of Array.from(parsed2.body.childNodes)) {
+          textEl.appendChild(textEl.ownerDocument.adoptNode(node));
+        }
+      }
     }
 
     // カーソル文単位ハイライト + スクロール
