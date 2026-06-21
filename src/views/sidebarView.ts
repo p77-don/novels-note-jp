@@ -5,7 +5,7 @@
 
 import { ItemView, WorkspaceLeaf, TFile, Plugin, Notice, Modal, Menu, App, setIcon } from "obsidian";
 import { SIDEBAR_VIEW_TYPE, TermEntry, TERM_DRAG_MIME_TYPE } from "../types";
-import { TagDefinition, NovelsNoteSettings } from "../settings";
+import { TagDefinition } from "../settings";
 
 // ─────────────────────────────────────────
 // ツリーノード型
@@ -320,14 +320,14 @@ export class NovelsNoteSidebarView extends ItemView {
   /**
    * プラグイン本体への参照
    */
-  private plugin: (Plugin & { getTerms(): TermEntry[]; settings: NovelsNoteSettings }) | null = null;
+  private plugin: (Plugin & { getTerms(): TermEntry[]; getTagDefs(): TagDefinition[] }) | null = null;
 
   constructor(leaf: WorkspaceLeaf) {
     super(leaf);
   }
 
   /** main.ts の registerView コールバックから呼ぶ */
-  setPlugin(plugin: Plugin & { getTerms(): TermEntry[]; settings: NovelsNoteSettings }): void {
+  setPlugin(plugin: Plugin & { getTerms(): TermEntry[]; getTagDefs(): TagDefinition[] }): void {
     this.plugin = plugin;
   }
 
@@ -338,7 +338,7 @@ export class NovelsNoteSidebarView extends ItemView {
   async onOpen(): Promise<void> {
     if (this.plugin) {
       this.terms   = this.plugin.getTerms();
-      this.tagDefs = this.plugin.settings.tagDefinitions;
+      this.tagDefs = this.plugin.getTagDefs();
     }
     this.render();
   }

@@ -10,6 +10,7 @@ import {
   DEFAULT_SETTINGS,
   DEFAULT_TAG_DEFINITIONS,
   DEFAULT_BRACKET_DEFINITIONS,
+  TagDefinition,
 } from "./settings";
 import { SIDEBAR_VIEW_TYPE, VERTICAL_VIEW_TYPE, NOVEL_READING_VIEW_TYPE, TermEntry, settingsEffect, novelModeEffect, novelModeField } from "./types";
 import {
@@ -603,6 +604,10 @@ export default class NovelsNoteJP extends Plugin {
 
   getTerms(): TermEntry[] {
     return this.terms;
+  }
+
+  getTagDefs(): TagDefinition[] {
+    return this.settings.tagDefinitions;
   }
 
   // ─────────────────────────────────────────

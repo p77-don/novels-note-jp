@@ -763,7 +763,7 @@ var NovelsNoteSidebarView = class extends import_obsidian2.ItemView {
   async onOpen() {
     if (this.plugin) {
       this.terms = this.plugin.getTerms();
-      this.tagDefs = this.plugin.settings.tagDefinitions;
+      this.tagDefs = this.plugin.getTagDefs();
     }
     this.render();
   }
@@ -3254,6 +3254,9 @@ var NovelsNoteJP = class extends import_obsidian8.Plugin {
   }
   getTerms() {
     return this.terms;
+  }
+  getTagDefs() {
+    return this.settings.tagDefinitions;
   }
   // ─────────────────────────────────────────
   // 縦書きプレビュー強制再描画
