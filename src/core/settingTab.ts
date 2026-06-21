@@ -16,7 +16,7 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
   display(): void {
     const { containerEl } = this;
     containerEl.empty();
-    containerEl.createEl("h2", { text: "Novels Note JP 設定" });
+    new Setting(containerEl).setName("Novels Note JP 設定").setHeading();
 
     this.renderEditorSection(containerEl);
     this.renderRulerSection(containerEl);
@@ -34,7 +34,7 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
   // エディタ表示セクション
   // ─────────────────────────────────────────
   private renderEditorSection(containerEl: HTMLElement): void {
-    containerEl.createEl("h3", { text: "エディタ表示" });
+    new Setting(containerEl).setName("エディタ表示").setHeading();
 
     new Setting(containerEl)
       .setName("フォントサイズ（px）")
@@ -87,7 +87,7 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
   // 折り返しガイドラインセクション
   // ─────────────────────────────────────────
   private renderRulerSection(containerEl: HTMLElement): void {
-    containerEl.createEl("h3", { text: "折り返しガイドライン" });
+    new Setting(containerEl).setName("折り返しガイドライン").setHeading();
 
     new Setting(containerEl)
       .setName("ガイドラインを表示する")
@@ -144,7 +144,7 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
   // 縦書きプレビュー設定セクション
   // ─────────────────────────────────────────
   private renderVerticalPreviewSection(containerEl: HTMLElement): void {
-    containerEl.createEl("h3", { text: "縦書きプレビュー" });
+    new Setting(containerEl).setName("縦書きプレビュー").setHeading();
 
     new Setting(containerEl)
       .setName("カーソル行のハイライトを有効にする")
@@ -175,7 +175,7 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
   // 全角スペース可視化セクション
   // ─────────────────────────────────────────
   private renderFullWidthSpaceSection(containerEl: HTMLElement): void {
-    containerEl.createEl("h3", { text: "全角スペースの表示" });
+    new Setting(containerEl).setName("全角スペースの表示").setHeading();
     containerEl.createEl("p", {
       text: "段落先頭の全角スペースを目視で確認できます。本文テキストは変更しません。",
       cls: "setting-item-description",
@@ -243,7 +243,7 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
   //     "_templates/character.md" が除外される。
   // ─────────────────────────────────────────
   private renderExcludeFoldersSection(containerEl: HTMLElement): void {
-    containerEl.createEl("h3", { text: "用語インデックス — 除外フォルダ" });
+    new Setting(containerEl).setName("用語インデックス — 除外フォルダ").setHeading();
     containerEl.createEl("p", {
       text:
         "指定したフォルダ内のファイルを用語インデックスから除外します。" +
@@ -262,7 +262,7 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
       .setDesc("Vault ルートからの相対パスを入力してください（例：_templates、characters/_templates）。")
       .addText(text => {
         text.setPlaceholder("フォルダパスを入力…");
-        text.inputEl.style.width = "200px";
+        text.inputEl.addClass("nn-folder-path-input");
         text.onChange(value => { folderInput = value; });
         // Enter キーでも追加できる
         text.inputEl.addEventListener("keydown", async (e: KeyboardEvent) => {
@@ -302,20 +302,15 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
       const row = containerEl.createEl("div", {
         cls: "setting-item nn-exclude-folder-row",
       });
-      row.style.borderTop = "1px solid var(--background-modifier-border)";
-      row.style.padding = "6px 0";
-      row.style.display = "flex";
-      row.style.alignItems = "center";
-      row.style.gap = "8px";
+      row.addClass("nn-exclude-folder-item-row");
 
       // フォルダアイコン＋パス
-      const label = row.createEl("span", { cls: "setting-item-name" });
-      label.style.flex = "1";
-      label.innerHTML = `<span style="opacity:0.6">📁</span> <code>${folders[i]}</code>`;
+      const label = row.createEl("span", { cls: "setting-item-name nn-folder-label" });
+      const icon = label.createEl("span", { cls: "nn-folder-icon", text: "📁" });
+      label.createEl("code", { text: folders[i] });
 
       // 削除ボタン
-      const delBtn = row.createEl("button", { text: "削除", cls: "mod-warning" });
-      delBtn.style.flexShrink = "0";
+      const delBtn = row.createEl("button", { text: "削除", cls: "mod-warning nn-folder-del-btn" });
       delBtn.addEventListener("click", async () => {
         this.plugin.settings.excludeFolders.splice(i, 1);
         await this.plugin.saveSettings();
@@ -350,7 +345,7 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
   // ハイライト全体のオン/オフセクション
   // ─────────────────────────────────────────
   private renderHighlightSection(containerEl: HTMLElement): void {
-    containerEl.createEl("h3", { text: "ハイライト" });
+    new Setting(containerEl).setName("ハイライト").setHeading();
 
     new Setting(containerEl)
       .setName("ハイライトを有効にする")
@@ -370,7 +365,7 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
   // カテゴリ定義セクション
   // ─────────────────────────────────────────
   private renderTagSection(containerEl: HTMLElement): void {
-    containerEl.createEl("h3", { text: "カテゴリ定義" });
+    new Setting(containerEl).setName("カテゴリ定義").setHeading();
     containerEl.createEl("p", {
       text: "用語ノートに付けるカテゴリ名・表示名・色・オン/オフを設定します。",
       cls: "setting-item-description",
@@ -414,19 +409,14 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
 
       // ── ドラッグハンドル ────────────────────────────
       const handle = rowEl.createEl("span", { cls: "nn-drag-handle", title: "ドラッグして並べ替え" });
-      handle.innerHTML = `<svg viewBox="0 0 16 16" width="16" height="16">
-        <circle cx="5" cy="4" r="1.2" fill="currentColor"/>
-        <circle cx="11" cy="4" r="1.2" fill="currentColor"/>
-        <circle cx="5" cy="8" r="1.2" fill="currentColor"/>
-        <circle cx="11" cy="8" r="1.2" fill="currentColor"/>
-        <circle cx="5" cy="12" r="1.2" fill="currentColor"/>
-        <circle cx="11" cy="12" r="1.2" fill="currentColor"/>
-      </svg>`;
+      const svg = handle.createSvg("svg", { attr: { viewBox: "0 0 16 16", width: "16", height: "16" } });
+      for (const [cx, cy] of [[5,4],[11,4],[5,8],[11,8],[5,12],[11,12]]) {
+        svg.createSvg("circle", { attr: { cx, cy, r: "1.2", fill: "currentColor" } });
+      }
 
       // ── Setting をこの rowEl の中に作る ────────────
       const setting = new Setting(rowEl);
-      setting.settingEl.style.border = "none";
-      setting.settingEl.style.padding = "0";
+      setting.settingEl.addClass("nn-tag-setting-row");
 
       const capturedI = i; // クロージャ用
 
@@ -545,7 +535,7 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
   // カッコハイライトセクション
   // ─────────────────────────────────────────
   private renderBracketSection(containerEl: HTMLElement): void {
-    containerEl.createEl("h3", { text: "カッコハイライト" });
+    new Setting(containerEl).setName("カッコハイライト").setHeading();
     containerEl.createEl("p", {
       text: "内側のカッコが外側より優先されます。用語の強調表示はすべてのカッコより優先されます。",
       cls: "setting-item-description",
@@ -581,8 +571,7 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
           })
       );
       setting.addText(text => {
-        text.inputEl.style.width = "3em";
-        text.inputEl.style.textAlign = "center";
+        text.inputEl.addClass("nn-bracket-char-input");
         text.setPlaceholder("開").setValue(bd.open)
           .onChange(async value => {
             defs[i].open = value;
@@ -591,8 +580,7 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
           });
       });
       setting.addText(text => {
-        text.inputEl.style.width = "3em";
-        text.inputEl.style.textAlign = "center";
+        text.inputEl.addClass("nn-bracket-char-input");
         text.setPlaceholder("閉").setValue(bd.close)
           .onChange(async value => {
             defs[i].close = value;
@@ -634,7 +622,7 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
   // ルビ設定セクション
   // ─────────────────────────────────────────
   private renderRubySection(containerEl: HTMLElement): void {
-    containerEl.createEl("h3", { text: "ルビ設定" });
+    new Setting(containerEl).setName("ルビ設定").setHeading();
     containerEl.createEl("p", {
       text: "縦書きプレビューおよびExportで使用するルビの記法を選択してください。",
       cls: "setting-item-description",
@@ -668,7 +656,7 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
   // 文字数カウントセクション
   // ─────────────────────────────────────────
   private renderWordCountSection(containerEl: HTMLElement): void {
-    containerEl.createEl("h3", { text: "文字数カウント" });
+    new Setting(containerEl).setName("文字数カウント").setHeading();
     containerEl.createEl("p", {
       text: "ステータスバー（画面下部）に原稿の文字数を表示します。クリックでモードを切り替えられます。",
       cls: "setting-item-description",

@@ -33,10 +33,10 @@ class RubyWidget extends WidgetType {
   }
 
   toDOM(): HTMLElement {
-    const rubyEl = document.createElement("ruby");
+    const rubyEl = window.document.createElement("ruby");
     rubyEl.className = "nn-editor-ruby";
-    rubyEl.appendChild(document.createTextNode(this.base));
-    const rt = document.createElement("rt");
+    rubyEl.appendChild(window.document.createTextNode(this.base));
+    const rt = window.document.createElement("rt");
     rt.textContent = this.ruby;
     rubyEl.appendChild(rt);
     return rubyEl;

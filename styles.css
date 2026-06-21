@@ -289,8 +289,8 @@
 .nn-term-row.nn-dragging {
   opacity: 0.4;
 }
-.nn-folder-row.nn-drop-target {
-  background: var(--interactive-accent-hover) !important;
+.nn-folder-row.nn-drop-target.nn-drop-target {
+  background: var(--interactive-accent-hover);
   outline: 2px dashed var(--interactive-accent);
   outline-offset: -2px;
   border-radius: 4px;
@@ -913,3 +913,65 @@
   color: var(--text-muted);
 }
 
+
+/* ─────────────────────────────────────────
+   設定タブ — 追加ユーティリティクラス
+   （style直接代入の代替）
+   ───────────────────────────────────────── */
+
+/* 表示/非表示トグル */
+.nn-hidden {
+  display: none;
+}
+
+/* 除外フォルダ入力フィールド */
+.nn-folder-path-input {
+  width: 200px;
+}
+
+/* 除外フォルダ行レイアウト */
+.nn-exclude-folder-item-row {
+  border-top: 1px solid var(--background-modifier-border);
+  padding: 6px 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 除外フォルダラベル */
+.nn-folder-label {
+  flex: 1;
+}
+
+/* 除外フォルダアイコン */
+.nn-folder-icon {
+  opacity: 0.6;
+  margin-right: 4px;
+}
+
+/* 除外フォルダ削除ボタン */
+.nn-folder-del-btn {
+  flex-shrink: 0;
+}
+
+/* カテゴリ定義行 — Setting枠を除去 */
+.setting-item.nn-tag-setting-row {
+  border: none;
+  padding: 0;
+}
+
+/* カッコ開閉文字入力（幅固定・中央揃え） */
+.nn-bracket-char-input {
+  width: 3em;
+  text-align: center;
+}
+
+/* エクスポートモーダル — ファイル名入力 */
+.nn-export-filename-input {
+  width: 100%;
+}
+
+/* 小説閲覧ビュー — コンテンツラッパー */
+.nn-reading-content {
+  width: 100%;
+}

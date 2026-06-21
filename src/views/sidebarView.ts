@@ -3,7 +3,7 @@
 // フォルダツリー展開式・検索対応
 // ─────────────────────────────────────────
 
-import { ItemView, WorkspaceLeaf, TFile, Plugin, Notice, Modal, Menu, App } from "obsidian";
+import { ItemView, WorkspaceLeaf, TFile, Plugin, Notice, Modal, Menu, App, setIcon } from "obsidian";
 import { SIDEBAR_VIEW_TYPE, TermEntry, TERM_DRAG_MIME_TYPE } from "../types";
 import { TagDefinition } from "../settings";
 
@@ -365,9 +365,9 @@ export class NovelsNoteSidebarView extends ItemView {
     // 全展開 / 全折りたたみボタン
     const btnBar = header.createEl("div", { cls: "nn-header-buttons" });
     const btnExpand = btnBar.createEl("button", { cls: "nn-btn", title: "すべて展開" });
-    btnExpand.innerHTML = `<svg viewBox="0 0 16 16" width="14" height="14"><path fill="currentColor" d="M2 5l6 6 6-6"/></svg>`;
+    setIcon(btnExpand, "chevron-down");
     const btnCollapse = btnBar.createEl("button", { cls: "nn-btn", title: "すべて折りたたむ" });
-    btnCollapse.innerHTML = `<svg viewBox="0 0 16 16" width="14" height="14"><path fill="currentColor" d="M14 11L8 5l-6 6"/></svg>`;
+    setIcon(btnCollapse, "chevron-up");
 
     btnExpand.addEventListener("click", () => {
       this.openState.forEach((_, k) => this.openState.set(k, true));
@@ -398,18 +398,18 @@ export class NovelsNoteSidebarView extends ItemView {
       title: "クリア",
       text: "✕",
     });
-    clearBtn.style.display = this.searchQuery ? "" : "none";
+    clearBtn.toggleClass("nn-hidden", !this.searchQuery);
 
     searchInput.addEventListener("input", () => {
       this.searchQuery = searchInput.value.trim();
-      clearBtn.style.display = this.searchQuery ? "" : "none";
+      clearBtn.toggleClass("nn-hidden", !this.searchQuery);
       this.renderBody(body);
     });
 
     clearBtn.addEventListener("click", () => {
       searchInput.value = "";
       this.searchQuery = "";
-      clearBtn.style.display = "none";
+      clearBtn.addClass("nn-hidden");
       searchInput.focus();
       this.renderBody(body);
     });
@@ -477,14 +477,14 @@ export class NovelsNoteSidebarView extends ItemView {
       const sectionBody = section.createEl("div", {
         cls: "nn-section-body",
       });
-      sectionBody.style.display = isTagOpen ? "" : "none";
+      sectionBody.toggleClass("nn-hidden", !isTagOpen);
 
       // クリック：開閉
       sectionHeader.addEventListener("click", () => {
         const next = !(this.openState.get(sectionKey) ?? false);
         this.openState.set(sectionKey, next);
         arrow.classList.toggle("nn-arrow-open", next);
-        sectionBody.style.display = next ? "" : "none";
+        sectionBody.toggleClass("nn-hidden", !next);
       });
 
       // 右クリック：カテゴリコンテキストメニュー
@@ -575,7 +575,7 @@ export class NovelsNoteSidebarView extends ItemView {
 
     // 中身
     const children = wrap.createEl("div", { cls: "nn-folder-children" });
-    children.style.display = isOpen ? "" : "none";
+    children.toggleClass("nn-hidden", !isOpen);
 
     // クリック（開閉）
     folderRow.addEventListener("click", (e: MouseEvent) => {
@@ -585,7 +585,7 @@ export class NovelsNoteSidebarView extends ItemView {
       arrow.classList.toggle("nn-arrow-open", next);
       (folderRow.querySelector(".nn-folder-icon") as HTMLElement).textContent =
         next ? "📂" : "📁";
-      children.style.display = next ? "" : "none";
+      children.toggleClass("nn-hidden", !next);
     });
 
     // 右クリックメニュー（フォルダ）

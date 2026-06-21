@@ -13,7 +13,7 @@
 //     WikiLink・タグ・Markdown記号などの原稿外情報を排除する。
 // ─────────────────────────────────────────
 
-import { ItemView, WorkspaceLeaf, TFile } from "obsidian";
+import { ItemView, WorkspaceLeaf, TFile, setIcon } from "obsidian";
 import { NOVEL_READING_VIEW_TYPE } from "../types";
 import { RubyStyle } from "../settings";
 import { convertRuby } from "./verticalPreview";
@@ -222,7 +222,7 @@ export class NovelReadingView extends ItemView {
       cls: "nn-btn",
       title: "現在のファイルを原稿 Export する",
     });
-    exportBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="-5 -5 34 34" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-file-output-icon lucide-file-output"><path d="M4.226 20.925A2 2 0 0 0 6 22h12a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v3.127"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="m5 11-3 3"/><path d="m5 17-3-3h10"/></svg>`;
+    setIcon(exportBtn, "file-output");
     exportBtn.addEventListener("click", () => {
       if (!this._file) return;
       new ExportModal(this.app, this._file, this.getRubyStyle()).open();
@@ -233,10 +233,7 @@ export class NovelReadingView extends ItemView {
       cls: "nn-btn",
       title: "編集モードに戻る",
     });
-    editBtn.innerHTML = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M12 20h9"/>
-      <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
-    </svg>`;
+    setIcon(editBtn, "pencil");
     editBtn.addEventListener("click", () => this.switchToEdit());
 
     // ─── 本文領域 ───
@@ -336,25 +333,23 @@ export class NovelReadingView extends ItemView {
       this.titleEl.textContent = this._file?.basename ?? "小説閲覧";
     }
 
-    // 折り返し幅を設定値に合わせる（補正マージンを加算）
+    // 折り返し幅・フォントサイズを設定値に合わせる
     const wrapCol = this.getWrapColumn();
     const maxWidth = wrapCol + NovelReadingView.WRAP_MARGIN_EM;
-    this.rootEl.style.maxWidth = `${maxWidth}em`;
-
-    // フォントサイズをエディター設定値に合わせる
-    // （var(--font-text-size) は Obsidian 本体の外観設定であり、
-    //   プラグイン側の wrapColumn(em) 計算の前提とズレるため）
     const fontSize = this.getFontSize();
-    this.rootEl.style.fontSize = `${fontSize}px`;
+    this.rootEl.setCssStyles({ maxWidth: `${maxWidth}em`, fontSize: `${fontSize}px` });
 
     const html = toReadingHtml(source, this.getRubyStyle());
-    this.rootEl.innerHTML = html;
+    this.rootEl.empty();
+    const contentEl = this.rootEl.createEl("div", { cls: "nn-reading-content" });
+    // toReadingHtml はこのプラグイン自身が生成する安全なHTMLのみを返す
+    contentEl.innerHTML = html;
   }
 
   private renderMessage(message: string): void {
     if (!this.rootEl) return;
-    this.rootEl.innerHTML = "";
-    this.rootEl.style.maxWidth = "";
+    this.rootEl.empty();
+    this.rootEl.setCssStyles({ maxWidth: "", fontSize: "" });
     const p = this.rootEl.createEl("p", { cls: "nn-reading-message" });
     p.textContent = message;
   }
@@ -364,3 +359,4 @@ export class NovelReadingView extends ItemView {
     this.loadCurrentFile();
   }
 }
+

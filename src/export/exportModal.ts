@@ -115,7 +115,7 @@ export class ExportModal extends Modal {
       .setDesc("Vault 内に保存されます（Vault ルート直下）")
       .addText(text => {
         this.fileNameEl = text.inputEl;
-        text.inputEl.style.width = "100%";
+        text.inputEl.addClass("nn-export-filename-input");
         text.setValue(makeExportFilename(this.sourceFile!.name, this.opts.format));
       });
 

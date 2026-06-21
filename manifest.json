@@ -1,9 +1,9 @@
 {
   "id": "novels-note-jp",
   "name": "Novels Note JP",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "minAppVersion": "1.4.0",
-  "description": "Japanese novel writing support tools for Obsidian.",
+  "description": "Japanese novel writing support plugin with vertical preview, ruby, and highlight tools.",
   "author": "p77-don",
   "authorUrl": "https://github.com/p77-don",
   "isDesktopOnly": true

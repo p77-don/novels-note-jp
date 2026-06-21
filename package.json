@@ -1,7 +1,7 @@
 {
   "name": "novels-note-jp",
-  "version": "0.6.0",
-  "description": "Japanese novel writing support tools for Obsidian.",
+  "version": "0.6.1",
+  "description": "Japanese novel writing support plugin with vertical preview, ruby, and highlight tools.",
   "main": "main.js",
   "scripts": {
     "dev": "node esbuild.config.mjs",

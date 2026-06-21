@@ -88,7 +88,7 @@ class RubyInputModal extends Modal {
     const previewWrap = contentEl.createEl("div", { cls: "nn-ruby-preview-wrap" });
     previewWrap.createEl("span", { text: "プレビュー：", cls: "nn-modal-label" });
     const preview = previewWrap.createEl("ruby", { cls: "nn-ruby-preview" });
-    preview.appendChild(document.createTextNode(this.baseText));
+    preview.appendChild(window.document.createTextNode(this.baseText));
     const rt = preview.createEl("rt");
     rt.textContent = "";
 
@@ -124,11 +124,11 @@ class RubyInputModal extends Modal {
     cancelBtn.addEventListener("click", () => this.close());
     insertBtn.addEventListener("click", submit);
 
-    this.focusTimer = setTimeout(() => input.focus(), 50);
+    this.focusTimer = window.setTimeout(() => input.focus(), 50);
   }
 
   onClose(): void {
-    if (this.focusTimer !== undefined) clearTimeout(this.focusTimer);
+    if (this.focusTimer !== undefined) window.clearTimeout(this.focusTimer);
     this.contentEl.empty();
   }
 }

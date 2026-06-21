@@ -160,7 +160,7 @@ export default class NovelsNoteJP extends Plugin {
 
   async onunload(): Promise<void> {
     if (this.rebuildTimer !== null) {
-      clearTimeout(this.rebuildTimer);
+      window.clearTimeout(this.rebuildTimer);
       this.rebuildTimer = null;
     }
     if (this.styleEl) this.styleEl.remove();
@@ -178,9 +178,9 @@ export default class NovelsNoteJP extends Plugin {
   // ─────────────────────────────────────────
   private scheduleRebuild(delay = 400): void {
     if (this.rebuildTimer !== null) {
-      clearTimeout(this.rebuildTimer);
+      window.clearTimeout(this.rebuildTimer);
     }
-    this.rebuildTimer = setTimeout(async () => {
+    this.rebuildTimer = window.setTimeout(async () => {
       this.rebuildTimer = null;
       await this.buildTermIndex();
       this.updateSidebar();
@@ -263,7 +263,7 @@ export default class NovelsNoteJP extends Plugin {
     this.registerEvent(
       this.app.workspace.on("file-open", () => {
         // CM6 が DOM を構築し終えるのを少し待つ
-        setTimeout(() => this.refreshEditors(), 50);
+        window.setTimeout(() => this.refreshEditors(), 50);
       })
     );
   }
@@ -416,9 +416,10 @@ export default class NovelsNoteJP extends Plugin {
       ${cursorHighlightCss}
     `;
 
-    this.styleEl = document.createElement("style");
-    this.styleEl.textContent = css;
-    document.head.appendChild(this.styleEl);
+    const styleEl = window.document.createElement("style");
+    styleEl.textContent = css;
+    window.document.head.appendChild(styleEl);
+    this.styleEl = styleEl;
   }
 
   // ─────────────────────────────────────────
@@ -525,7 +526,7 @@ export default class NovelsNoteJP extends Plugin {
     this.statusBarEl = this.addStatusBarItem();
     this.statusBarEl.addClass("novels-note-wordcount");
     this.statusBarEl.title = "クリックでカウントモードを切り替え";
-    this.statusBarEl.style.cursor = "pointer";
+    this.statusBarEl.setCssStyles({ cursor: "pointer" });
 
     // クリックでモード切り替え（raw → novel → manuscript → raw ...）
     this.statusBarEl.addEventListener("click", async () => {
@@ -614,7 +615,7 @@ export default class NovelsNoteJP extends Plugin {
           resolve();
         }
       });
-      setTimeout(() => { this.app.metadataCache.offref(ref); resolve(); }, 2000);
+      window.setTimeout(() => { this.app.metadataCache.offref(ref); resolve(); }, 2000);
     });
   }
 

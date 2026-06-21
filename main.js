@@ -108,10 +108,10 @@ var RubyWidget = class extends import_view.WidgetType {
     return this.base === other.base && this.ruby === other.ruby;
   }
   toDOM() {
-    const rubyEl = document.createElement("ruby");
+    const rubyEl = window.document.createElement("ruby");
     rubyEl.className = "nn-editor-ruby";
-    rubyEl.appendChild(document.createTextNode(this.base));
-    const rt = document.createElement("rt");
+    rubyEl.appendChild(window.document.createTextNode(this.base));
+    const rt = window.document.createElement("rt");
     rt.textContent = this.ruby;
     rubyEl.appendChild(rt);
     return rubyEl;
@@ -785,9 +785,9 @@ var NovelsNoteSidebarView = class extends import_obsidian2.ItemView {
     header.createEl("span", { text: "\u7528\u8A9E\u30A4\u30F3\u30C7\u30C3\u30AF\u30B9", cls: "nn-header-title" });
     const btnBar = header.createEl("div", { cls: "nn-header-buttons" });
     const btnExpand = btnBar.createEl("button", { cls: "nn-btn", title: "\u3059\u3079\u3066\u5C55\u958B" });
-    btnExpand.innerHTML = `<svg viewBox="0 0 16 16" width="14" height="14"><path fill="currentColor" d="M2 5l6 6 6-6"/></svg>`;
+    (0, import_obsidian2.setIcon)(btnExpand, "chevron-down");
     const btnCollapse = btnBar.createEl("button", { cls: "nn-btn", title: "\u3059\u3079\u3066\u6298\u308A\u305F\u305F\u3080" });
-    btnCollapse.innerHTML = `<svg viewBox="0 0 16 16" width="14" height="14"><path fill="currentColor" d="M14 11L8 5l-6 6"/></svg>`;
+    (0, import_obsidian2.setIcon)(btnCollapse, "chevron-up");
     btnExpand.addEventListener("click", () => {
       this.openState.forEach((_, k) => this.openState.set(k, true));
       for (const td of this.tagDefs) {
@@ -814,16 +814,16 @@ var NovelsNoteSidebarView = class extends import_obsidian2.ItemView {
       title: "\u30AF\u30EA\u30A2",
       text: "\u2715"
     });
-    clearBtn.style.display = this.searchQuery ? "" : "none";
+    clearBtn.toggleClass("nn-hidden", !this.searchQuery);
     searchInput.addEventListener("input", () => {
       this.searchQuery = searchInput.value.trim();
-      clearBtn.style.display = this.searchQuery ? "" : "none";
+      clearBtn.toggleClass("nn-hidden", !this.searchQuery);
       this.renderBody(body);
     });
     clearBtn.addEventListener("click", () => {
       searchInput.value = "";
       this.searchQuery = "";
-      clearBtn.style.display = "none";
+      clearBtn.addClass("nn-hidden");
       searchInput.focus();
       this.renderBody(body);
     });
@@ -875,13 +875,13 @@ var NovelsNoteSidebarView = class extends import_obsidian2.ItemView {
       const sectionBody = section.createEl("div", {
         cls: "nn-section-body"
       });
-      sectionBody.style.display = isTagOpen ? "" : "none";
+      sectionBody.toggleClass("nn-hidden", !isTagOpen);
       sectionHeader.addEventListener("click", () => {
         var _a2;
         const next = !((_a2 = this.openState.get(sectionKey)) != null ? _a2 : false);
         this.openState.set(sectionKey, next);
         arrow.classList.toggle("nn-arrow-open", next);
-        sectionBody.style.display = next ? "" : "none";
+        sectionBody.toggleClass("nn-hidden", !next);
       });
       sectionHeader.addEventListener("contextmenu", (e) => {
         e.preventDefault();
@@ -945,14 +945,14 @@ var NovelsNoteSidebarView = class extends import_obsidian2.ItemView {
       cls: "nn-count"
     });
     const children = wrap.createEl("div", { cls: "nn-folder-children" });
-    children.style.display = isOpen ? "" : "none";
+    children.toggleClass("nn-hidden", !isOpen);
     folderRow.addEventListener("click", (e) => {
       e.stopPropagation();
       const next = !this.openState.get(stateKey);
       this.openState.set(stateKey, next);
       arrow.classList.toggle("nn-arrow-open", next);
       folderRow.querySelector(".nn-folder-icon").textContent = next ? "\u{1F4C2}" : "\u{1F4C1}";
-      children.style.display = next ? "" : "none";
+      children.toggleClass("nn-hidden", !next);
     });
     folderRow.addEventListener("contextmenu", (e) => {
       e.preventDefault();
@@ -1186,7 +1186,7 @@ var NovelsNoteSettingTab = class extends import_obsidian3.PluginSettingTab {
   display() {
     const { containerEl } = this;
     containerEl.empty();
-    containerEl.createEl("h2", { text: "Novels Note JP \u8A2D\u5B9A" });
+    new import_obsidian3.Setting(containerEl).setName("Novels Note JP \u8A2D\u5B9A").setHeading();
     this.renderEditorSection(containerEl);
     this.renderRulerSection(containerEl);
     this.renderRubySection(containerEl);
@@ -1202,7 +1202,7 @@ var NovelsNoteSettingTab = class extends import_obsidian3.PluginSettingTab {
   // エディタ表示セクション
   // ─────────────────────────────────────────
   renderEditorSection(containerEl) {
-    containerEl.createEl("h3", { text: "\u30A8\u30C7\u30A3\u30BF\u8868\u793A" });
+    new import_obsidian3.Setting(containerEl).setName("\u30A8\u30C7\u30A3\u30BF\u8868\u793A").setHeading();
     new import_obsidian3.Setting(containerEl).setName("\u30D5\u30A9\u30F3\u30C8\u30B5\u30A4\u30BA\uFF08px\uFF09").setDesc("\u5C0F\u8AAC\u672C\u6587\u30A8\u30C7\u30A3\u30BF\u306E\u30D5\u30A9\u30F3\u30C8\u30B5\u30A4\u30BA\u3002").addText(
       (text) => text.setValue(String(this.plugin.settings.fontSize)).onChange(async (value) => {
         const n = parseInt(value, 10);
@@ -1239,7 +1239,7 @@ var NovelsNoteSettingTab = class extends import_obsidian3.PluginSettingTab {
   // 折り返しガイドラインセクション
   // ─────────────────────────────────────────
   renderRulerSection(containerEl) {
-    containerEl.createEl("h3", { text: "\u6298\u308A\u8FD4\u3057\u30AC\u30A4\u30C9\u30E9\u30A4\u30F3" });
+    new import_obsidian3.Setting(containerEl).setName("\u6298\u308A\u8FD4\u3057\u30AC\u30A4\u30C9\u30E9\u30A4\u30F3").setHeading();
     new import_obsidian3.Setting(containerEl).setName("\u30AC\u30A4\u30C9\u30E9\u30A4\u30F3\u3092\u8868\u793A\u3059\u308B").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.showRuler).onChange(async (value) => {
         this.plugin.settings.showRuler = value;
@@ -1276,7 +1276,7 @@ var NovelsNoteSettingTab = class extends import_obsidian3.PluginSettingTab {
   // 縦書きプレビュー設定セクション
   // ─────────────────────────────────────────
   renderVerticalPreviewSection(containerEl) {
-    containerEl.createEl("h3", { text: "\u7E26\u66F8\u304D\u30D7\u30EC\u30D3\u30E5\u30FC" });
+    new import_obsidian3.Setting(containerEl).setName("\u7E26\u66F8\u304D\u30D7\u30EC\u30D3\u30E5\u30FC").setHeading();
     new import_obsidian3.Setting(containerEl).setName("\u30AB\u30FC\u30BD\u30EB\u884C\u306E\u30CF\u30A4\u30E9\u30A4\u30C8\u3092\u6709\u52B9\u306B\u3059\u308B").setDesc("\u7E26\u66F8\u304D\u30D7\u30EC\u30D3\u30E5\u30FC\u3067\u30A8\u30C7\u30A3\u30BF\u306E\u30AB\u30FC\u30BD\u30EB\u884C\u3092\u80CC\u666F\u8272\u3067\u5F37\u8ABF\u3057\u307E\u3059\u3002").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.verticalCursorHighlightEnabled).onChange(async (value) => {
         this.plugin.settings.verticalCursorHighlightEnabled = value;
@@ -1296,7 +1296,7 @@ var NovelsNoteSettingTab = class extends import_obsidian3.PluginSettingTab {
   // 全角スペース可視化セクション
   // ─────────────────────────────────────────
   renderFullWidthSpaceSection(containerEl) {
-    containerEl.createEl("h3", { text: "\u5168\u89D2\u30B9\u30DA\u30FC\u30B9\u306E\u8868\u793A" });
+    new import_obsidian3.Setting(containerEl).setName("\u5168\u89D2\u30B9\u30DA\u30FC\u30B9\u306E\u8868\u793A").setHeading();
     containerEl.createEl("p", {
       text: "\u6BB5\u843D\u5148\u982D\u306E\u5168\u89D2\u30B9\u30DA\u30FC\u30B9\u3092\u76EE\u8996\u3067\u78BA\u8A8D\u3067\u304D\u307E\u3059\u3002\u672C\u6587\u30C6\u30AD\u30B9\u30C8\u306F\u5909\u66F4\u3057\u307E\u305B\u3093\u3002",
       cls: "setting-item-description"
@@ -1337,7 +1337,7 @@ var NovelsNoteSettingTab = class extends import_obsidian3.PluginSettingTab {
   //     "_templates/character.md" が除外される。
   // ─────────────────────────────────────────
   renderExcludeFoldersSection(containerEl) {
-    containerEl.createEl("h3", { text: "\u7528\u8A9E\u30A4\u30F3\u30C7\u30C3\u30AF\u30B9 \u2014 \u9664\u5916\u30D5\u30A9\u30EB\u30C0" });
+    new import_obsidian3.Setting(containerEl).setName("\u7528\u8A9E\u30A4\u30F3\u30C7\u30C3\u30AF\u30B9 \u2014 \u9664\u5916\u30D5\u30A9\u30EB\u30C0").setHeading();
     containerEl.createEl("p", {
       text: "\u6307\u5B9A\u3057\u305F\u30D5\u30A9\u30EB\u30C0\u5185\u306E\u30D5\u30A1\u30A4\u30EB\u3092\u7528\u8A9E\u30A4\u30F3\u30C7\u30C3\u30AF\u30B9\u304B\u3089\u9664\u5916\u3057\u307E\u3059\u3002\u30C6\u30F3\u30D7\u30EC\u30FC\u30C8\u30D5\u30A9\u30EB\u30C0\u306A\u3069\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044\u3002\u30D5\u30A9\u30EB\u30C0\u30D1\u30B9\u306F Vault \u30EB\u30FC\u30C8\u304B\u3089\u306E\u76F8\u5BFE\u30D1\u30B9\u3067\u5165\u529B\u3057\u307E\u3059\uFF08\u4F8B\uFF1A_templates\uFF09\u3002",
       cls: "setting-item-description"
@@ -1346,7 +1346,7 @@ var NovelsNoteSettingTab = class extends import_obsidian3.PluginSettingTab {
     let folderInput = "";
     new import_obsidian3.Setting(containerEl).setName("\u30D5\u30A9\u30EB\u30C0\u3092\u8FFD\u52A0").setDesc("Vault \u30EB\u30FC\u30C8\u304B\u3089\u306E\u76F8\u5BFE\u30D1\u30B9\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044\uFF08\u4F8B\uFF1A_templates\u3001characters/_templates\uFF09\u3002").addText((text) => {
       text.setPlaceholder("\u30D5\u30A9\u30EB\u30C0\u30D1\u30B9\u3092\u5165\u529B\u2026");
-      text.inputEl.style.width = "200px";
+      text.inputEl.addClass("nn-folder-path-input");
       text.onChange((value) => {
         folderInput = value;
       });
@@ -1381,16 +1381,11 @@ var NovelsNoteSettingTab = class extends import_obsidian3.PluginSettingTab {
       const row = containerEl.createEl("div", {
         cls: "setting-item nn-exclude-folder-row"
       });
-      row.style.borderTop = "1px solid var(--background-modifier-border)";
-      row.style.padding = "6px 0";
-      row.style.display = "flex";
-      row.style.alignItems = "center";
-      row.style.gap = "8px";
-      const label = row.createEl("span", { cls: "setting-item-name" });
-      label.style.flex = "1";
-      label.innerHTML = `<span style="opacity:0.6">\u{1F4C1}</span> <code>${folders[i]}</code>`;
-      const delBtn = row.createEl("button", { text: "\u524A\u9664", cls: "mod-warning" });
-      delBtn.style.flexShrink = "0";
+      row.addClass("nn-exclude-folder-item-row");
+      const label = row.createEl("span", { cls: "setting-item-name nn-folder-label" });
+      const icon = label.createEl("span", { cls: "nn-folder-icon", text: "\u{1F4C1}" });
+      label.createEl("code", { text: folders[i] });
+      const delBtn = row.createEl("button", { text: "\u524A\u9664", cls: "mod-warning nn-folder-del-btn" });
       delBtn.addEventListener("click", async () => {
         this.plugin.settings.excludeFolders.splice(i, 1);
         await this.plugin.saveSettings();
@@ -1419,7 +1414,7 @@ var NovelsNoteSettingTab = class extends import_obsidian3.PluginSettingTab {
   // ハイライト全体のオン/オフセクション
   // ─────────────────────────────────────────
   renderHighlightSection(containerEl) {
-    containerEl.createEl("h3", { text: "\u30CF\u30A4\u30E9\u30A4\u30C8" });
+    new import_obsidian3.Setting(containerEl).setName("\u30CF\u30A4\u30E9\u30A4\u30C8").setHeading();
     new import_obsidian3.Setting(containerEl).setName("\u30CF\u30A4\u30E9\u30A4\u30C8\u3092\u6709\u52B9\u306B\u3059\u308B").setDesc("\u30AA\u30D5\u306B\u3059\u308B\u3068\u3059\u3079\u3066\u306E\u30CF\u30A4\u30E9\u30A4\u30C8\u304C\u7121\u52B9\u306B\u306A\u308A\u307E\u3059\u3002").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.highlightEnabled).onChange(async (value) => {
         this.plugin.settings.highlightEnabled = value;
@@ -1433,7 +1428,7 @@ var NovelsNoteSettingTab = class extends import_obsidian3.PluginSettingTab {
   // カテゴリ定義セクション
   // ─────────────────────────────────────────
   renderTagSection(containerEl) {
-    containerEl.createEl("h3", { text: "\u30AB\u30C6\u30B4\u30EA\u5B9A\u7FA9" });
+    new import_obsidian3.Setting(containerEl).setName("\u30AB\u30C6\u30B4\u30EA\u5B9A\u7FA9").setHeading();
     containerEl.createEl("p", {
       text: "\u7528\u8A9E\u30CE\u30FC\u30C8\u306B\u4ED8\u3051\u308B\u30AB\u30C6\u30B4\u30EA\u540D\u30FB\u8868\u793A\u540D\u30FB\u8272\u30FB\u30AA\u30F3/\u30AA\u30D5\u3092\u8A2D\u5B9A\u3057\u307E\u3059\u3002",
       cls: "setting-item-description"
@@ -1469,17 +1464,12 @@ var NovelsNoteSettingTab = class extends import_obsidian3.PluginSettingTab {
       rowEl.setAttribute("draggable", "true");
       rowEl.dataset.idx = String(i);
       const handle = rowEl.createEl("span", { cls: "nn-drag-handle", title: "\u30C9\u30E9\u30C3\u30B0\u3057\u3066\u4E26\u3079\u66FF\u3048" });
-      handle.innerHTML = `<svg viewBox="0 0 16 16" width="16" height="16">
-        <circle cx="5" cy="4" r="1.2" fill="currentColor"/>
-        <circle cx="11" cy="4" r="1.2" fill="currentColor"/>
-        <circle cx="5" cy="8" r="1.2" fill="currentColor"/>
-        <circle cx="11" cy="8" r="1.2" fill="currentColor"/>
-        <circle cx="5" cy="12" r="1.2" fill="currentColor"/>
-        <circle cx="11" cy="12" r="1.2" fill="currentColor"/>
-      </svg>`;
+      const svg = handle.createSvg("svg", { attr: { viewBox: "0 0 16 16", width: "16", height: "16" } });
+      for (const [cx, cy] of [[5, 4], [11, 4], [5, 8], [11, 8], [5, 12], [11, 12]]) {
+        svg.createSvg("circle", { attr: { cx, cy, r: "1.2", fill: "currentColor" } });
+      }
       const setting = new import_obsidian3.Setting(rowEl);
-      setting.settingEl.style.border = "none";
-      setting.settingEl.style.padding = "0";
+      setting.settingEl.addClass("nn-tag-setting-row");
       const capturedI = i;
       setting.addText(
         (text) => text.setPlaceholder("\u30AB\u30C6\u30B4\u30EA\u540D").setValue(td.tag).onChange(async (value) => {
@@ -1575,7 +1565,7 @@ var NovelsNoteSettingTab = class extends import_obsidian3.PluginSettingTab {
   // カッコハイライトセクション
   // ─────────────────────────────────────────
   renderBracketSection(containerEl) {
-    containerEl.createEl("h3", { text: "\u30AB\u30C3\u30B3\u30CF\u30A4\u30E9\u30A4\u30C8" });
+    new import_obsidian3.Setting(containerEl).setName("\u30AB\u30C3\u30B3\u30CF\u30A4\u30E9\u30A4\u30C8").setHeading();
     containerEl.createEl("p", {
       text: "\u5185\u5074\u306E\u30AB\u30C3\u30B3\u304C\u5916\u5074\u3088\u308A\u512A\u5148\u3055\u308C\u307E\u3059\u3002\u7528\u8A9E\u306E\u5F37\u8ABF\u8868\u793A\u306F\u3059\u3079\u3066\u306E\u30AB\u30C3\u30B3\u3088\u308A\u512A\u5148\u3055\u308C\u307E\u3059\u3002",
       cls: "setting-item-description"
@@ -1611,8 +1601,7 @@ var NovelsNoteSettingTab = class extends import_obsidian3.PluginSettingTab {
         })
       );
       setting.addText((text) => {
-        text.inputEl.style.width = "3em";
-        text.inputEl.style.textAlign = "center";
+        text.inputEl.addClass("nn-bracket-char-input");
         text.setPlaceholder("\u958B").setValue(bd.open).onChange(async (value) => {
           defs[i].open = value;
           await this.plugin.saveSettings();
@@ -1620,8 +1609,7 @@ var NovelsNoteSettingTab = class extends import_obsidian3.PluginSettingTab {
         });
       });
       setting.addText((text) => {
-        text.inputEl.style.width = "3em";
-        text.inputEl.style.textAlign = "center";
+        text.inputEl.addClass("nn-bracket-char-input");
         text.setPlaceholder("\u9589").setValue(bd.close).onChange(async (value) => {
           defs[i].close = value;
           await this.plugin.saveSettings();
@@ -1658,7 +1646,7 @@ var NovelsNoteSettingTab = class extends import_obsidian3.PluginSettingTab {
   // ルビ設定セクション
   // ─────────────────────────────────────────
   renderRubySection(containerEl) {
-    containerEl.createEl("h3", { text: "\u30EB\u30D3\u8A2D\u5B9A" });
+    new import_obsidian3.Setting(containerEl).setName("\u30EB\u30D3\u8A2D\u5B9A").setHeading();
     containerEl.createEl("p", {
       text: "\u7E26\u66F8\u304D\u30D7\u30EC\u30D3\u30E5\u30FC\u304A\u3088\u3073Export\u3067\u4F7F\u7528\u3059\u308B\u30EB\u30D3\u306E\u8A18\u6CD5\u3092\u9078\u629E\u3057\u3066\u304F\u3060\u3055\u3044\u3002",
       cls: "setting-item-description"
@@ -1680,7 +1668,7 @@ var NovelsNoteSettingTab = class extends import_obsidian3.PluginSettingTab {
   // 文字数カウントセクション
   // ─────────────────────────────────────────
   renderWordCountSection(containerEl) {
-    containerEl.createEl("h3", { text: "\u6587\u5B57\u6570\u30AB\u30A6\u30F3\u30C8" });
+    new import_obsidian3.Setting(containerEl).setName("\u6587\u5B57\u6570\u30AB\u30A6\u30F3\u30C8").setHeading();
     containerEl.createEl("p", {
       text: "\u30B9\u30C6\u30FC\u30BF\u30B9\u30D0\u30FC\uFF08\u753B\u9762\u4E0B\u90E8\uFF09\u306B\u539F\u7A3F\u306E\u6587\u5B57\u6570\u3092\u8868\u793A\u3057\u307E\u3059\u3002\u30AF\u30EA\u30C3\u30AF\u3067\u30E2\u30FC\u30C9\u3092\u5207\u308A\u66FF\u3048\u3089\u308C\u307E\u3059\u3002",
       cls: "setting-item-description"
@@ -1961,7 +1949,7 @@ var ExportModal = class extends import_obsidian4.Modal {
     });
     new import_obsidian4.Setting(settingsEl).setName("\u51FA\u529B\u30D5\u30A1\u30A4\u30EB\u540D").setDesc("Vault \u5185\u306B\u4FDD\u5B58\u3055\u308C\u307E\u3059\uFF08Vault \u30EB\u30FC\u30C8\u76F4\u4E0B\uFF09").addText((text) => {
       this.fileNameEl = text.inputEl;
-      text.inputEl.style.width = "100%";
+      text.inputEl.addClass("nn-export-filename-input");
       text.setValue(makeExportFilename(this.sourceFile.name, this.opts.format));
     });
     const previewWrap = contentEl.createEl("div", { cls: "nn-export-preview-wrap" });
@@ -2279,8 +2267,8 @@ var _VerticalPreviewView = class _VerticalPreviewView extends import_obsidian5.I
     await this.loadFromActiveEditor();
     this.registerEvent(
       this.app.workspace.on("editor-change", () => {
-        if (this.updateTimer) clearTimeout(this.updateTimer);
-        this.updateTimer = setTimeout(() => this.loadFromActiveEditor(), 500);
+        if (this.updateTimer) window.clearTimeout(this.updateTimer);
+        this.updateTimer = window.setTimeout(() => this.loadFromActiveEditor(), 500);
       })
     );
     this.registerEvent(
@@ -2292,8 +2280,8 @@ var _VerticalPreviewView = class _VerticalPreviewView extends import_obsidian5.I
     this.startCursorSync();
   }
   async onClose() {
-    if (this.updateTimer) clearTimeout(this.updateTimer);
-    if (this.syncTimer) clearTimeout(this.syncTimer);
+    if (this.updateTimer) window.clearTimeout(this.updateTimer);
+    if (this.syncTimer) window.clearTimeout(this.syncTimer);
   }
   // ─────────────────────────────────────────
   // 読み込み・レンダリング
@@ -2339,9 +2327,9 @@ var _VerticalPreviewView = class _VerticalPreviewView extends import_obsidian5.I
     textEl.innerHTML = html;
     this.lastCursorLine = -1;
     this.lastCursorCh = -1;
-    requestAnimationFrame(() => {
+    window.requestAnimationFrame(() => {
       this.scrollerEl.scrollLeft = this.scrollerEl.scrollWidth;
-      requestAnimationFrame(() => this.syncCursorToPreview(true));
+      window.requestAnimationFrame(() => this.syncCursorToPreview(true));
     });
   }
   renderEmpty(message) {
@@ -2357,9 +2345,9 @@ var _VerticalPreviewView = class _VerticalPreviewView extends import_obsidian5.I
   startCursorSync() {
     const tick = () => {
       this.syncCursorToPreview(false);
-      this.syncTimer = setTimeout(tick, 100);
+      this.syncTimer = window.setTimeout(tick, 100);
     };
-    this.syncTimer = setTimeout(tick, 100);
+    this.syncTimer = window.setTimeout(tick, 100);
   }
   syncCursorToPreview(force) {
     var _a, _b, _c, _d, _e;
@@ -2564,7 +2552,7 @@ var _NovelReadingView = class _NovelReadingView extends import_obsidian6.ItemVie
       cls: "nn-btn",
       title: "\u73FE\u5728\u306E\u30D5\u30A1\u30A4\u30EB\u3092\u539F\u7A3F Export \u3059\u308B"
     });
-    exportBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="-5 -5 34 34" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-file-output-icon lucide-file-output"><path d="M4.226 20.925A2 2 0 0 0 6 22h12a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v3.127"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="m5 11-3 3"/><path d="m5 17-3-3h10"/></svg>`;
+    (0, import_obsidian6.setIcon)(exportBtn, "file-output");
     exportBtn.addEventListener("click", () => {
       if (!this._file) return;
       new ExportModal(this.app, this._file, this.getRubyStyle()).open();
@@ -2573,10 +2561,7 @@ var _NovelReadingView = class _NovelReadingView extends import_obsidian6.ItemVie
       cls: "nn-btn",
       title: "\u7DE8\u96C6\u30E2\u30FC\u30C9\u306B\u623B\u308B"
     });
-    editBtn.innerHTML = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M12 20h9"/>
-      <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
-    </svg>`;
+    (0, import_obsidian6.setIcon)(editBtn, "pencil");
     editBtn.addEventListener("click", () => this.switchToEdit());
     this.rootEl = container.createEl("div", { cls: "nn-reading-root" });
     await this.loadCurrentFile();
@@ -2647,16 +2632,17 @@ var _NovelReadingView = class _NovelReadingView extends import_obsidian6.ItemVie
     }
     const wrapCol = this.getWrapColumn();
     const maxWidth = wrapCol + _NovelReadingView.WRAP_MARGIN_EM;
-    this.rootEl.style.maxWidth = `${maxWidth}em`;
     const fontSize = this.getFontSize();
-    this.rootEl.style.fontSize = `${fontSize}px`;
+    this.rootEl.setCssStyles({ maxWidth: `${maxWidth}em`, fontSize: `${fontSize}px` });
     const html = toReadingHtml(source, this.getRubyStyle());
-    this.rootEl.innerHTML = html;
+    this.rootEl.empty();
+    const contentEl = this.rootEl.createEl("div", { cls: "nn-reading-content" });
+    contentEl.innerHTML = html;
   }
   renderMessage(message) {
     if (!this.rootEl) return;
-    this.rootEl.innerHTML = "";
-    this.rootEl.style.maxWidth = "";
+    this.rootEl.empty();
+    this.rootEl.setCssStyles({ maxWidth: "", fontSize: "" });
     const p = this.rootEl.createEl("p", { cls: "nn-reading-message" });
     p.textContent = message;
   }
@@ -2717,7 +2703,7 @@ var RubyInputModal = class extends import_obsidian7.Modal {
     const previewWrap = contentEl.createEl("div", { cls: "nn-ruby-preview-wrap" });
     previewWrap.createEl("span", { text: "\u30D7\u30EC\u30D3\u30E5\u30FC\uFF1A", cls: "nn-modal-label" });
     const preview = previewWrap.createEl("ruby", { cls: "nn-ruby-preview" });
-    preview.appendChild(document.createTextNode(this.baseText));
+    preview.appendChild(window.document.createTextNode(this.baseText));
     const rt = preview.createEl("rt");
     rt.textContent = "";
     input.addEventListener("input", () => {
@@ -2748,10 +2734,10 @@ var RubyInputModal = class extends import_obsidian7.Modal {
     });
     cancelBtn.addEventListener("click", () => this.close());
     insertBtn.addEventListener("click", submit);
-    this.focusTimer = setTimeout(() => input.focus(), 50);
+    this.focusTimer = window.setTimeout(() => input.focus(), 50);
   }
   onClose() {
-    if (this.focusTimer !== void 0) clearTimeout(this.focusTimer);
+    if (this.focusTimer !== void 0) window.clearTimeout(this.focusTimer);
     this.contentEl.empty();
   }
 };
@@ -2881,7 +2867,7 @@ var NovelsNoteJP = class extends import_obsidian8.Plugin {
   }
   async onunload() {
     if (this.rebuildTimer !== null) {
-      clearTimeout(this.rebuildTimer);
+      window.clearTimeout(this.rebuildTimer);
       this.rebuildTimer = null;
     }
     if (this.styleEl) this.styleEl.remove();
@@ -2898,9 +2884,9 @@ var NovelsNoteJP = class extends import_obsidian8.Plugin {
   // ─────────────────────────────────────────
   scheduleRebuild(delay = 400) {
     if (this.rebuildTimer !== null) {
-      clearTimeout(this.rebuildTimer);
+      window.clearTimeout(this.rebuildTimer);
     }
-    this.rebuildTimer = setTimeout(async () => {
+    this.rebuildTimer = window.setTimeout(async () => {
       this.rebuildTimer = null;
       await this.buildTermIndex();
       this.updateSidebar();
@@ -2965,7 +2951,7 @@ var NovelsNoteJP = class extends import_obsidian8.Plugin {
     );
     this.registerEvent(
       this.app.workspace.on("file-open", () => {
-        setTimeout(() => this.refreshEditors(), 50);
+        window.setTimeout(() => this.refreshEditors(), 50);
       })
     );
   }
@@ -3085,9 +3071,10 @@ var NovelsNoteJP = class extends import_obsidian8.Plugin {
       ${tagColorSidebarCss}
       ${cursorHighlightCss}
     `;
-    this.styleEl = document.createElement("style");
-    this.styleEl.textContent = css;
-    document.head.appendChild(this.styleEl);
+    const styleEl = window.document.createElement("style");
+    styleEl.textContent = css;
+    window.document.head.appendChild(styleEl);
+    this.styleEl = styleEl;
   }
   // ─────────────────────────────────────────
   // 用語インデックス構築
@@ -3172,7 +3159,7 @@ var NovelsNoteJP = class extends import_obsidian8.Plugin {
     this.statusBarEl = this.addStatusBarItem();
     this.statusBarEl.addClass("novels-note-wordcount");
     this.statusBarEl.title = "\u30AF\u30EA\u30C3\u30AF\u3067\u30AB\u30A6\u30F3\u30C8\u30E2\u30FC\u30C9\u3092\u5207\u308A\u66FF\u3048";
-    this.statusBarEl.style.cursor = "pointer";
+    this.statusBarEl.setCssStyles({ cursor: "pointer" });
     this.statusBarEl.addEventListener("click", async () => {
       const modes = ["raw", "novel", "manuscript"];
       const current = modes.indexOf(this.settings.countMode);
@@ -3249,7 +3236,7 @@ var NovelsNoteJP = class extends import_obsidian8.Plugin {
           resolve();
         }
       });
-      setTimeout(() => {
+      window.setTimeout(() => {
         this.app.metadataCache.offref(ref);
         resolve();
       }, 2e3);

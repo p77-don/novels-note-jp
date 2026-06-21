@@ -457,8 +457,8 @@ export class VerticalPreviewView extends ItemView {
 
     this.registerEvent(
       this.app.workspace.on("editor-change", () => {
-        if (this.updateTimer) clearTimeout(this.updateTimer);
-        this.updateTimer = setTimeout(() => this.loadFromActiveEditor(), 500);
+        if (this.updateTimer) window.clearTimeout(this.updateTimer);
+        this.updateTimer = window.setTimeout(() => this.loadFromActiveEditor(), 500);
       })
     );
     this.registerEvent(
@@ -472,8 +472,8 @@ export class VerticalPreviewView extends ItemView {
   }
 
   async onClose(): Promise<void> {
-    if (this.updateTimer) clearTimeout(this.updateTimer);
-    if (this.syncTimer)   clearTimeout(this.syncTimer);
+    if (this.updateTimer) window.clearTimeout(this.updateTimer);
+    if (this.syncTimer)   window.clearTimeout(this.syncTimer);
   }
 
   // ─────────────────────────────────────────
@@ -536,14 +536,15 @@ export class VerticalPreviewView extends ItemView {
     if (!textEl) {
       textEl = this.bodyEl.createEl("div", { cls: "nn-vertical-text" });
     }
+    // toVerticalHtml はこのプラグイン自身が生成する安全なHTMLのみを返す
     textEl.innerHTML = html;
 
     // DOM 確定後に右端→カーソル位置へ同期
     this.lastCursorLine = -1;
     this.lastCursorCh   = -1;
-    requestAnimationFrame(() => {
+    window.requestAnimationFrame(() => {
       this.scrollerEl.scrollLeft = this.scrollerEl.scrollWidth;
-      requestAnimationFrame(() => this.syncCursorToPreview(true));
+      window.requestAnimationFrame(() => this.syncCursorToPreview(true));
     });
   }
 
@@ -561,9 +562,9 @@ export class VerticalPreviewView extends ItemView {
   private startCursorSync(): void {
     const tick = () => {
       this.syncCursorToPreview(false);
-      this.syncTimer = setTimeout(tick, 100);
+      this.syncTimer = window.setTimeout(tick, 100);
     };
-    this.syncTimer = setTimeout(tick, 100);
+    this.syncTimer = window.setTimeout(tick, 100);
   }
 
   private syncCursorToPreview(force: boolean): void {
@@ -588,6 +589,7 @@ export class VerticalPreviewView extends ItemView {
       );
       this.lineSentences = lineSentences;
       const textEl = this.bodyEl.querySelector<HTMLElement>(".nn-vertical-text");
+      // toVerticalHtml はこのプラグイン自身が生成する安全なHTMLのみを返す
       if (textEl) textEl.innerHTML = html;
     }
 
