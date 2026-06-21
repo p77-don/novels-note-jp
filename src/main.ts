@@ -158,10 +158,10 @@ export default class NovelsNoteJP extends Plugin {
     this.initWordCount();
   }
 
-  async onunload(): Promise<void> {
+  onunload(): void {
     // adoptedStyleSheets から自分のシートを除去
     if (this.adoptedSheet) {
-      document.adoptedStyleSheets = document.adoptedStyleSheets.filter(s => s !== this.adoptedSheet);
+      activeDocument.adoptedStyleSheets = activeDocument.adoptedStyleSheets.filter(s => s !== this.adoptedSheet);
       this.adoptedSheet = null;
     }
     if (this.rebuildTimer !== null) {
@@ -184,11 +184,12 @@ export default class NovelsNoteJP extends Plugin {
     if (this.rebuildTimer !== null) {
       window.clearTimeout(this.rebuildTimer);
     }
-    this.rebuildTimer = window.setTimeout(async () => {
+    this.rebuildTimer = window.setTimeout(() => {
       this.rebuildTimer = null;
-      await this.buildTermIndex();
-      this.updateSidebar();
-      this.refreshEditors();
+      void this.buildTermIndex().then(() => {
+        this.updateSidebar();
+        this.refreshEditors();
+      });
     }, delay);
   }
 
@@ -241,7 +242,7 @@ export default class NovelsNoteJP extends Plugin {
         for (const leaf of leaves) {
           // leaf が実際に画面上に見えているときだけ更新
           if (leaf.view instanceof NovelsNoteSidebarView) {
-            (leaf.view as NovelsNoteSidebarView).setTerms(
+            leaf.view.setTerms(
               this.terms,
               this.settings.tagDefinitions
             );
@@ -276,8 +277,8 @@ export default class NovelsNoteJP extends Plugin {
   // 設定 ロード／セーブ
   // ─────────────────────────────────────────
   async loadSettings(): Promise<void> {
-    const saved = await this.loadData();
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, saved);
+    const saved = await this.loadData() as Partial<NovelsNoteSettings> | null;
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, saved) as NovelsNoteSettings;
     if (!saved?.tagDefinitions) {
       this.settings.tagDefinitions = DEFAULT_TAG_DEFINITIONS.map(td => ({ ...td }));
     }
@@ -397,7 +398,7 @@ export default class NovelsNoteJP extends Plugin {
     // CSSStyleSheet API で注入（style 要素不使用）
     if (!this.adoptedSheet) {
       this.adoptedSheet = new CSSStyleSheet();
-      document.adoptedStyleSheets = [...document.adoptedStyleSheets, this.adoptedSheet];
+      activeDocument.adoptedStyleSheets = [...activeDocument.adoptedStyleSheets, this.adoptedSheet];
     }
     this.adoptedSheet.replaceSync(css);
   }
@@ -459,7 +460,8 @@ export default class NovelsNoteJP extends Plugin {
   private isNovelModeFile(file: TFile | null): boolean {
     if (!file) return false;
     const cache = this.app.metadataCache.getFileCache(file);
-    return cache?.frontmatter?.mode === "novel";
+    const fm = cache?.frontmatter as Record<string, unknown> | undefined;
+    return fm?.["mode"] === "novel";
   }
 
   // ─────────────────────────────────────────
@@ -480,7 +482,7 @@ export default class NovelsNoteJP extends Plugin {
         // CM6 State を更新し、EditorView.dom に data-novel-mode 属性を付与
         // cm.dom は .cm-editor 要素であり、CSS セレクタ
         // [data-novel-mode="true"].cm-editor で確実にスコープが効く
-        const cm = (view.editor as any).cm as EditorView;
+        const cm = (view.editor as unknown as { cm: EditorView | undefined }).cm;
         if (cm) {
           cm.dom.dataset.novelMode = isNovel ? "true" : "false";
           cm.dispatch({
@@ -507,15 +509,14 @@ export default class NovelsNoteJP extends Plugin {
     this.statusBarEl = this.addStatusBarItem();
     this.statusBarEl.addClass("novels-note-wordcount");
     this.statusBarEl.title = "クリックでカウントモードを切り替え";
-    this.statusBarEl.style.setProperty("cursor", "pointer");
-
+    this.statusBarEl.setCssProps({ cursor: "pointer" });
+    
     // クリックでモード切り替え（raw → novel → manuscript → raw ...）
-    this.statusBarEl.addEventListener("click", async () => {
+    this.statusBarEl.addEventListener("click", () => {
       const modes: CountMode[] = ["raw", "novel", "manuscript"];
-      const current = modes.indexOf(this.settings.countMode as CountMode);
+      const current = modes.indexOf(this.settings.countMode);
       this.settings.countMode = modes[(current + 1) % modes.length];
-      await this.saveSettings();
-      this.updateWordCount();
+      void this.saveSettings().then(() => this.updateWordCount());
     });
 
     // アクティブファイルが変わったとき
@@ -552,7 +553,7 @@ export default class NovelsNoteJP extends Plugin {
 
     const text = view.editor.getValue();
     const result = countCharacters(text, this.settings);
-    this.statusBarEl.setText(formatCount(result, this.settings.countMode as CountMode));
+    this.statusBarEl.setText(formatCount(result, this.settings.countMode));
   }
 
   // ─────────────────────────────────────────
@@ -569,7 +570,7 @@ export default class NovelsNoteJP extends Plugin {
       if (!leaf) return;
       await leaf.setViewState({ type: SIDEBAR_VIEW_TYPE, active: true });
     }
-    workspace.revealLeaf(leaf);
+    void workspace.revealLeaf(leaf);
     // リーフを表示した直後にデータを流し込む
     this.updateSidebar();
   }
@@ -612,7 +613,7 @@ export default class NovelsNoteJP extends Plugin {
     const leaves = this.app.workspace.getLeavesOfType(VERTICAL_VIEW_TYPE);
     for (const leaf of leaves) {
       if (leaf.view instanceof VerticalPreviewView) {
-        (leaf.view as VerticalPreviewView).forceReload();
+        leaf.view.forceReload();
       }
     }
   }
@@ -637,7 +638,7 @@ export default class NovelsNoteJP extends Plugin {
         if (!file) {
           const leaf = this.app.workspace.getMostRecentLeaf();
           if (leaf?.view instanceof NovelReadingView) {
-            file = (leaf.view as NovelReadingView)._file;
+            file = leaf.view._file;
           }
         }
 
@@ -666,14 +667,14 @@ export default class NovelsNoteJP extends Plugin {
     const { workspace } = this.app;
     const existing = workspace.getLeavesOfType(VERTICAL_VIEW_TYPE);
     if (existing.length > 0) {
-      workspace.revealLeaf(existing[0]);
+      void workspace.revealLeaf(existing[0]);
       return;
     }
     // 右サイドバーに開く。なければ新しいリーフを作る
     const leaf = workspace.getRightLeaf(false);
     if (!leaf) return;
     await leaf.setViewState({ type: VERTICAL_VIEW_TYPE, active: true });
-    workspace.revealLeaf(leaf);
+    void workspace.revealLeaf(leaf);
   }
 
   // ─────────────────────────────────────────
@@ -698,9 +699,9 @@ export default class NovelsNoteJP extends Plugin {
     if (
       activeLeaf &&
       activeLeaf.view.getViewType() === "markdown" &&
-      (activeLeaf.view as any).file instanceof TFile
+      (activeLeaf.view as unknown as { file: unknown }).file instanceof TFile
     ) {
-      targetFile = (activeLeaf.view as any).file as TFile;
+      targetFile = (activeLeaf.view as unknown as { file: TFile }).file;
     }
 
     // アクティブリーフが markdown でない場合、
@@ -709,7 +710,7 @@ export default class NovelsNoteJP extends Plugin {
       workspace.iterateAllLeaves(leaf => {
         if (targetFile) return;
         if (leaf.view.getViewType() !== "markdown") return;
-        const f = (leaf.view as any).file;
+        const f = (leaf.view as unknown as { file: unknown }).file;
         if (!(f instanceof TFile)) return;
         const cache = this.app.metadataCache.getFileCache(f);
         if (cache?.frontmatter?.mode === "novel") {
@@ -732,7 +733,7 @@ export default class NovelsNoteJP extends Plugin {
       new Notice("小説用ビューの対象外です。Frontmatter に mode: novel のプロパティを設定してください。");
       const existing = workspace.getLeavesOfType(NOVEL_READING_VIEW_TYPE);
       if (existing.length > 0) {
-        workspace.revealLeaf(existing[0]);
+        void workspace.revealLeaf(existing[0]);
       }
       return;
     }
@@ -742,7 +743,7 @@ export default class NovelsNoteJP extends Plugin {
     for (const leaf of existing) {
       const nrv = leaf.view as unknown as NovelReadingView;
       if (nrv._file === targetFile) {
-        workspace.revealLeaf(leaf);
+        void workspace.revealLeaf(leaf);
         return;
       }
     }
@@ -762,7 +763,7 @@ export default class NovelsNoteJP extends Plugin {
       await view.loadCurrentFile();
     }
 
-    workspace.revealLeaf(targetLeaf);
+    void workspace.revealLeaf(targetLeaf);
   }
 
   // ─────────────────────────────────────────

@@ -301,7 +301,7 @@ export function buildTermDropExtension(app: App) {
 
       let payload: { filePath: string; name: string };
       try {
-        payload = JSON.parse(raw);
+        payload = JSON.parse(raw) as { filePath: string; name: string };
       } catch {
         return false;
       }
@@ -318,7 +318,7 @@ export function buildTermDropExtension(app: App) {
       app.workspace.iterateAllLeaves(leaf => {
         if (sourceFileRef.file) return;
         if (leaf.view instanceof MarkdownView) {
-          const cm = (leaf.view.editor as any).cm as EditorView | undefined;
+          const cm = (leaf.view.editor as unknown as { cm: EditorView | undefined }).cm;
           if (cm === view) sourceFileRef.file = leaf.view.file;
         }
       });

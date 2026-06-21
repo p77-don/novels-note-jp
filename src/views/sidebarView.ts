@@ -5,7 +5,7 @@
 
 import { ItemView, WorkspaceLeaf, TFile, Plugin, Notice, Modal, Menu, App, setIcon } from "obsidian";
 import { SIDEBAR_VIEW_TYPE, TermEntry, TERM_DRAG_MIME_TYPE } from "../types";
-import { TagDefinition } from "../settings";
+import { TagDefinition, NovelsNoteSettings } from "../settings";
 
 // ─────────────────────────────────────────
 // ツリーノード型
@@ -24,7 +24,7 @@ class CreateTermModal extends Modal {
   private folderPath: string;
   private tag: string;
   private tagLabel: string;
-  private onSubmit: (termName: string, folderPath: string) => void;
+  private onSubmit: (termName: string, folderPath: string) => Promise<void>;
   private focusTimer?: ReturnType<typeof setTimeout>;
 
   constructor(
@@ -32,7 +32,7 @@ class CreateTermModal extends Modal {
     folderPath: string,
     tag: string,
     tagLabel: string,
-    onSubmit: (termName: string, folderPath: string) => void
+    onSubmit: (termName: string, folderPath: string) => Promise<void>
   ) {
     super(app);
     this.folderPath = folderPath;
@@ -86,7 +86,7 @@ class CreateTermModal extends Modal {
       // フォルダパスの末尾スラッシュを除去して正規化
       const folder = folderInput.value.trim().replace(/\/+$/, "");
       this.close();
-      this.onSubmit(name, folder);
+      void this.onSubmit(name, folder);
     };
 
     // Tab キーでフォルダ入力 → 用語名入力へ移動
@@ -320,14 +320,14 @@ export class NovelsNoteSidebarView extends ItemView {
   /**
    * プラグイン本体への参照
    */
-  private plugin: (Plugin & { getTerms(): TermEntry[]; settings: any }) | null = null;
+  private plugin: (Plugin & { getTerms(): TermEntry[]; settings: NovelsNoteSettings }) | null = null;
 
   constructor(leaf: WorkspaceLeaf) {
     super(leaf);
   }
 
   /** main.ts の registerView コールバックから呼ぶ */
-  setPlugin(plugin: Plugin & { getTerms(): TermEntry[]; settings: any }): void {
+  setPlugin(plugin: Plugin & { getTerms(): TermEntry[]; settings: NovelsNoteSettings }): void {
     this.plugin = plugin;
   }
 
@@ -610,7 +610,7 @@ export class NovelsNoteSidebarView extends ItemView {
       e.preventDefault();
       folderRow.removeClass("nn-drop-target");
       if (this.dragTerm) {
-        this.moveTermToFolder(this.dragTerm, node.fullPath);
+        void this.moveTermToFolder(this.dragTerm, node.fullPath);
         this.dragTerm = null;
       }
     });
@@ -646,7 +646,7 @@ export class NovelsNoteSidebarView extends ItemView {
       e.stopPropagation();
       const file = this.app.vault.getAbstractFileByPath(term.filePath);
       if (file instanceof TFile) {
-        this.app.workspace.getLeaf(false).openFile(file);
+        void this.app.workspace.getLeaf(false).openFile(file);
       }
     });
 
@@ -745,7 +745,7 @@ export class NovelsNoteSidebarView extends ItemView {
         .onClick(() => {
           const file = this.app.vault.getAbstractFileByPath(term.filePath);
           if (file instanceof TFile) {
-            this.app.workspace.getLeaf(false).openFile(file);
+            void this.app.workspace.getLeaf(false).openFile(file);
           }
         });
     });

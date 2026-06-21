@@ -578,7 +578,7 @@ var CreateTermModal = class extends import_obsidian2.Modal {
       }
       const folder = folderInput.value.trim().replace(/\/+$/, "");
       this.close();
-      this.onSubmit(name, folder);
+      void this.onSubmit(name, folder);
     };
     folderInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
@@ -973,7 +973,7 @@ var NovelsNoteSidebarView = class extends import_obsidian2.ItemView {
       e.preventDefault();
       folderRow.removeClass("nn-drop-target");
       if (this.dragTerm) {
-        this.moveTermToFolder(this.dragTerm, node.fullPath);
+        void this.moveTermToFolder(this.dragTerm, node.fullPath);
         this.dragTerm = null;
       }
     });
@@ -1000,7 +1000,7 @@ var NovelsNoteSidebarView = class extends import_obsidian2.ItemView {
       e.stopPropagation();
       const file = this.app.vault.getAbstractFileByPath(term.filePath);
       if (file instanceof import_obsidian2.TFile) {
-        this.app.workspace.getLeaf(false).openFile(file);
+        void this.app.workspace.getLeaf(false).openFile(file);
       }
     });
     row.addEventListener("contextmenu", (e) => {
@@ -1074,7 +1074,7 @@ var NovelsNoteSidebarView = class extends import_obsidian2.ItemView {
       item.setTitle("\u30CE\u30FC\u30C8\u3092\u958B\u304F").setIcon("file-text").onClick(() => {
         const file = this.app.vault.getAbstractFileByPath(term.filePath);
         if (file instanceof import_obsidian2.TFile) {
-          this.app.workspace.getLeaf(false).openFile(file);
+          void this.app.workspace.getLeaf(false).openFile(file);
         }
       });
     });
@@ -1186,7 +1186,6 @@ var NovelsNoteSettingTab = class extends import_obsidian3.PluginSettingTab {
   display() {
     const { containerEl } = this;
     containerEl.empty();
-    new import_obsidian3.Setting(containerEl).setName("Novels Note JP \u8A2D\u5B9A").setHeading();
     this.renderEditorSection(containerEl);
     this.renderRulerSection(containerEl);
     this.renderRubySection(containerEl);
@@ -1350,18 +1349,20 @@ var NovelsNoteSettingTab = class extends import_obsidian3.PluginSettingTab {
       text.onChange((value) => {
         folderInput = value;
       });
-      text.inputEl.addEventListener("keydown", async (e) => {
+      text.inputEl.addEventListener("keydown", (e) => {
         if (e.key === "Enter") {
-          await this.addExcludeFolder(folderInput, containerEl);
-          text.setValue("");
-          folderInput = "";
+          void this.addExcludeFolder(folderInput, containerEl).then(() => {
+            text.setValue("");
+            folderInput = "";
+          });
         }
       });
     }).addButton(
-      (btn) => btn.setButtonText("\u8FFD\u52A0").setCta().onClick(async () => {
-        await this.addExcludeFolder(folderInput, containerEl);
-        folderInput = "";
-        this.display();
+      (btn) => btn.setButtonText("\u8FFD\u52A0").setCta().onClick(() => {
+        void this.addExcludeFolder(folderInput, containerEl).then(() => {
+          folderInput = "";
+          this.display();
+        });
       })
     );
   }
@@ -1386,13 +1387,14 @@ var NovelsNoteSettingTab = class extends import_obsidian3.PluginSettingTab {
       const icon = label.createEl("span", { cls: "nn-folder-icon", text: "\u{1F4C1}" });
       label.createEl("code", { text: folders[i] });
       const delBtn = row.createEl("button", { text: "\u524A\u9664", cls: "mod-warning nn-folder-del-btn" });
-      delBtn.addEventListener("click", async () => {
+      delBtn.addEventListener("click", () => {
         this.plugin.settings.excludeFolders.splice(i, 1);
-        await this.plugin.saveSettings();
-        await this.plugin.buildTermIndex();
-        this.plugin.updateSidebar();
-        this.plugin.refreshEditors();
-        this.display();
+        void this.plugin.saveSettings().then(() => {
+          void this.plugin.buildTermIndex();
+          this.plugin.updateSidebar();
+          this.plugin.refreshEditors();
+          this.display();
+        });
       });
     }
   }
@@ -1547,7 +1549,7 @@ var NovelsNoteSettingTab = class extends import_obsidian3.PluginSettingTab {
       rowEl.addEventListener("dragleave", () => {
         rowEl.removeClass("nn-drag-over");
       });
-      rowEl.addEventListener("drop", async (e) => {
+      rowEl.addEventListener("drop", (e) => {
         e.preventDefault();
         rowEl.removeClass("nn-drag-over");
         const src = dragSrcIdx;
@@ -1556,8 +1558,7 @@ var NovelsNoteSettingTab = class extends import_obsidian3.PluginSettingTab {
         const [removed] = defs.splice(src, 1);
         defs.splice(dst, 0, removed);
         dragSrcIdx = -1;
-        await saveAndRefresh();
-        this.display();
+        void saveAndRefresh().then(() => this.display());
       });
     }
   }
@@ -1961,7 +1962,9 @@ var ExportModal = class extends import_obsidian4.Modal {
     this.updatePreview();
     const btnArea = contentEl.createEl("div", { cls: "nn-export-buttons" });
     const exportBtn = btnArea.createEl("button", { text: "Export \u3059\u308B", cls: "mod-cta" });
-    exportBtn.addEventListener("click", () => this.doExport());
+    exportBtn.addEventListener("click", () => {
+      void this.doExport();
+    });
     const cancelBtn = btnArea.createEl("button", { text: "\u30AD\u30E3\u30F3\u30BB\u30EB" });
     cancelBtn.addEventListener("click", () => this.close());
   }
@@ -2268,13 +2271,15 @@ var _VerticalPreviewView = class _VerticalPreviewView extends import_obsidian5.I
     this.registerEvent(
       this.app.workspace.on("editor-change", () => {
         if (this.updateTimer) window.clearTimeout(this.updateTimer);
-        this.updateTimer = window.setTimeout(() => this.loadFromActiveEditor(), 500);
+        this.updateTimer = window.setTimeout(() => {
+          void this.loadFromActiveEditor();
+        }, 500);
       })
     );
     this.registerEvent(
       this.app.workspace.on("active-leaf-change", () => {
         const mdView = this.app.workspace.getActiveViewOfType(import_obsidian5.MarkdownView);
-        if (mdView == null ? void 0 : mdView.file) this.loadFromActiveEditor();
+        if (mdView == null ? void 0 : mdView.file) void this.loadFromActiveEditor();
       })
     );
     this.startCursorSync();
@@ -2302,7 +2307,7 @@ var _VerticalPreviewView = class _VerticalPreviewView extends import_obsidian5.I
   }
   forceReload() {
     this.lastText = "";
-    this.loadFromActiveEditor();
+    void this.loadFromActiveEditor();
   }
   applyLayoutSettings() {
     if (!this.bodyEl) return;
@@ -2572,7 +2577,9 @@ var _NovelReadingView = class _NovelReadingView extends import_obsidian6.ItemVie
       title: "\u7DE8\u96C6\u30E2\u30FC\u30C9\u306B\u623B\u308B"
     });
     (0, import_obsidian6.setIcon)(editBtn, "pencil");
-    editBtn.addEventListener("click", () => this.switchToEdit());
+    editBtn.addEventListener("click", () => {
+      void this.switchToEdit();
+    });
     this.rootEl = container.createEl("div", { cls: "nn-reading-root" });
     await this.loadCurrentFile();
     let updateTimer = null;
@@ -2580,13 +2587,15 @@ var _NovelReadingView = class _NovelReadingView extends import_obsidian6.ItemVie
       this.app.workspace.on("editor-change", (_editor, view) => {
         if (!("file" in view) || view.file !== this._file) return;
         if (updateTimer) window.clearTimeout(updateTimer);
-        updateTimer = window.setTimeout(() => this.loadCurrentFile(), 500);
+        updateTimer = window.setTimeout(() => {
+          void this.loadCurrentFile();
+        }, 500);
       })
     );
     this.registerEvent(
       this.app.vault.on("modify", (file) => {
         if (file instanceof import_obsidian6.TFile && file === this._file) {
-          this.loadCurrentFile();
+          void this.loadCurrentFile();
         }
       })
     );
@@ -2609,7 +2618,6 @@ var _NovelReadingView = class _NovelReadingView extends import_obsidian6.ItemVie
   // ファイル読み込み・レンダリング
   // ─────────────────────────────────────────
   async loadCurrentFile() {
-    var _a;
     if (!this.rootEl) return;
     const file = this._file;
     if (!file) {
@@ -2617,7 +2625,8 @@ var _NovelReadingView = class _NovelReadingView extends import_obsidian6.ItemVie
       return;
     }
     const cache = this.app.metadataCache.getFileCache(file);
-    const mode = (_a = cache == null ? void 0 : cache.frontmatter) == null ? void 0 : _a.mode;
+    const frontmatter = cache == null ? void 0 : cache.frontmatter;
+    const mode = frontmatter == null ? void 0 : frontmatter["mode"];
     if (mode !== "novel") {
       this.renderMessage(
         "\u3053\u306E\u30D5\u30A1\u30A4\u30EB\u306F\u5BFE\u8C61\u5916\u3067\u3059\u3002\nFrontmatter \u306B `mode: novel` \u3092\u8A2D\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044\u3002"
@@ -2663,7 +2672,7 @@ var _NovelReadingView = class _NovelReadingView extends import_obsidian6.ItemVie
   }
   /** ルビ設定変更・折り返し幅変更などの際に外部から強制再描画 */
   forceReload() {
-    this.loadCurrentFile();
+    void this.loadCurrentFile();
   }
 };
 // 実測の結果、本文の折り返し幅は wrapColumn(em) ちょうどでは
@@ -2880,9 +2889,9 @@ var NovelsNoteJP = class extends import_obsidian8.Plugin {
     this.registerVaultEvents();
     this.initWordCount();
   }
-  async onunload() {
+  onunload() {
     if (this.adoptedSheet) {
-      document.adoptedStyleSheets = document.adoptedStyleSheets.filter((s) => s !== this.adoptedSheet);
+      activeDocument.adoptedStyleSheets = activeDocument.adoptedStyleSheets.filter((s) => s !== this.adoptedSheet);
       this.adoptedSheet = null;
     }
     if (this.rebuildTimer !== null) {
@@ -2904,11 +2913,12 @@ var NovelsNoteJP = class extends import_obsidian8.Plugin {
     if (this.rebuildTimer !== null) {
       window.clearTimeout(this.rebuildTimer);
     }
-    this.rebuildTimer = window.setTimeout(async () => {
+    this.rebuildTimer = window.setTimeout(() => {
       this.rebuildTimer = null;
-      await this.buildTermIndex();
-      this.updateSidebar();
-      this.refreshEditors();
+      void this.buildTermIndex().then(() => {
+        this.updateSidebar();
+        this.refreshEditors();
+      });
     }, delay);
   }
   // ─────────────────────────────────────────
@@ -3070,7 +3080,7 @@ var NovelsNoteJP = class extends import_obsidian8.Plugin {
     `;
     if (!this.adoptedSheet) {
       this.adoptedSheet = new CSSStyleSheet();
-      document.adoptedStyleSheets = [...document.adoptedStyleSheets, this.adoptedSheet];
+      activeDocument.adoptedStyleSheets = [...activeDocument.adoptedStyleSheets, this.adoptedSheet];
     }
     this.adoptedSheet.replaceSync(css);
   }
@@ -3112,10 +3122,10 @@ var NovelsNoteJP = class extends import_obsidian8.Plugin {
   // 指定ファイルが mode:novel かどうかを判定する
   // ─────────────────────────────────────────
   isNovelModeFile(file) {
-    var _a;
     if (!file) return false;
     const cache = this.app.metadataCache.getFileCache(file);
-    return ((_a = cache == null ? void 0 : cache.frontmatter) == null ? void 0 : _a.mode) === "novel";
+    const fm = cache == null ? void 0 : cache.frontmatter;
+    return (fm == null ? void 0 : fm["mode"]) === "novel";
   }
   // ─────────────────────────────────────────
   // 全エディタの novelModeField と data-novel-mode 属性を更新する
@@ -3157,13 +3167,12 @@ var NovelsNoteJP = class extends import_obsidian8.Plugin {
     this.statusBarEl = this.addStatusBarItem();
     this.statusBarEl.addClass("novels-note-wordcount");
     this.statusBarEl.title = "\u30AF\u30EA\u30C3\u30AF\u3067\u30AB\u30A6\u30F3\u30C8\u30E2\u30FC\u30C9\u3092\u5207\u308A\u66FF\u3048";
-    this.statusBarEl.style.setProperty("cursor", "pointer");
-    this.statusBarEl.addEventListener("click", async () => {
+    this.statusBarEl.setCssProps({ cursor: "pointer" });
+    this.statusBarEl.addEventListener("click", () => {
       const modes = ["raw", "novel", "manuscript"];
       const current = modes.indexOf(this.settings.countMode);
       this.settings.countMode = modes[(current + 1) % modes.length];
-      await this.saveSettings();
-      this.updateWordCount();
+      void this.saveSettings().then(() => this.updateWordCount());
     });
     this.registerEvent(
       this.app.workspace.on("active-leaf-change", () => {
@@ -3207,7 +3216,7 @@ var NovelsNoteJP = class extends import_obsidian8.Plugin {
       if (!leaf) return;
       await leaf.setViewState({ type: SIDEBAR_VIEW_TYPE, active: true });
     }
-    workspace.revealLeaf(leaf);
+    void workspace.revealLeaf(leaf);
     this.updateSidebar();
   }
   updateSidebar() {
@@ -3296,13 +3305,13 @@ var NovelsNoteJP = class extends import_obsidian8.Plugin {
     const { workspace } = this.app;
     const existing = workspace.getLeavesOfType(VERTICAL_VIEW_TYPE);
     if (existing.length > 0) {
-      workspace.revealLeaf(existing[0]);
+      void workspace.revealLeaf(existing[0]);
       return;
     }
     const leaf = workspace.getRightLeaf(false);
     if (!leaf) return;
     await leaf.setViewState({ type: VERTICAL_VIEW_TYPE, active: true });
-    workspace.revealLeaf(leaf);
+    void workspace.revealLeaf(leaf);
   }
   // ─────────────────────────────────────────
   // 小説閲覧 View 開閉
@@ -3346,7 +3355,7 @@ var NovelsNoteJP = class extends import_obsidian8.Plugin {
       new import_obsidian8.Notice("\u5C0F\u8AAC\u7528\u30D3\u30E5\u30FC\u306E\u5BFE\u8C61\u5916\u3067\u3059\u3002Frontmatter \u306B mode: novel \u306E\u30D7\u30ED\u30D1\u30C6\u30A3\u3092\u8A2D\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044\u3002");
       const existing2 = workspace.getLeavesOfType(NOVEL_READING_VIEW_TYPE);
       if (existing2.length > 0) {
-        workspace.revealLeaf(existing2[0]);
+        void workspace.revealLeaf(existing2[0]);
       }
       return;
     }
@@ -3354,7 +3363,7 @@ var NovelsNoteJP = class extends import_obsidian8.Plugin {
     for (const leaf of existing) {
       const nrv = leaf.view;
       if (nrv._file === targetFile) {
-        workspace.revealLeaf(leaf);
+        void workspace.revealLeaf(leaf);
         return;
       }
     }
@@ -3369,7 +3378,7 @@ var NovelsNoteJP = class extends import_obsidian8.Plugin {
       view.setFile(file);
       await view.loadCurrentFile();
     }
-    workspace.revealLeaf(targetLeaf);
+    void workspace.revealLeaf(targetLeaf);
   }
   // ─────────────────────────────────────────
   // 小説閲覧 View 強制再描画

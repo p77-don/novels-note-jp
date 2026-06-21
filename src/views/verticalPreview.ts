@@ -72,8 +72,8 @@ function applyTcy(text: string): string {
 // 例）「こんにちは。今日はいい天気ですね。明日はどうでしょうか。」
 //  →  ["こんにちは。", "今日はいい天気ですね。", "明日はどうでしょうか。"]
 //
-// 例）「　むかしむかし、あるところに」
-//  →  ["　", "むかしむかし、あるところに"]
+// 例）「 むかしむかし、あるところに」
+//  →  [" ", "むかしむかし、あるところに"]
 //
 // ─────────────────────────────────────────
 function splitIntoSentences(line: string): string[] {
@@ -219,7 +219,7 @@ export function toVerticalHtml(
   cleaned = cleaned.replace(/^[ \t]*\d+\.[ \t]+/gm, "");
   cleaned = cleaned.replace(/(\*{1,3}|_{1,3})([\s\S]*?)\1/g, "$2");
   // 区切り線 --- は小説の文章区切りとして「―――」に変換（縦書きで自然に見える）
-  cleaned = cleaned.replace(/^(-{3,})[ \t]*$/gm, (_, dashes) => "―".repeat(dashes.length));
+  cleaned = cleaned.replace(/^(-{3,})[ \t]*$/gm, (_: string, dashes: string) => "―".repeat(dashes.length));
   cleaned = cleaned.replace(/^[*_]{3,}[ \t]*$/gm, "");
   cleaned = cleaned.replace(/^```[\s\S]*?^```[ \t]*$/gm, "");
   cleaned = cleaned.replace(/^~~~[\s\S]*?^~~~[ \t]*$/gm, "");
@@ -338,7 +338,7 @@ export function toVerticalHtml(
       // 解決策：
       //   - hasIndent の判定は srcLine で行う
       //   - displayLine は cleanedLine から全角スペースを除去
-      //   - srcSents も先頭の全角スペース文（"　"）を除去して
+      //   - srcSents も先頭の全角スペース文（" "）を除去して
       //     cleanedSents と文インデックスを一致させる
       //   - lineSentences には除去後の srcSents を格納
       //     （cursorChToSentIdx の ch 計算も全角スペース除去後の
@@ -458,13 +458,13 @@ export class VerticalPreviewView extends ItemView {
     this.registerEvent(
       this.app.workspace.on("editor-change", () => {
         if (this.updateTimer) window.clearTimeout(this.updateTimer);
-        this.updateTimer = window.setTimeout(() => this.loadFromActiveEditor(), 500);
+        this.updateTimer = window.setTimeout(() => { void this.loadFromActiveEditor(); }, 500);
       })
     );
     this.registerEvent(
       this.app.workspace.on("active-leaf-change", () => {
         const mdView = this.app.workspace.getActiveViewOfType(MarkdownView);
-        if (mdView?.file) this.loadFromActiveEditor();
+        if (mdView?.file) void this.loadFromActiveEditor();
       })
     );
 
@@ -494,7 +494,7 @@ export class VerticalPreviewView extends ItemView {
     this.renderContent(text);
   }
 
-  forceReload(): void { this.lastText = ""; this.loadFromActiveEditor(); }
+  forceReload(): void { this.lastText = ""; void this.loadFromActiveEditor(); }
 
   // ─────────────────────────────────────────
   // 設定値（フォントサイズ・折り返し文字数）を

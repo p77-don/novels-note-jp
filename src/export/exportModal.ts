@@ -132,7 +132,7 @@ export class ExportModal extends Modal {
     const btnArea = contentEl.createEl("div", { cls: "nn-export-buttons" });
 
     const exportBtn = btnArea.createEl("button", { text: "Export する", cls: "mod-cta" });
-    exportBtn.addEventListener("click", () => this.doExport());
+    exportBtn.addEventListener("click", () => { void this.doExport(); });
 
     const cancelBtn = btnArea.createEl("button", { text: "キャンセル" });
     cancelBtn.addEventListener("click", () => this.close());

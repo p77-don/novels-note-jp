@@ -234,7 +234,7 @@ export class NovelReadingView extends ItemView {
       title: "編集モードに戻る",
     });
     setIcon(editBtn, "pencil");
-    editBtn.addEventListener("click", () => this.switchToEdit());
+    editBtn.addEventListener("click", () => { void this.switchToEdit(); });
 
     // ─── 本文領域 ───
     this.rootEl = container.createEl("div", { cls: "nn-reading-root" });
@@ -248,7 +248,7 @@ export class NovelReadingView extends ItemView {
         // 現在このビューが表示しているファイル以外の変更は無視する
         if (!("file" in view) || (view as { file: unknown }).file !== this._file) return;
         if (updateTimer) window.clearTimeout(updateTimer);
-        updateTimer = window.setTimeout(() => this.loadCurrentFile(), 500);
+        updateTimer = window.setTimeout(() => { void this.loadCurrentFile(); }, 500);
       })
     );
 
@@ -256,7 +256,7 @@ export class NovelReadingView extends ItemView {
     this.registerEvent(
       this.app.vault.on("modify", (file) => {
         if (file instanceof TFile && file === this._file) {
-          this.loadCurrentFile();
+          void this.loadCurrentFile();
         }
       })
     );
@@ -294,7 +294,8 @@ export class NovelReadingView extends ItemView {
 
     // mode: novel チェック
     const cache = this.app.metadataCache.getFileCache(file);
-    const mode  = cache?.frontmatter?.mode;
+    const frontmatter = cache?.frontmatter as Record<string, unknown> | undefined;
+    const mode  = frontmatter?.["mode"];
     if (mode !== "novel") {
       this.renderMessage(
         "このファイルは対象外です。\nFrontmatter に `mode: novel` を設定してください。"
@@ -361,7 +362,7 @@ export class NovelReadingView extends ItemView {
 
   /** ルビ設定変更・折り返し幅変更などの際に外部から強制再描画 */
   forceReload(): void {
-    this.loadCurrentFile();
+    void this.loadCurrentFile();
   }
 }
 

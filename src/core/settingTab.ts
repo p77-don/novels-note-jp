@@ -16,7 +16,6 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
   display(): void {
     const { containerEl } = this;
     containerEl.empty();
-    new Setting(containerEl).setName("Novels Note JP 設定").setHeading();
 
     this.renderEditorSection(containerEl);
     this.renderRulerSection(containerEl);
@@ -265,21 +264,23 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
         text.inputEl.addClass("nn-folder-path-input");
         text.onChange(value => { folderInput = value; });
         // Enter キーでも追加できる
-        text.inputEl.addEventListener("keydown", async (e: KeyboardEvent) => {
+        text.inputEl.addEventListener("keydown", (e: KeyboardEvent) => {
           if (e.key === "Enter") {
-            await this.addExcludeFolder(folderInput, containerEl);
-            text.setValue("");
-            folderInput = "";
+            void this.addExcludeFolder(folderInput, containerEl).then(() => {
+              text.setValue("");
+              folderInput = "";
+            });
           }
         });
       })
       .addButton(btn =>
         btn.setButtonText("追加").setCta()
-          .onClick(async () => {
-            await this.addExcludeFolder(folderInput, containerEl);
-            folderInput = "";
-            // テキストフィールドをクリア（再描画で反映）
-            this.display();
+          .onClick(() => {
+            void this.addExcludeFolder(folderInput, containerEl).then(() => {
+              folderInput = "";
+              // テキストフィールドをクリア（再描画で反映）
+              this.display();
+            });
           })
       );
   }
@@ -311,13 +312,14 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
 
       // 削除ボタン
       const delBtn = row.createEl("button", { text: "削除", cls: "mod-warning nn-folder-del-btn" });
-      delBtn.addEventListener("click", async () => {
+      delBtn.addEventListener("click", () => {
         this.plugin.settings.excludeFolders.splice(i, 1);
-        await this.plugin.saveSettings();
-        await this.plugin.buildTermIndex();
-        this.plugin.updateSidebar();
-        this.plugin.refreshEditors();
-        this.display(); // セクション全体を再描画
+        void this.plugin.saveSettings().then(() => {
+          void this.plugin.buildTermIndex();
+          this.plugin.updateSidebar();
+          this.plugin.refreshEditors();
+          this.display();
+        });
       });
     }
   }
@@ -513,7 +515,7 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
         rowEl.removeClass("nn-drag-over");
       });
 
-      rowEl.addEventListener("drop", async (e: DragEvent) => {
+      rowEl.addEventListener("drop", (e: DragEvent) => {
         e.preventDefault();
         rowEl.removeClass("nn-drag-over");
         const src = dragSrcIdx;
@@ -525,8 +527,7 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
         defs.splice(dst, 0, removed);
         dragSrcIdx = -1;
 
-        await saveAndRefresh();
-        this.display();
+        void saveAndRefresh().then(() => this.display());
       });
     }
   }
