@@ -16,7 +16,7 @@
 import { ItemView, WorkspaceLeaf, TFile, setIcon } from "obsidian";
 import { NOVEL_READING_VIEW_TYPE } from "../types";
 import { RubyStyle } from "../settings";
-import { convertRuby } from "./verticalPreview";
+import { convertRubyAndEscape } from "../core/rubyPatterns";
 import { ExportModal } from "../export/exportModal";
 import { stripHashtags } from "../core/hashtags";
 
@@ -31,7 +31,7 @@ function stripFrontmatter(source: string): string {
 // 原稿テキストのクリーニング
 //
 // エクスポートと同じ処理でMarkdown記法・WikiLink・タグなどを除去する。
-// ルビ記法はそのまま残す（convertRubyで後処理する）。
+// ルビ記法はそのまま残す（convertRubyAndEscapeで後処理する）。
 // ─────────────────────────────────────────
 function cleanSource(source: string): string {
   let text = source;
@@ -86,34 +86,24 @@ function cleanSource(source: string): string {
 }
 
 // ─────────────────────────────────────────
-// HTML 属性エスケープ
-// ─────────────────────────────────────────
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
-
-// ─────────────────────────────────────────
 // 1行をHTMLへ変換
 //
-// 処理順序：
-//   1. ルビ記法 → <ruby>タグ
-//   2. テキスト部分のHTMLエスケープ（既存タグは保護）
+// 【セキュリティ】
+// 旧実装は「ルビ記法 → <ruby>タグに変換」→「タグらしき文字列を
+// 正規表現で検出し、それ以外をエスケープ」という2段階の処理だった。
+// この方式は、ルビの親文字・ルビ文字に "<" ">" を含む文字列が
+// マッチした場合や、cleanSource() が温存する <ruby>/<rt> タグに
+// 任意の属性（onerror 等）が付いていた場合に、それらがエスケープ
+// されずに実DOMへ挿入されてしまう脆弱性があった（XSS）。
+//
+// convertRubyAndEscape()（core/rubyPatterns.ts）は、ルビ記法として
+// 正しく認識できる範囲だけを厳密に検出し、親文字・ルビ文字を
+// 個別にエスケープしてから <ruby> タグを組み立てる。それ以外の
+// 部分（属性付きの <ruby ...> タグなど、厳密なルビ記法として
+// 認識できないもの）はすべてプレーンテキストとしてエスケープされる。
 // ─────────────────────────────────────────
 function renderLine(rawLine: string, rubyStyle: RubyStyle): string {
-  // Step 1: ルビ変換
-  let line = convertRuby(rawLine, rubyStyle);
-
-  // Step 2: テキスト部分のみHTMLエスケープ（<ruby><rt>タグは保護）
-  const parts = line.split(/(<[^>]+>)/g);
-  line = parts.map((part, i) => {
-    if (i % 2 === 1) return part; // タグ部分はそのまま
-    return escapeHtml(part);
-  }).join("");
-
-  return line;
+  return convertRubyAndEscape(rawLine, rubyStyle);
 }
 
 // ─────────────────────────────────────────

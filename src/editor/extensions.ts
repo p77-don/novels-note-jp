@@ -15,8 +15,24 @@ export { buildRubyExtension } from "./rubyWidget";
 import { RangeSetBuilder, Prec } from "@codemirror/state";
 import { App, MarkdownView, TFile } from "obsidian";
 import { NovelsNoteSettings } from "../settings";
-import { TermEntry, settingsEffect, novelModeField, TERM_DRAG_MIME_TYPE } from "../types";
+import {
+  TermEntry,
+  settingsEffect,
+  novelModeField,
+  TERM_DRAG_MIME_TYPE,
+  bracketRebuildEffect,
+  termRebuildEffect,
+} from "../types";
 import { parseBrackets } from "./bracketParser";
+
+// ─────────────────────────────────────────
+// デバウンス再構築のディレイ（ms）
+//
+// main.ts の用語インデックス再構築（400ms）と同じ考え方。
+// カッコ・用語ハイライトは文書全体をスキャンするため、
+// 1キー入力ごとに即座に再構築するとタイプ入力がもたつく。
+// ─────────────────────────────────────────
+const HIGHLIGHT_REBUILD_DELAY = 200;
 
 // ─────────────────────────────────────────
 // Extension 1: カッコハイライト（最低優先度）
@@ -27,17 +43,42 @@ export function buildBracketExtension(getSettings: () => NovelsNoteSettings) {
     ViewPlugin.fromClass(
       class {
         decorations: DecorationSet;
+        private rebuildTimer: ReturnType<typeof setTimeout> | null = null;
+
         constructor(view: EditorView) { this.decorations = this.build(view); }
+
         update(update: ViewUpdate) {
+          // 設定変更・デバウンス後の再構築要求 → 即座に再構築
           if (
-            update.docChanged ||
-            update.viewportChanged ||
-            update.selectionSet ||
-            update.transactions.some(tr => tr.effects.some(e => e.is(settingsEffect)))
+            update.transactions.some(tr =>
+              tr.effects.some(e => e.is(settingsEffect) || e.is(bracketRebuildEffect))
+            )
           ) {
             this.decorations = this.build(update.view);
+            return;
+          }
+          // build() は文書全体をスキャンするため viewportChanged /
+          // selectionSet では再構築しない（結果が viewport・選択に
+          // 依存しないため、再構築しても無駄な再計算になるだけ）。
+          // docChanged のみデバウンスして再構築する（連続入力での
+          // 都度フルスキャンを防ぐ）。
+          if (update.docChanged) {
+            this.scheduleRebuild(update.view);
           }
         }
+
+        private scheduleRebuild(view: EditorView): void {
+          if (this.rebuildTimer !== null) window.clearTimeout(this.rebuildTimer);
+          this.rebuildTimer = window.setTimeout(() => {
+            this.rebuildTimer = null;
+            view.dispatch({ effects: bracketRebuildEffect.of(null) });
+          }, HIGHLIGHT_REBUILD_DELAY);
+        }
+
+        destroy(): void {
+          if (this.rebuildTimer !== null) window.clearTimeout(this.rebuildTimer);
+        }
+
         build(view: EditorView): DecorationSet {
           const builder = new RangeSetBuilder<Decoration>();
 
@@ -87,17 +128,43 @@ export function buildTermExtension(
     ViewPlugin.fromClass(
       class {
         decorations: DecorationSet;
+        private rebuildTimer: ReturnType<typeof setTimeout> | null = null;
+
         constructor(view: EditorView) { this.decorations = this.build(view); }
+
         update(update: ViewUpdate) {
+          // 設定変更（用語インデックス再構築完了の通知を含む）・
+          // デバウンス後の再構築要求 → 即座に再構築
           if (
-            update.docChanged ||
-            update.viewportChanged ||
-            update.selectionSet ||
-            update.transactions.some(tr => tr.effects.some(e => e.is(settingsEffect)))
+            update.transactions.some(tr =>
+              tr.effects.some(e => e.is(settingsEffect) || e.is(termRebuildEffect))
+            )
           ) {
             this.decorations = this.build(update.view);
+            return;
+          }
+          // build() は文書全体をスキャンするため viewportChanged /
+          // selectionSet では再構築しない（結果が viewport・選択に
+          // 依存しないため）。docChanged のみデバウンスして再構築する。
+          // 用語数が多い Vault ほど build() のコストが大きいため、
+          // カッコハイライト以上にデバウンスの効果が大きい。
+          if (update.docChanged) {
+            this.scheduleRebuild(update.view);
           }
         }
+
+        private scheduleRebuild(view: EditorView): void {
+          if (this.rebuildTimer !== null) window.clearTimeout(this.rebuildTimer);
+          this.rebuildTimer = window.setTimeout(() => {
+            this.rebuildTimer = null;
+            view.dispatch({ effects: termRebuildEffect.of(null) });
+          }, HIGHLIGHT_REBUILD_DELAY);
+        }
+
+        destroy(): void {
+          if (this.rebuildTimer !== null) window.clearTimeout(this.rebuildTimer);
+        }
+
         build(view: EditorView): DecorationSet {
           const builder = new RangeSetBuilder<Decoration>();
 

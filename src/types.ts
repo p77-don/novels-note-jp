@@ -42,6 +42,21 @@ export const settingsEffect = StateEffect.define<NovelsNoteSettings>();
 export const novelModeEffect = StateEffect.define<boolean>();
 
 // ─────────────────────────────────────────
+// StateEffect：カッコハイライト／用語ハイライトの
+// デバウンスされた再構築トリガー
+//
+// カッコ・用語ハイライトは文書全体をスキャンするため、
+// docChanged のたびに即座に再構築すると、長文・多用語の
+// Vault でタイプ入力がもたつく原因になる。
+// 各 ViewPlugin は docChanged を検知しても即座には再構築せず、
+// 一定時間（数百ms）入力が止まってからこの effect を
+// dispatch し、それをトリガーに再構築する（main.ts の
+// scheduleRebuild と同じデバウンスの考え方）。
+// ─────────────────────────────────────────
+export const bracketRebuildEffect = StateEffect.define<null>();
+export const termRebuildEffect = StateEffect.define<null>();
+
+// ─────────────────────────────────────────
 // StateField：エディタごとの novel モード状態
 // default は false（通常の Obsidian 表示）
 // novelModeEffect を dispatch することで切り替わる

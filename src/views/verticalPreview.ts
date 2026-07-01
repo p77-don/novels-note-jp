@@ -5,39 +5,27 @@
 import { ItemView, WorkspaceLeaf, MarkdownView, TFile } from "obsidian";
 import { VERTICAL_VIEW_TYPE } from "../types";
 import { RubyStyle } from "../settings";
+import { convertRubyAndEscape } from "../core/rubyPatterns";
 
 // ─────────────────────────────────────────
-// ルビ変換
+// ルビ変換 + HTML エスケープ
+//
+// 【セキュリティ】
+// 旧実装は convertRuby() でルビ記法から <ruby>...</ruby> を素朴な
+// 文字列置換で生成した後、escapeHtmlExceptRuby() で
+// <ruby>...</ruby> ブロック全体をまるごとエスケープ対象外にしていた。
+// しかしルビ記法の「親文字」「ルビ文字」には "<" ">" などの
+// HTML特殊文字を含む任意の文字列がマッチし得るため、本文に
+//   |<img src=x onerror=alert(1)>《ふりがな》
+// のような記法を書くと、エスケープされないまま実DOMに挿入され、
+// スクリプトが実行される脆弱性があった（XSS）。
+//
+// convertRubyAndEscape()（core/rubyPatterns.ts）は、先にルビ記法の
+// 範囲だけを検出し、親文字・ルビ文字を個別に HTML エスケープしてから
+// <ruby> タグを組み立てる。ルビ記法以外の地の文もすべてエスケープ
+// されるため、上記のような攻撃はタグとして解釈されなくなる。
+// 検出ロジック自体もエディタ内プレビュー・Export と共有している。
 // ─────────────────────────────────────────
-export function convertRuby(text: string, style: RubyStyle): string {
-  switch (style) {
-    case "narou":
-      text = text.replace(/\|([^《\n]+)《([^》\n]*)》/g, "<ruby>$1<rt>$2</rt></ruby>");
-      // u フラグ: \u{20000}-\u{3FFFF}（BMP外CJK Extension B-G）を正しく解釈するために必須
-      text = text.replace(/([\u3005\u4E00-\u9FFF\u3400-\u4DBF\uF900-\uFAFF\u{20000}-\u{3FFFF}]+)《([^》\n]*)》/gu, "<ruby>$1<rt>$2</rt></ruby>");
-      return text;
-    case "aozora":
-      text = text.replace(/｜([^《\n]+)《([^》\n]*)》/g, "<ruby>$1<rt>$2</rt></ruby>");
-      text = text.replace(/([\u3005\u4E00-\u9FFF\u3400-\u4DBF\uF900-\uFAFF\u{20000}-\u{3FFFF}]+)《([^》\n]*)》/gu, "<ruby>$1<rt>$2</rt></ruby>");
-      return text;
-    case "denden":
-      text = text.replace(/\{([^|\n]+)\|([^}\n]+)\}/g, "<ruby>$1<rt>$2</rt></ruby>");
-      return text;
-    case "html":
-      return text;
-  }
-}
-
-// ─────────────────────────────────────────
-// HTML エスケープ（ruby タグ除外）
-// ─────────────────────────────────────────
-function escapeHtmlExceptRuby(text: string): string {
-  const parts = text.split(/(<ruby>[\s\S]*?<\/ruby>)/g);
-  return parts.map((part, i) => {
-    if (i % 2 === 1) return part;
-    return part.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  }).join("");
-}
 
 // ─────────────────────────────────────────
 // 縦中横（ruby タグ外のみ）
@@ -222,11 +210,8 @@ export function toVerticalHtml(
   cleaned = cleaned.replace(/!\[[^\]]*\]\([^)]+\)/g, "");
   cleaned = cleaned.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
 
-  // Step 6: ルビ変換
-  cleaned = convertRuby(cleaned, rubyStyle);
-
-  // Step 7: HTML エスケープ
-  cleaned = escapeHtmlExceptRuby(cleaned);
+  // Step 6〜7: ルビ変換 + HTML エスケープ（安全な1関数にまとめて処理する）
+  cleaned = convertRubyAndEscape(cleaned, rubyStyle);
 
   // Step 8: 縦中横
   cleaned = applyTcy(cleaned);

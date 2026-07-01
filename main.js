@@ -81,6 +81,8 @@ var VERTICAL_VIEW_TYPE = "novels-note-jp-vertical";
 var NOVEL_READING_VIEW_TYPE = "novel-reading-view";
 var settingsEffect = import_state.StateEffect.define();
 var novelModeEffect = import_state.StateEffect.define();
+var bracketRebuildEffect = import_state.StateEffect.define();
+var termRebuildEffect = import_state.StateEffect.define();
 var novelModeField = import_state.StateField.define({
   create: () => false,
   update(value, tr) {
@@ -98,37 +100,17 @@ var import_view2 = require("@codemirror/view");
 // src/editor/rubyWidget.ts
 var import_view = require("@codemirror/view");
 var import_state2 = require("@codemirror/state");
-var RubyWidget = class extends import_view.WidgetType {
-  constructor(base, ruby) {
-    super();
-    this.base = base;
-    this.ruby = ruby;
-  }
-  eq(other) {
-    return this.base === other.base && this.ruby === other.ruby;
-  }
-  toDOM() {
-    const rubyEl = window.document.createElement("ruby");
-    rubyEl.className = "nn-editor-ruby";
-    rubyEl.appendChild(window.document.createTextNode(this.base));
-    const rt = window.document.createElement("rt");
-    rt.textContent = this.ruby;
-    rubyEl.appendChild(rt);
-    return rubyEl;
-  }
-  ignoreEvent() {
-    return false;
-  }
-};
-var CJK = "\u3005\u4E00-\u9FFF\u3400-\u4DBF\uF900-\uFAFF";
+
+// src/core/rubyPatterns.ts
+var CJK_PATTERN = "\u3005\u4E00-\u9FFF\u3400-\u4DBF\uF900-\uFAFF\\u{20000}-\\u{3FFFF}";
 function findRubyMatches(text, style) {
   const matches = [];
   switch (style) {
     case "narou":
     case "aozora": {
       const re = new RegExp(
-        "[|\uFF5C]([^\u300A\n]+)\u300A([^\u300B\n]*)\u300B|([" + CJK + "]+)\u300A([^\u300B\n]*)\u300B",
-        "g"
+        "[|\uFF5C]([^\u300A\n]+)\u300A([^\u300B\n]*)\u300B|([" + CJK_PATTERN + "]+)\u300A([^\u300B\n]*)\u300B",
+        "gu"
       );
       let m;
       while ((m = re.exec(text)) !== null) {
@@ -165,7 +147,8 @@ function findRubyMatches(text, style) {
         const ruby = m[2];
         const from = m.index;
         const to = from + m[0].length;
-        const baseFrom = from + 6;
+        const afterOpenTag = m[0].indexOf(base, "<ruby>".length);
+        const baseFrom = from + (afterOpenTag !== -1 ? afterOpenTag : 6);
         const baseTo = baseFrom + base.length;
         matches.push({ from, to, baseFrom, baseTo, base, ruby });
       }
@@ -174,6 +157,46 @@ function findRubyMatches(text, style) {
   }
   return matches;
 }
+function escapeHtml(text) {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+function convertRubyAndEscape(text, style) {
+  const matches = findRubyMatches(text, style);
+  if (matches.length === 0) return escapeHtml(text);
+  let result = "";
+  let cursor = 0;
+  for (const m of matches) {
+    result += escapeHtml(text.slice(cursor, m.from));
+    result += `<ruby>${escapeHtml(m.base)}<rt>${escapeHtml(m.ruby)}</rt></ruby>`;
+    cursor = m.to;
+  }
+  result += escapeHtml(text.slice(cursor));
+  return result;
+}
+
+// src/editor/rubyWidget.ts
+var RubyWidget = class extends import_view.WidgetType {
+  constructor(base, ruby) {
+    super();
+    this.base = base;
+    this.ruby = ruby;
+  }
+  eq(other) {
+    return this.base === other.base && this.ruby === other.ruby;
+  }
+  toDOM() {
+    const rubyEl = window.document.createElement("ruby");
+    rubyEl.className = "nn-editor-ruby";
+    rubyEl.appendChild(window.document.createTextNode(this.base));
+    const rt = window.document.createElement("rt");
+    rt.textContent = this.ruby;
+    rubyEl.appendChild(rt);
+    return rubyEl;
+  }
+  ignoreEvent() {
+    return false;
+  }
+};
 function buildRubyExtension(getSettings) {
   return import_view.ViewPlugin.fromClass(
     class {
@@ -298,17 +321,35 @@ function parseBrackets(docText, enabledBrackets) {
 }
 
 // src/editor/extensions.ts
+var HIGHLIGHT_REBUILD_DELAY = 200;
 function buildBracketExtension(getSettings) {
   return import_state3.Prec.lowest(
     import_view2.ViewPlugin.fromClass(
       class {
         constructor(view) {
+          this.rebuildTimer = null;
           this.decorations = this.build(view);
         }
         update(update) {
-          if (update.docChanged || update.viewportChanged || update.selectionSet || update.transactions.some((tr) => tr.effects.some((e) => e.is(settingsEffect)))) {
+          if (update.transactions.some(
+            (tr) => tr.effects.some((e) => e.is(settingsEffect) || e.is(bracketRebuildEffect))
+          )) {
             this.decorations = this.build(update.view);
+            return;
           }
+          if (update.docChanged) {
+            this.scheduleRebuild(update.view);
+          }
+        }
+        scheduleRebuild(view) {
+          if (this.rebuildTimer !== null) window.clearTimeout(this.rebuildTimer);
+          this.rebuildTimer = window.setTimeout(() => {
+            this.rebuildTimer = null;
+            view.dispatch({ effects: bracketRebuildEffect.of(null) });
+          }, HIGHLIGHT_REBUILD_DELAY);
+        }
+        destroy() {
+          if (this.rebuildTimer !== null) window.clearTimeout(this.rebuildTimer);
         }
         build(view) {
           const builder = new import_state3.RangeSetBuilder();
@@ -342,12 +383,29 @@ function buildTermExtension(getTerms, getSettings) {
     import_view2.ViewPlugin.fromClass(
       class {
         constructor(view) {
+          this.rebuildTimer = null;
           this.decorations = this.build(view);
         }
         update(update) {
-          if (update.docChanged || update.viewportChanged || update.selectionSet || update.transactions.some((tr) => tr.effects.some((e) => e.is(settingsEffect)))) {
+          if (update.transactions.some(
+            (tr) => tr.effects.some((e) => e.is(settingsEffect) || e.is(termRebuildEffect))
+          )) {
             this.decorations = this.build(update.view);
+            return;
           }
+          if (update.docChanged) {
+            this.scheduleRebuild(update.view);
+          }
+        }
+        scheduleRebuild(view) {
+          if (this.rebuildTimer !== null) window.clearTimeout(this.rebuildTimer);
+          this.rebuildTimer = window.setTimeout(() => {
+            this.rebuildTimer = null;
+            view.dispatch({ effects: termRebuildEffect.of(null) });
+          }, HIGHLIGHT_REBUILD_DELAY);
+        }
+        destroy() {
+          if (this.rebuildTimer !== null) window.clearTimeout(this.rebuildTimer);
         }
         build(view) {
           const builder = new import_state3.RangeSetBuilder();
@@ -1742,7 +1800,7 @@ function cleanNovelText(raw) {
   text = text.replace(/^[ \t]*\d+\.\s+/gm, "");
   text = text.replace(/(\*{1,3}|_{1,3})([\s\S]*?)\1/g, "$2");
   text = text.replace(/[|｜]([^《\n]+)《[^》]*》/g, "$1");
-  text = text.replace(/([\u3005\u4E00-\u9FFF\u3400-\u4DBF\uF900-\uFAFF\u{20000}-\u{3FFFF}]+)《[^》]*》/gu, "$1");
+  text = text.replace(new RegExp("([" + CJK_PATTERN + "]+)\u300A[^\u300B]*\u300B", "gu"), "$1");
   text = text.replace(/\{([^|]+)\|[^}]+\}/g, "$1");
   text = text.replace(/^[-*_]{3,}\s*$/gm, "");
   text = text.replace(/!\[[^\]]*\]\([^)]+\)/g, "");
@@ -1820,37 +1878,17 @@ function rubyPairToStyle(base, ruby, target) {
 }
 function convertRubyStyle(text, sourceStyle, target) {
   if (target === "none") return text;
-  const CJK2 = "\u3005\u4E00-\u9FFF\u3400-\u4DBF\uF900-\uFAFF\\u{20000}-\\u{3FFFF}";
-  switch (sourceStyle) {
-    case "narou":
-    case "aozora": {
-      const re = new RegExp(
-        "[|\uFF5C]([^\u300A\\n]+)\u300A([^\u300B\\n]*)\u300B|([" + CJK2 + "]+)\u300A([^\u300B\\n]*)\u300B",
-        "gu"
-      );
-      return text.replace(re, (_m, b1, r1, b2, r2) => {
-        const base = b1 !== void 0 ? b1 : b2;
-        const ruby = r1 !== void 0 ? r1 : r2;
-        return rubyPairToStyle(base, ruby, target);
-      });
-    }
-    case "denden": {
-      const re = /\{([^|\n]+)\|([^}\n]+)\}/g;
-      return text.replace(
-        re,
-        (_m, base, ruby) => rubyPairToStyle(base, ruby, target)
-      );
-    }
-    case "html": {
-      const re = /<ruby>\s*([^<]+?)\s*<rt>\s*([^<]*?)\s*<\/rt>\s*<\/ruby>/g;
-      return text.replace(
-        re,
-        (_m, base, ruby) => rubyPairToStyle(base, ruby, target)
-      );
-    }
-    default:
-      return text;
+  const matches = findRubyMatches(text, sourceStyle);
+  if (matches.length === 0) return text;
+  let result = "";
+  let cursor = 0;
+  for (const m of matches) {
+    result += text.slice(cursor, m.from);
+    result += rubyPairToStyle(m.base, m.ruby, target);
+    cursor = m.to;
   }
+  result += text.slice(cursor);
+  return result;
 }
 function exportText(source, opts) {
   let text = source;
@@ -2020,30 +2058,6 @@ var ExportModal = class extends import_obsidian4.Modal {
 
 // src/views/verticalPreview.ts
 var import_obsidian5 = require("obsidian");
-function convertRuby(text, style) {
-  switch (style) {
-    case "narou":
-      text = text.replace(/\|([^《\n]+)《([^》\n]*)》/g, "<ruby>$1<rt>$2</rt></ruby>");
-      text = text.replace(/([\u3005\u4E00-\u9FFF\u3400-\u4DBF\uF900-\uFAFF\u{20000}-\u{3FFFF}]+)《([^》\n]*)》/gu, "<ruby>$1<rt>$2</rt></ruby>");
-      return text;
-    case "aozora":
-      text = text.replace(/｜([^《\n]+)《([^》\n]*)》/g, "<ruby>$1<rt>$2</rt></ruby>");
-      text = text.replace(/([\u3005\u4E00-\u9FFF\u3400-\u4DBF\uF900-\uFAFF\u{20000}-\u{3FFFF}]+)《([^》\n]*)》/gu, "<ruby>$1<rt>$2</rt></ruby>");
-      return text;
-    case "denden":
-      text = text.replace(/\{([^|\n]+)\|([^}\n]+)\}/g, "<ruby>$1<rt>$2</rt></ruby>");
-      return text;
-    case "html":
-      return text;
-  }
-}
-function escapeHtmlExceptRuby(text) {
-  const parts = text.split(/(<ruby>[\s\S]*?<\/ruby>)/g);
-  return parts.map((part, i) => {
-    if (i % 2 === 1) return part;
-    return part.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  }).join("");
-}
 function applyTcy(text) {
   const parts = text.split(/(<ruby>[\s\S]*?<\/ruby>|<rt>[\s\S]*?<\/rt>)/g);
   return parts.map((part, i) => {
@@ -2128,8 +2142,7 @@ function toVerticalHtml(source, rubyStyle, selectedText = "") {
   cleaned = cleaned.replace(/`([^`]+)`/g, "$1");
   cleaned = cleaned.replace(/!\[[^\]]*\]\([^)]+\)/g, "");
   cleaned = cleaned.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
-  cleaned = convertRuby(cleaned, rubyStyle);
-  cleaned = escapeHtmlExceptRuby(cleaned);
+  cleaned = convertRubyAndEscape(cleaned, rubyStyle);
   cleaned = applyTcy(cleaned);
   if (selectedText.length > 0) {
     let hlResult = "";
@@ -2476,17 +2489,8 @@ function cleanSource(source) {
   text = text.replace(/<(?!\/?(ruby|rt)\b)[^>]+>/gi, "");
   return text;
 }
-function escapeHtml(text) {
-  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
 function renderLine(rawLine, rubyStyle) {
-  let line = convertRuby(rawLine, rubyStyle);
-  const parts = line.split(/(<[^>]+>)/g);
-  line = parts.map((part, i) => {
-    if (i % 2 === 1) return part;
-    return escapeHtml(part);
-  }).join("");
-  return line;
+  return convertRubyAndEscape(rawLine, rubyStyle);
 }
 function toReadingHtml(source, rubyStyle) {
   const stripped = stripFrontmatter(source);

@@ -4,6 +4,7 @@
 
 import { NovelsNoteSettings } from "../settings";
 import { stripHashtags } from "../core/hashtags";
+import { CJK_PATTERN } from "../core/rubyPatterns";
 
 // ─────────────────────────────────────────
 // カウント結果
@@ -77,8 +78,10 @@ export function cleanNovelText(raw: string): string {
   // 12. aozora ルビ：[|｜]親文字《ルビ》→ 親文字（半角バー・全角バーの両方に対応）
   text = text.replace(/[|｜]([^《\n]+)《[^》]*》/g, "$1");
   // バーなし aozora：漢字直後《ルビ》→ 漢字
+  //   CJK_PATTERN は core/rubyPatterns.ts の共通定義を使用する
+  //   （エディタ内プレビュー・Export・縦書きプレビューと文字範囲を統一するため）。
   //   u フラグ: \u{20000}-\u{3FFFF}（BMP外CJK Extension B-G）を正しく解釈するために必須
-  text = text.replace(/([\u3005\u4E00-\u9FFF\u3400-\u4DBF\uF900-\uFAFF\u{20000}-\u{3FFFF}]+)《[^》]*》/gu, "$1");
+  text = text.replace(new RegExp("([" + CJK_PATTERN + "]+)《[^》]*》", "gu"), "$1");
 
   // 13. denden ルビ：{親文字|ルビ} → 親文字
   text = text.replace(/\{([^|]+)\|[^}]+\}/g, "$1");

@@ -14,8 +14,9 @@ import {
   ViewUpdate,
 } from "@codemirror/view";
 import { RangeSetBuilder } from "@codemirror/state";
-import { NovelsNoteSettings, RubyStyle } from "../settings";
+import { NovelsNoteSettings } from "../settings";
 import { settingsEffect, novelModeField } from "../types";
+import { findRubyMatches, RubyMatch } from "../core/rubyPatterns";
 
 // ─────────────────────────────────────────
 // ルビウィジェット
@@ -49,86 +50,11 @@ class RubyWidget extends WidgetType {
 
 // ─────────────────────────────────────────
 // ルビ構文の検出
+//
+// 検出ロジックは core/rubyPatterns.ts に集約されている
+// （Export・縦書きプレビュー・小説閲覧ビューと検出基準・CJK文字範囲
+//   （拡張漢字 \u{20000}-\u{3FFFF} 含む）を統一するため）。
 // ─────────────────────────────────────────
-interface RubyMatch {
-  from: number;   // 構文全体の開始（縦棒を含む）
-  to: number;     // 構文全体の終了
-  baseFrom: number; // 親文字の開始
-  baseTo: number;   // 親文字の終了
-  base: string;
-  ruby: string;
-}
-
-const CJK = "\u3005\u4E00-\u9FFF\u3400-\u4DBF\uF900-\uFAFF";
-
-/**
- * テキスト内のルビ記法をすべて検出してリストで返す。
- * rubyStyle の設定に応じてパターンを切り替える。
- */
-export function findRubyMatches(text: string, style: RubyStyle): RubyMatch[] {
-  const matches: RubyMatch[] = [];
-
-  switch (style) {
-    case "narou":
-    case "aozora": {
-      // パターン1: [|｜]base《ruby》  ← 縦棒あり（任意文字列）
-      // パターン2: CJK+《ruby》       ← 縦棒なし（漢字のみ）
-      const re = new RegExp(
-        "[|｜]([^\u300A\n]+)\u300A([^\u300B\n]*)\u300B" +
-        "|([" + CJK + "]+)\u300A([^\u300B\n]*)\u300B",
-        "g"
-      );
-      let m: RegExpExecArray | null;
-      while ((m = re.exec(text)) !== null) {
-        const hasBar = m[1] !== undefined;
-        const base = hasBar ? m[1] : m[3];
-        const ruby = hasBar ? m[2] : m[4];
-        const from = m.index;
-        const to = from + m[0].length;
-        // 親文字の開始位置（縦棒があれば +1）
-        const baseFrom = hasBar ? from + 1 : from;
-        const baseTo = baseFrom + base.length;
-        matches.push({ from, to, baseFrom, baseTo, base, ruby });
-      }
-      break;
-    }
-
-    case "denden": {
-      // {base|ruby}
-      const re = /\{([^|\n]+)\|([^}\n]+)\}/g;
-      let m: RegExpExecArray | null;
-      while ((m = re.exec(text)) !== null) {
-        const base = m[1];
-        const ruby = m[2];
-        const from = m.index;
-        const to = from + m[0].length;
-        const baseFrom = from + 1; // "{" の次
-        const baseTo = baseFrom + base.length;
-        matches.push({ from, to, baseFrom, baseTo, base, ruby });
-      }
-      break;
-    }
-
-    case "html": {
-      // <ruby>base<rt>ruby</rt></ruby>
-      const re = /<ruby>\s*([^<]+?)\s*<rt>\s*([^<]*?)\s*<\/rt>\s*<\/ruby>/g;
-      let m: RegExpExecArray | null;
-      while ((m = re.exec(text)) !== null) {
-        const base = m[1];
-        const ruby = m[2];
-        const from = m.index;
-        const to = from + m[0].length;
-        // <ruby> は7文字
-        const baseFrom = from + 6;
-        const baseTo = baseFrom + base.length;
-        matches.push({ from, to, baseFrom, baseTo, base, ruby });
-      }
-      break;
-    }
-  }
-
-  return matches;
-}
 
 // ─────────────────────────────────────────
 // ViewPlugin 本体

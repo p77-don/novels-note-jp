@@ -6,6 +6,7 @@
 
 import { RubyStyle } from "../settings";
 import { stripHashtags } from "../core/hashtags";
+import { findRubyMatches } from "../core/rubyPatterns";
 
 // ─────────────────────────────────────────
 // Export 設定
@@ -67,6 +68,12 @@ function rubyPairToStyle(base: string, ruby: string, target: RubyConvertMode): s
  * sourceStyle の記法を検出し、target の方式に変換して返す。
  *
  * narou / aozora は半角縦棒（|）・全角縦棒（｜）の両方を検出する。
+ *
+ * ルビ記法の検出自体は core/rubyPatterns.ts の findRubyMatches() に
+ * 委譲している（エディタ内プレビュー・縦書きプレビュー・小説閲覧ビューと
+ * 検出基準・CJK文字範囲を統一するため）。検出された各マッチを
+ * 左から順に置換することで、旧実装と同じ「1パスで全パターンを網羅する」
+ * 挙動を維持する。
  */
 export function convertRubyStyle(
   text: string,
@@ -75,51 +82,18 @@ export function convertRubyStyle(
 ): string {
   if (target === "none") return text;
 
-  // CJK統合漢字 + 互換漢字 + Extension A/B/C/D/E/F/G（近年の人名漢字対応）
-  // \u{20000}-\u{3FFFF} は BMP 外の拡張ブロック（u フラグで解釈される）
-  const CJK = "\u3005\u4E00-\u9FFF\u3400-\u4DBF\uF900-\uFAFF\\u{20000}-\\u{3FFFF}";
+  const matches = findRubyMatches(text, sourceStyle);
+  if (matches.length === 0) return text;
 
-  switch (sourceStyle) {
-    case "narou":
-    case "aozora": {
-      // 半角縦棒（|）・全角縦棒（｜）どちらでも検出。
-      // パターン1：[|｜]base《ruby》
-      // パターン2：CJK漢字《ruby》（縦棒なし）
-      // 1つの正規表現で左から1パスで処理する。
-      // u フラグ: \u{20000}-\u{3FFFF}（BMP外CJK拡張）を正しく解釈するために必須
-      const re = new RegExp(
-        "[|｜]([^\u300A\\n]+)\u300A([^\u300B\\n]*)\u300B" +
-        "|([" + CJK + "]+)\u300A([^\u300B\\n]*)\u300B",
-        "gu"
-      );
-      return text.replace(re, (_m: string, b1: string, r1: string, b2: string, r2: string) => {
-        const base = b1 !== undefined ? b1 : b2;
-        const ruby = r1 !== undefined ? r1 : r2;
-        return rubyPairToStyle(base, ruby, target);
-      });
-    }
-
-    case "denden": {
-      const re = /\{([^|\n]+)\|([^}\n]+)\}/g;
-      return text.replace(re, (_m: string, base: string, ruby: string) =>
-        rubyPairToStyle(base, ruby, target)
-      );
-    }
-
-    case "html": {
-      // <rt>...</rt> と </ruby> の間（あるいは <ruby> と本文の間）に
-      // 改行・インデントが入っている記法にも対応するため、
-      // タグの境界部分にのみ \s* を許容する。
-      //   例）<ruby>\n  親\n  <rt>ルビ</rt>\n</ruby> も検出できる
-      const re = /<ruby>\s*([^<]+?)\s*<rt>\s*([^<]*?)\s*<\/rt>\s*<\/ruby>/g;
-      return text.replace(re, (_m: string, base: string, ruby: string) =>
-        rubyPairToStyle(base, ruby, target)
-      );
-    }
-
-    default:
-      return text;
+  let result = "";
+  let cursor = 0;
+  for (const m of matches) {
+    result += text.slice(cursor, m.from);
+    result += rubyPairToStyle(m.base, m.ruby, target);
+    cursor = m.to;
   }
+  result += text.slice(cursor);
+  return result;
 }
 
 // ─────────────────────────────────────────
