@@ -20,7 +20,9 @@ import {
   buildFullWidthSpaceExtension,
   buildTermDropExtension,
   buildRubyExtension,
+  buildCursorSyncExtension,
 } from "./editor/extensions";
+import { CursorSyncStore } from "./editor/cursorSyncStore";
 import { NovelsNoteSidebarView } from "./views/sidebarView";
 import { NovelsNoteSettingTab } from "./core/settingTab";
 import { countCharacters, formatCount, CountMode } from "./core/wordCount";
@@ -29,12 +31,39 @@ import { VerticalPreviewView } from "./views/verticalPreview";
 import { NovelReadingView } from "./views/novelReadingView";
 import { onEditorMenuForRuby } from "./editor/rubyInserter";
 
+// ─────────────────────────────────────────
+// HEXカラー → rgba() 文字列変換
+//
+// ::highlight() 疑似要素は opacity プロパティを解釈しないため、
+// 透明度は background-color の alpha チャンネルに焼き込む。
+// ─────────────────────────────────────────
+function hexToRgba(hex: string, alpha: number): string {
+  const body = hex.trim().replace(/^#/, "");
+  const full = body.length === 3
+    ? body.split("").map(c => c + c).join("")
+    : body;
+  const r = parseInt(full.slice(0, 2), 16);
+  const g = parseInt(full.slice(2, 4), 16);
+  const b = parseInt(full.slice(4, 6), 16);
+  if (Number.isNaN(r) || Number.isNaN(g) || Number.isNaN(b)) {
+    // 不正なHEXの場合はそのまま返す（フォールバック）
+    return hex;
+  }
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
 export default class NovelsNoteJP extends Plugin {
   private terms: TermEntry[] = [];
   settings: NovelsNoteSettings = DEFAULT_SETTINGS;
   private statusBarEl: HTMLElement | null = null;
   private rebuildTimer: ReturnType<typeof setTimeout> | null = null;
   private adoptedSheet: CSSStyleSheet | null = null;
+  /**
+   * カーソル位置・選択範囲の「確定した」変化を、エディタ拡張
+   * （buildCursorSyncExtension）から縦書きプレビュー（VerticalPreviewView）
+   * へ橋渡しするための共有ストア。詳細は editor/cursorSyncStore.ts を参照。
+   */
+  private cursorSyncStore = new CursorSyncStore();
 
   // ─────────────────────────────────────────
   // ロード
@@ -60,6 +89,7 @@ export default class NovelsNoteJP extends Plugin {
         view.setRubyStyleGetter(() => this.settings.rubyStyle);
         view.setFontSizeGetter(()  => this.settings.fontSize);
         view.setWrapColumnGetter(() => this.settings.wrapColumn);
+        view.setCursorSyncStore(this.cursorSyncStore);
         return view;
       }
     );
@@ -135,6 +165,17 @@ export default class NovelsNoteJP extends Plugin {
     // ─────────────────────────────────────────
     this.registerEditorExtension(
       buildRubyExtension(() => this.settings)
+    );
+
+    // ─────────────────────────────────────────
+    // カーソル同期 Extension
+    // カーソル位置・選択範囲の「確定した」変化（IME変換中は除く）を
+    // cursorSyncStore に書き込む。縦書きプレビューはこれを購読する。
+    // mode:novel に関係なく、すべてのエディタで動作する
+    // （縦書きプレビューはアクティブなファイルに追従するため）。
+    // ─────────────────────────────────────────
+    this.registerEditorExtension(
+      buildCursorSyncExtension(this.cursorSyncStore, this.app)
     );
 
     // ─────────────────────────────────────────
@@ -368,11 +409,22 @@ export default class NovelsNoteJP extends Plugin {
       }`;
 
     // カーソルハイライト
+    //
+    // 縦書きプレビューのカーソル位置ハイライトは、以前は
+    // <span class="nn-sent nn-cursor"> にクラスを付け外しして
+    // 背景色を当てていたが、文単位の <span> 自体を廃止したため
+    // CSS Custom Highlight API（::highlight() 疑似要素）に移行した。
+    //
+    // ::highlight() は background-color / color / font-weight 程度
+    // しか解釈できず、opacity や border-radius は効かない
+    // （ボックスモデルを持たない疑似要素のため）。
+    // 従来の「不透明色 + opacity: 0.85」と同じ見た目にするため、
+    // あらかじめ alpha チャンネルを焼き込んだ rgba() に変換して渡す。
     const cursorHighlightCss = s.verticalCursorHighlightEnabled
-      ? `.nn-vertical-text .nn-sent.nn-cursor {
-          background: ${s.verticalCursorHighlightColor} !important;
-          opacity: 0.85; border-radius: 2px; }`
-      : `.nn-vertical-text .nn-sent.nn-cursor { background: none; }`;
+      ? `::highlight(nn-cursor) {
+          background-color: ${hexToRgba(s.verticalCursorHighlightColor, 0.85)};
+        }`
+      : `::highlight(nn-cursor) { background-color: transparent; }`;
 
     const css = `
       .cm-editor[data-novel-mode="true"] .cm-content {

@@ -112,6 +112,41 @@ export function findRubyMatches(text: string, style: RubyStyle): RubyMatch[] {
 }
 
 // ─────────────────────────────────────────
+// ルビ文字数が親文字数に対して極端に多い場合の対策
+//
+// 【問題】
+// 親文字1文字に対してルビが3文字以上（例：「掌」に「てのひら」）ある場合、
+// ブラウザは <rt> の表示幅（高さ）に合わせて <ruby> ボックス全体を
+// 拡張してしまう。これはエディタ・横書き・縦書きいずれの表示でも起こる。
+// 本プラグインの折り返し計算は「1文字＝1em」を前提にしているため、
+// この拡張分だけ実際の表示幅（縦書きでは高さ）が想定よりズレて
+// 折り返し位置がズレる原因になる。
+//
+// 【対策】
+// ルビ文字数が親文字数の2倍を超える場合に限り、<rt> の font-size を
+// 「親文字の占有幅（em）に収まる」比率まで動的に縮小する。
+// 極端に長い読み（例：1文字に6文字以上のルビ）では視認性が
+// 著しく損なわれるため下限（MIN_RT_FONT_SIZE_EM）を設けており、
+// その場合はごくわずかな幅超過を許容する（完全には解消しない）。
+//
+// デフォルト（ルビ文字数 ≦ 親文字数×2）では、既存の
+// `rt { font-size: 0.5em; }`（styles.css）でちょうど収まるため、
+// 通常のルビ（2文字以内の読みなど）には一切影響しない。
+// ─────────────────────────────────────────
+export const DEFAULT_RT_FONT_SIZE_EM = 0.5;
+const MIN_RT_FONT_SIZE_EM = 0.28;
+
+export function computeRtFontSizeEm(base: string, ruby: string): number {
+  const baseLen = [...base].length;
+  const rubyLen = [...ruby].length;
+  if (rubyLen === 0 || rubyLen <= baseLen * 2) return DEFAULT_RT_FONT_SIZE_EM;
+  const fit = baseLen / rubyLen;
+  const clamped = Math.max(MIN_RT_FONT_SIZE_EM, fit);
+  // 冗長な小数桁を避ける（HTML/インラインスタイルを簡潔に保つ）
+  return Math.round(clamped * 1000) / 1000;
+}
+
+// ─────────────────────────────────────────
 // HTML エスケープ
 // ─────────────────────────────────────────
 export function escapeHtml(text: string): string {
@@ -149,7 +184,14 @@ export function convertRubyAndEscape(text: string, style: RubyStyle): string {
   let cursor = 0;
   for (const m of matches) {
     result += escapeHtml(text.slice(cursor, m.from));
-    result += `<ruby>${escapeHtml(m.base)}<rt>${escapeHtml(m.ruby)}</rt></ruby>`;
+    // ルビ文字数が親文字数に対して極端に多い場合のみ、
+    // <rt> の font-size を縮小して折り返しズレを防ぐ
+    // （詳細は computeRtFontSizeEm() のコメントを参照）
+    const fontSizeEm = computeRtFontSizeEm(m.base, m.ruby);
+    const rtStyleAttr = fontSizeEm !== DEFAULT_RT_FONT_SIZE_EM
+      ? ` style="font-size:${fontSizeEm}em"`
+      : "";
+    result += `<ruby>${escapeHtml(m.base)}<rt${rtStyleAttr}>${escapeHtml(m.ruby)}</rt></ruby>`;
     cursor = m.to;
   }
   result += escapeHtml(text.slice(cursor));

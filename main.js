@@ -157,6 +157,16 @@ function findRubyMatches(text, style) {
   }
   return matches;
 }
+var DEFAULT_RT_FONT_SIZE_EM = 0.5;
+var MIN_RT_FONT_SIZE_EM = 0.28;
+function computeRtFontSizeEm(base, ruby) {
+  const baseLen = [...base].length;
+  const rubyLen = [...ruby].length;
+  if (rubyLen === 0 || rubyLen <= baseLen * 2) return DEFAULT_RT_FONT_SIZE_EM;
+  const fit = baseLen / rubyLen;
+  const clamped = Math.max(MIN_RT_FONT_SIZE_EM, fit);
+  return Math.round(clamped * 1e3) / 1e3;
+}
 function escapeHtml(text) {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
@@ -167,7 +177,9 @@ function convertRubyAndEscape(text, style) {
   let cursor = 0;
   for (const m of matches) {
     result += escapeHtml(text.slice(cursor, m.from));
-    result += `<ruby>${escapeHtml(m.base)}<rt>${escapeHtml(m.ruby)}</rt></ruby>`;
+    const fontSizeEm = computeRtFontSizeEm(m.base, m.ruby);
+    const rtStyleAttr = fontSizeEm !== DEFAULT_RT_FONT_SIZE_EM ? ` style="font-size:${fontSizeEm}em"` : "";
+    result += `<ruby>${escapeHtml(m.base)}<rt${rtStyleAttr}>${escapeHtml(m.ruby)}</rt></ruby>`;
     cursor = m.to;
   }
   result += escapeHtml(text.slice(cursor));
@@ -190,6 +202,10 @@ var RubyWidget = class extends import_view.WidgetType {
     rubyEl.appendChild(window.document.createTextNode(this.base));
     const rt = window.document.createElement("rt");
     rt.textContent = this.ruby;
+    const fontSizeEm = computeRtFontSizeEm(this.base, this.ruby);
+    if (fontSizeEm !== DEFAULT_RT_FONT_SIZE_EM) {
+      rt.setCssStyles({ fontSize: `${fontSizeEm}em` });
+    }
     rubyEl.appendChild(rt);
     return rubyEl;
   }
@@ -590,6 +606,101 @@ function buildTermDropExtension(app) {
     }
   });
 }
+var CURSOR_SYNC_SETTLE_MS = 150;
+function buildCursorSyncExtension(store, app) {
+  const findFile = (view) => {
+    const ref = { file: null };
+    app.workspace.iterateAllLeaves((leaf) => {
+      if (ref.file) return;
+      if (leaf.view instanceof import_obsidian.MarkdownView) {
+        const cm = leaf.view.editor.cm;
+        if (cm === view) ref.file = leaf.view.file;
+      }
+    });
+    return ref.file;
+  };
+  const commit = (view) => {
+    const range = view.state.selection.main;
+    const line = view.state.doc.lineAt(range.head);
+    store.set({
+      file: findFile(view),
+      line: line.number - 1,
+      // CM6 は1始まり、Obsidian editor / 本プラグイン内部は0始まり
+      ch: range.head - line.from,
+      selection: view.state.sliceDoc(range.from, range.to),
+      docLength: view.state.doc.length
+    });
+  };
+  class CursorSyncPlugin {
+    constructor() {
+      this.composing = false;
+      this.settleTimer = null;
+    }
+    scheduleCommit(view) {
+      if (this.composing) return;
+      if (this.settleTimer !== null) window.clearTimeout(this.settleTimer);
+      this.settleTimer = window.setTimeout(() => {
+        this.settleTimer = null;
+        commit(view);
+      }, CURSOR_SYNC_SETTLE_MS);
+    }
+    update(update) {
+      if (!update.selectionSet && !update.docChanged) return;
+      this.scheduleCommit(update.view);
+    }
+    destroy() {
+      if (this.settleTimer !== null) window.clearTimeout(this.settleTimer);
+    }
+  }
+  return import_view2.ViewPlugin.fromClass(CursorSyncPlugin, {
+    eventHandlers: {
+      // IME変換開始：進行中の書き込み予約をすべてキャンセルする
+      compositionstart(_event, _view) {
+        this.composing = true;
+        if (this.settleTimer !== null) {
+          window.clearTimeout(this.settleTimer);
+          this.settleTimer = null;
+        }
+      },
+      // IME変換確定：ここで初めて（少し待ってから）反映する
+      compositionend(_event, view) {
+        this.composing = false;
+        this.scheduleCommit(view);
+      }
+    }
+  });
+}
+
+// src/editor/cursorSyncStore.ts
+var EMPTY_SNAPSHOT = { file: null, line: -1, ch: -1, selection: "", docLength: -1 };
+var CursorSyncStore = class {
+  constructor() {
+    this.snapshot = EMPTY_SNAPSHOT;
+    this.listeners = /* @__PURE__ */ new Set();
+  }
+  /** 現在の確定済みスナップショットを取得する */
+  get() {
+    return this.snapshot;
+  }
+  /**
+   * 確定済みのカーソル位置・選択範囲を書き込み、購読者に通知する。
+   * buildCursorSyncExtension() からのみ呼ばれることを想定している。
+   */
+  set(snapshot) {
+    this.snapshot = snapshot;
+    for (const listener of this.listeners) listener(snapshot);
+  }
+  /**
+   * スナップショットが更新されるたびに呼ばれるコールバックを登録する。
+   * 戻り値の関数を呼ぶと購読解除できる。
+   */
+  subscribe(listener) {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+};
 
 // src/views/sidebarView.ts
 var import_obsidian2 = require("obsidian");
@@ -2113,8 +2224,68 @@ function cursorChToSentIdx(sentences, ch) {
   }
   return sentences.length - 1;
 }
-function toVerticalHtml(source, rubyStyle, selectedText = "") {
+function plainVisibleLength(html) {
+  const noRt = html.replace(/<rt\b[^>]*>[\s\S]*?<\/rt>/g, "");
+  const stripped = noRt.replace(/<[^>]+>/g, "");
+  return [...stripped].length;
+}
+function codepointOffsetToUtf16(str, cpOffset) {
+  let cpCount = 0;
+  let utf16 = 0;
+  for (const ch of str) {
+    if (cpCount === cpOffset) return utf16;
+    cpCount++;
+    utf16 += ch.length;
+  }
+  return utf16;
+}
+function locateOffsetInLine(lineEl, targetCp) {
   var _a, _b;
+  const doc = lineEl.ownerDocument;
+  const walker = doc.createTreeWalker(lineEl, NodeFilter.SHOW_TEXT, {
+    acceptNode(node2) {
+      let p = node2.parentElement;
+      while (p && p !== lineEl) {
+        if (p.tagName === "RT") return NodeFilter.FILTER_REJECT;
+        p = p.parentElement;
+      }
+      return NodeFilter.FILTER_ACCEPT;
+    }
+  });
+  let cpCount = 0;
+  let node;
+  let lastText = null;
+  while (node = walker.nextNode()) {
+    const textNode = node;
+    lastText = textNode;
+    const text = (_a = textNode.textContent) != null ? _a : "";
+    const len = [...text].length;
+    if (cpCount + len >= targetCp) {
+      const localCp = targetCp - cpCount;
+      return { node: textNode, offset: codepointOffsetToUtf16(text, localCp) };
+    }
+    cpCount += len;
+  }
+  if (lastText) {
+    return { node: lastText, offset: ((_b = lastText.textContent) != null ? _b : "").length };
+  }
+  return null;
+}
+function buildSentenceRange(lineEl, startCp, endCp) {
+  const startPos = locateOffsetInLine(lineEl, startCp);
+  const endPos = locateOffsetInLine(lineEl, endCp);
+  if (!startPos || !endPos) return null;
+  const range = lineEl.ownerDocument.createRange();
+  try {
+    range.setStart(startPos.node, startPos.offset);
+    range.setEnd(endPos.node, endPos.offset);
+  } catch (e) {
+    return null;
+  }
+  return range;
+}
+function toVerticalHtml(source, rubyStyle, selectedText = "") {
+  var _a;
   const SEL_START = "\0\0";
   const SEL_END = "\0\0";
   let cleaned = source;
@@ -2124,12 +2295,23 @@ function toVerticalHtml(source, rubyStyle, selectedText = "") {
       cleaned = cleaned.slice(0, idx) + SEL_START + cleaned.slice(idx, idx + selectedText.length) + SEL_END + cleaned.slice(idx + selectedText.length);
     }
   }
+  let codeLineCount = 0;
+  const toFullWidthDigits = (n) => String(n).replace(/[0-9]/g, (d) => String.fromCharCode(d.charCodeAt(0) + 65248));
+  const protectCodeBlock = (whole) => whole.split("\n").map(() => `\0${toFullWidthDigits(codeLineCount++)}\0`).join("\n");
+  cleaned = cleaned.replace(/^```[\s\S]*?^```[ \t]*$/gm, protectCodeBlock);
+  cleaned = cleaned.replace(/^~~~[\s\S]*?^~~~[ \t]*$/gm, protectCodeBlock);
+  const stripKeepingLines = (whole) => {
+    var _a2;
+    return "\n".repeat(((_a2 = whole.match(/\n/g)) != null ? _a2 : []).length);
+  };
   cleaned = cleaned.replace(/^---[ \t]*\n[\s\S]*?\n---[ \t]*\n?/, "");
-  cleaned = cleaned.replace(/%%[\s\S]*?%%/g, "");
-  cleaned = cleaned.replace(/^(>[ \t]*\[![\w-]+\][^\n]*\n(?:>[ \t]*[^\n]*\n?)*)/gm, "");
+  cleaned = cleaned.replace(/%%[\s\S]*?%%/g, stripKeepingLines);
+  cleaned = cleaned.replace(/^(>[ \t]*\[![\w-]+\][^\n]*\n(?:>[ \t]*[^\n]*\n?)*)/gm, stripKeepingLines);
   cleaned = cleaned.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, "$2");
   cleaned = cleaned.replace(/\[\[([^\]]+)\]\]/g, "$1");
-  cleaned = cleaned.replace(/^#[^\s#][^\n]*$/gm, "");
+  cleaned = stripHashtags(cleaned);
+  cleaned = cleaned.replace(/[ \t]{2,}/g, " ");
+  cleaned = cleaned.replace(/^[ \t]+$/gm, "");
   cleaned = cleaned.replace(/^#{1,6}[ \t]+/gm, "");
   cleaned = cleaned.replace(/^>[ \t]?/gm, "");
   cleaned = cleaned.replace(/^[ \t]*[-*+][ \t]+/gm, "");
@@ -2137,11 +2319,10 @@ function toVerticalHtml(source, rubyStyle, selectedText = "") {
   cleaned = cleaned.replace(/(\*{1,3}|_{1,3})([\s\S]*?)\1/g, "$2");
   cleaned = cleaned.replace(/^(-{3,})[ \t]*$/gm, (_, dashes) => "\u2015".repeat(dashes.length));
   cleaned = cleaned.replace(/^[*_]{3,}[ \t]*$/gm, "");
-  cleaned = cleaned.replace(/^```[\s\S]*?^```[ \t]*$/gm, "");
-  cleaned = cleaned.replace(/^~~~[\s\S]*?^~~~[ \t]*$/gm, "");
   cleaned = cleaned.replace(/`([^`]+)`/g, "$1");
-  cleaned = cleaned.replace(/!\[[^\]]*\]\([^)]+\)/g, "");
+  cleaned = cleaned.replace(/!\[[^\]]*\]\([^)]+\)/g, stripKeepingLines);
   cleaned = cleaned.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
+  cleaned = cleaned.replace(/<(?!\/?(ruby|rt)\b)[^>\n]+>/gi, "");
   cleaned = convertRubyAndEscape(cleaned, rubyStyle);
   cleaned = applyTcy(cleaned);
   if (selectedText.length > 0) {
@@ -2174,6 +2355,9 @@ function toVerticalHtml(source, rubyStyle, selectedText = "") {
     }
     cleaned = hlResult;
   }
+  if (codeLineCount > 0) {
+    cleaned = cleaned.replace(/\x00[０-９]+\x00/g, "");
+  }
   const sourceLines = source.split("\n");
   const cleanedLines = cleaned.split("\n");
   let frontmatterLineCount = 0;
@@ -2184,14 +2368,14 @@ function toVerticalHtml(source, rubyStyle, selectedText = "") {
     }
   }
   const lineSentences = /* @__PURE__ */ new Map();
+  const lineSentPlainLengths = /* @__PURE__ */ new Map();
   const parts = [];
   let prevBlank = true;
   let firstPara = true;
-  let cleanedIdx = 0;
   for (let i = frontmatterLineCount; i < sourceLines.length; i++) {
     const srcLine = sourceLines[i];
     const isBlank = srcLine.trim() === "";
-    const cleanedLine = (_a = cleanedLines[cleanedIdx]) != null ? _a : "";
+    const cleanedLine = (_a = cleanedLines[i - frontmatterLineCount]) != null ? _a : "";
     if (!isBlank && prevBlank) {
       if (!firstPara) {
         parts.push(`<span class="nn-sep" aria-hidden="true"></span><br>`);
@@ -2211,41 +2395,24 @@ function toVerticalHtml(source, rubyStyle, selectedText = "") {
       }
       const cleanedSents = splitIntoSentences(displayLine);
       lineSentences.set(i, srcSents);
-      let markOpen = false;
-      const sentHtml = cleanedSents.map((sent, j) => {
-        let inner = markOpen ? `<mark class="nn-sel">` + sent : sent;
-        const opens = (inner.match(/<mark class="nn-sel">/g) || []).length;
-        const closes = (inner.match(/<\/mark>/g) || []).length;
-        markOpen = opens > closes;
-        if (markOpen) inner += `</mark>`;
-        return `<span class="nn-sent"
-                       data-line="${i}"
-                       data-sent="${j}">
-                  ${inner}
-                </span>`;
-      }).join("");
+      lineSentPlainLengths.set(i, cleanedSents.map(plainVisibleLength));
+      let inner = displayLine;
+      const opens = (inner.match(/<mark class="nn-sel">/g) || []).length;
+      const closes = (inner.match(/<\/mark>/g) || []).length;
+      if (opens > closes) inner += `</mark>`;
       const lineClass = hasIndent ? "nn-line nn-line--indent" : "nn-line";
       parts.push(
-        `<span class="${lineClass}"
-               data-line="${i}">
-            ${sentHtml}
-         </span><br>`
+        `<span class="${lineClass}" data-line="${i}">${inner}</span><br>`
       );
-      cleanedIdx++;
-    } else {
-      while (cleanedIdx < cleanedLines.length && ((_b = cleanedLines[cleanedIdx]) == null ? void 0 : _b.trim()) === "") {
-        cleanedIdx++;
-      }
     }
     prevBlank = isBlank;
   }
-  return { html: parts.join(""), lineSentences };
+  return { html: parts.join(""), lineSentences, lineSentPlainLengths };
 }
 var _VerticalPreviewView = class _VerticalPreviewView extends import_obsidian5.ItemView {
   constructor(leaf) {
     super(leaf);
     this.updateTimer = null;
-    this.syncTimer = null;
     this.lastFile = null;
     this.lastText = "";
     this.lastCursorLine = -1;
@@ -2253,6 +2420,24 @@ var _VerticalPreviewView = class _VerticalPreviewView extends import_obsidian5.I
     this.lastSelection = "";
     /** ソース行 → 文リスト（ソース原文、カーソル対応に使用） */
     this.lineSentences = /* @__PURE__ */ new Map();
+    /** ソース行 → 各文の見た目の文字数（DOM上でRangeを構築するために使用） */
+    this.lineSentPlainLengths = /* @__PURE__ */ new Map();
+    /**
+     * カーソル文ハイライト用の Highlight オブジェクト（CSS Custom Highlight API）。
+     * 1つのインスタンスを使い回し、範囲だけを毎回差し替える。
+     * 未対応環境（極めて稀）では null のままとなり、ハイライトのみ
+     * スキップされる（スクロール追従自体は Range API のみで動作する）。
+     */
+    this.cursorHighlight = null;
+    /**
+     * カーソル位置・選択範囲の「確定した」変化を受け取るストア。
+     * IME変換中かどうかの判定を含め、エディタ側（editor/extensions.ts の
+     * buildCursorSyncExtension）が責任を持つ。縦書きプレビュー側は
+     * これを購読するだけで、自前でポーリング・IME判定をする必要がない。
+     * main.ts から setCursorSyncStore() で渡される。
+     */
+    this.cursorSyncStore = null;
+    this.unsubscribeCursorSync = null;
     this.getRubyStyle = () => "narou";
     this.getFontSize = () => 16;
     this.getWrapColumn = () => 40;
@@ -2265,6 +2450,9 @@ var _VerticalPreviewView = class _VerticalPreviewView extends import_obsidian5.I
   }
   setWrapColumnGetter(fn) {
     this.getWrapColumn = fn;
+  }
+  setCursorSyncStore(store) {
+    this.cursorSyncStore = store;
   }
   getViewType() {
     return VERTICAL_VIEW_TYPE;
@@ -2289,7 +2477,7 @@ var _VerticalPreviewView = class _VerticalPreviewView extends import_obsidian5.I
         if (this.updateTimer) window.clearTimeout(this.updateTimer);
         this.updateTimer = window.setTimeout(() => {
           void this.loadFromActiveEditor();
-        }, 500);
+        }, 1200);
       })
     );
     this.registerEvent(
@@ -2298,11 +2486,22 @@ var _VerticalPreviewView = class _VerticalPreviewView extends import_obsidian5.I
         if (mdView == null ? void 0 : mdView.file) void this.loadFromActiveEditor();
       })
     );
-    this.startCursorSync();
+    if (this.cursorSyncStore) {
+      this.unsubscribeCursorSync = this.cursorSyncStore.subscribe(
+        (snapshot) => this.onCursorSync(snapshot)
+      );
+      this.onCursorSync(this.cursorSyncStore.get());
+    }
   }
   async onClose() {
+    var _a;
     if (this.updateTimer) window.clearTimeout(this.updateTimer);
-    if (this.syncTimer) window.clearTimeout(this.syncTimer);
+    (_a = this.unsubscribeCursorSync) == null ? void 0 : _a.call(this);
+    this.unsubscribeCursorSync = null;
+    if (typeof CSS !== "undefined" && CSS.highlights) {
+      CSS.highlights.delete("nn-cursor");
+    }
+    this.cursorHighlight = null;
   }
   // ─────────────────────────────────────────
   // 読み込み・レンダリング
@@ -2339,8 +2538,9 @@ var _VerticalPreviewView = class _VerticalPreviewView extends import_obsidian5.I
     this.applyLayoutSettings();
     const mdView = this.app.workspace.getActiveViewOfType(import_obsidian5.MarkdownView);
     const sel = (_a = mdView == null ? void 0 : mdView.editor.getSelection()) != null ? _a : "";
-    const { html, lineSentences } = toVerticalHtml(text, this.getRubyStyle(), sel);
+    const { html, lineSentences, lineSentPlainLengths } = toVerticalHtml(text, this.getRubyStyle(), sel);
     this.lineSentences = lineSentences;
+    this.lineSentPlainLengths = lineSentPlainLengths;
     let textEl = this.bodyEl.querySelector(".nn-vertical-text");
     if (!textEl) {
       textEl = this.bodyEl.createEl("div", { cls: "nn-vertical-text" });
@@ -2354,7 +2554,7 @@ var _VerticalPreviewView = class _VerticalPreviewView extends import_obsidian5.I
     this.lastCursorCh = -1;
     window.requestAnimationFrame(() => {
       this.scrollerEl.scrollLeft = this.scrollerEl.scrollWidth;
-      window.requestAnimationFrame(() => this.syncCursorToPreview(true));
+      window.requestAnimationFrame(() => this.forceSyncNow());
     });
   }
   renderEmpty(message) {
@@ -2363,36 +2563,88 @@ var _VerticalPreviewView = class _VerticalPreviewView extends import_obsidian5.I
     this.bodyEl.empty();
     this.bodyEl.createEl("p", { text: message, cls: "nn-vertical-empty" });
     this.lineSentences = /* @__PURE__ */ new Map();
+    this.lineSentPlainLengths = /* @__PURE__ */ new Map();
   }
   // ─────────────────────────────────────────
-  // カーソル・選択 連動ポーリング（100ms）
+  // カーソル・選択 連動
+  //
+  // 【アーキテクチャ】
+  // 以前は縦書きプレビュー側が Obsidian の MarkdownView.editor を
+  // 100msごとに外部からポーリングしてカーソル位置・選択範囲を
+  // 取得していた。しかしこの方式では、日本語入力（IME）が変換中
+  // かどうかを外部から判別する手段がなく、変換中の文字数変化の
+  // たびに「カーソル位置が変わった」と誤検知し、ハイライトが
+  // 頻繁に動いてしまっていた。
+  //
+  // IME の変換状態（compositionstart/compositionend）はエディタの
+  // DOM に対して発火するイベントであり、これを正確に検知できるのは
+  // CodeMirror 6 の Extension（editor/extensions.ts の
+  // buildCursorSyncExtension）側だけである。
+  //
+  // そこで、カーソル位置・選択範囲の「確定した」変化の検知は
+  // すべてエディタ拡張側に一元化した。縦書きプレビュー側は
+  // CursorSyncStore（editor/cursorSyncStore.ts）を購読するだけの
+  // 受け手になり、ポーリングも IME 判定も行わない。
   // ─────────────────────────────────────────
-  startCursorSync() {
-    const tick = () => {
-      this.syncCursorToPreview(false);
-      this.syncTimer = window.setTimeout(tick, 100);
-    };
-    this.syncTimer = window.setTimeout(tick, 100);
+  /**
+   * CursorSyncStore からの通知を受け取るハンドラ。
+   * IME変換中は呼ばれない（エディタ拡張側で書き込み自体を
+   * 止めているため）。
+   */
+  onCursorSync(snapshot) {
+    if (snapshot.file !== this.lastFile) return;
+    this.applySnapshot(snapshot, false);
   }
-  syncCursorToPreview(force) {
+  /**
+   * 本文再描画直後など、ストアの通知を待たずに即座に現在位置へ
+   * 同期したい場合に呼ぶ。ストアに現在ファイルのスナップショットが
+   * あればそれを使い、なければ MarkdownView から直接1回だけ読み取る
+   * （購読方式に切り替える前の挙動と同じフォールバック）。
+   */
+  forceSyncNow() {
+    var _a, _b;
+    const stored = (_a = this.cursorSyncStore) == null ? void 0 : _a.get();
+    if (stored && stored.file === this.lastFile) {
+      this.applySnapshot(stored, true);
+      return;
+    }
+    const mdView = this.app.workspace.getActiveViewOfType(import_obsidian5.MarkdownView);
+    if ((mdView == null ? void 0 : mdView.file) !== this.lastFile) return;
+    const cursor = mdView.editor.getCursor();
+    this.applySnapshot(
+      {
+        file: mdView.file,
+        line: cursor.line,
+        ch: cursor.ch,
+        selection: (_b = mdView.editor.getSelection()) != null ? _b : "",
+        docLength: mdView.editor.getValue().length
+      },
+      true
+    );
+  }
+  /**
+   * カーソル位置・選択範囲のスナップショットを実際に反映する。
+   * force=true の場合、本文データの鮮度チェックをバイパスして
+   * 即座に反映する（本文再描画直後の呼び出し用）。
+   */
+  applySnapshot(snapshot, force) {
     var _a, _b, _c, _d, _e;
     if (!this.bodyEl || !this.scrollerEl) return;
-    const mdView = this.app.workspace.getActiveViewOfType(import_obsidian5.MarkdownView);
-    const cursor = mdView ? mdView.editor.getCursor() : null;
-    const cursorLine = (_a = cursor == null ? void 0 : cursor.line) != null ? _a : this.lastCursorLine;
-    const cursorCh = (_b = cursor == null ? void 0 : cursor.ch) != null ? _b : this.lastCursorCh;
-    const selection = mdView ? (_c = mdView.editor.getSelection()) != null ? _c : "" : this.lastSelection;
+    if (!force && snapshot.docLength !== this.lastText.length) return;
+    const { line: cursorLine, ch: cursorCh, selection } = snapshot;
+    if (cursorLine < 0) return;
     const cursorChanged = force || cursorLine !== this.lastCursorLine || cursorCh !== this.lastCursorCh;
     const selectionChanged = selection !== this.lastSelection;
     if (!cursorChanged && !selectionChanged) return;
     if (selectionChanged && this.lastText) {
       this.lastSelection = selection;
-      const { html, lineSentences } = toVerticalHtml(
+      const { html, lineSentences, lineSentPlainLengths } = toVerticalHtml(
         this.lastText,
         this.getRubyStyle(),
         selection
       );
       this.lineSentences = lineSentences;
+      this.lineSentPlainLengths = lineSentPlainLengths;
       const textEl = this.bodyEl.querySelector(".nn-vertical-text");
       if (textEl) {
         const parsed2 = new DOMParser().parseFromString(html, "text/html");
@@ -2402,46 +2654,60 @@ var _VerticalPreviewView = class _VerticalPreviewView extends import_obsidian5.I
         }
       }
     }
-    if (cursorChanged && cursorLine >= 0) {
-      this.lastCursorLine = cursorLine;
-      this.lastCursorCh = cursorCh;
-      let targetLine = cursorLine;
-      while (!this.lineSentences.has(targetLine) && targetLine > 0) {
-        targetLine--;
-      }
-      if (!this.lineSentences.has(targetLine)) {
-        targetLine = cursorLine;
-        while (!this.lineSentences.has(targetLine) && targetLine < 99999) {
-          targetLine++;
-        }
-      }
-      const sents = (_d = this.lineSentences.get(targetLine)) != null ? _d : [];
-      let adjustedCh = cursorCh;
-      if (targetLine === cursorLine) {
-        const mdView2 = this.app.workspace.getActiveViewOfType(import_obsidian5.MarkdownView);
-        const targetSrcLine = (_e = mdView2 == null ? void 0 : mdView2.editor.getLine(targetLine)) != null ? _e : "";
-        if (targetSrcLine.startsWith("\u3000")) {
-          adjustedCh = Math.max(0, cursorCh - 1);
-        }
-      }
-      const sentIdx = targetLine === cursorLine ? cursorChToSentIdx(sents, adjustedCh) : sents.length - 1;
-      this.bodyEl.querySelectorAll(".nn-cursor").forEach((el) => el.classList.remove("nn-cursor"));
-      const targetEl = this.bodyEl.querySelector(
-        `.nn-sent[data-line="${targetLine}"][data-sent="${sentIdx}"]`
-      );
-      if (!targetEl) return;
-      targetEl.classList.add("nn-cursor");
-      const scrollerRect = this.scrollerEl.getBoundingClientRect();
-      const targetRect = targetEl.getBoundingClientRect();
-      const containerWidth = this.scrollerEl.clientWidth;
-      const scrollWidth = this.scrollerEl.scrollWidth;
-      const absCenter = targetRect.left - scrollerRect.left + this.scrollerEl.scrollLeft + targetRect.width / 2;
-      const desiredLeft = absCenter - containerWidth / 2;
-      this.scrollerEl.scrollTo({
-        left: Math.max(0, Math.min(desiredLeft, scrollWidth - containerWidth)),
-        behavior: force ? "instant" : "smooth"
-      });
+    if (!(cursorChanged || selectionChanged)) return;
+    this.lastCursorLine = cursorLine;
+    this.lastCursorCh = cursorCh;
+    let targetLine = cursorLine;
+    while (!this.lineSentences.has(targetLine) && targetLine > 0) {
+      targetLine--;
     }
+    if (!this.lineSentences.has(targetLine)) {
+      targetLine = cursorLine;
+      while (!this.lineSentences.has(targetLine) && targetLine < 99999) {
+        targetLine++;
+      }
+    }
+    const sents = (_a = this.lineSentences.get(targetLine)) != null ? _a : [];
+    let adjustedCh = cursorCh;
+    if (targetLine === cursorLine) {
+      const targetSrcLine = (_b = this.lastText.split("\n")[targetLine]) != null ? _b : "";
+      if (targetSrcLine.startsWith("\u3000")) {
+        adjustedCh = Math.max(0, cursorCh - 1);
+      }
+    }
+    const sentIdx = targetLine === cursorLine ? cursorChToSentIdx(sents, adjustedCh) : sents.length - 1;
+    const lineEl = this.bodyEl.querySelector(
+      `.nn-line[data-line="${targetLine}"]`
+    );
+    if (!lineEl) return;
+    const plainLens = (_c = this.lineSentPlainLengths.get(targetLine)) != null ? _c : [];
+    let startCp = 0;
+    for (let j = 0; j < sentIdx; j++) startCp += (_d = plainLens[j]) != null ? _d : 0;
+    const endCp = startCp + ((_e = plainLens[sentIdx]) != null ? _e : 0);
+    const range = buildSentenceRange(lineEl, startCp, endCp);
+    if (!range) return;
+    const hasSelection = selection.length > 0;
+    if (typeof CSS !== "undefined" && CSS.highlights) {
+      if (hasSelection) {
+        if (this.cursorHighlight) this.cursorHighlight.clear();
+      } else if (!this.cursorHighlight) {
+        this.cursorHighlight = new Highlight(range);
+        CSS.highlights.set("nn-cursor", this.cursorHighlight);
+      } else {
+        this.cursorHighlight.clear();
+        this.cursorHighlight.add(range);
+      }
+    }
+    const scrollerRect = this.scrollerEl.getBoundingClientRect();
+    const targetRect = range.getBoundingClientRect();
+    const containerWidth = this.scrollerEl.clientWidth;
+    const scrollWidth = this.scrollerEl.scrollWidth;
+    const absCenter = targetRect.left - scrollerRect.left + this.scrollerEl.scrollLeft + targetRect.width / 2;
+    const desiredLeft = absCenter - containerWidth / 2;
+    this.scrollerEl.scrollTo({
+      left: Math.max(0, Math.min(desiredLeft, scrollWidth - containerWidth)),
+      behavior: force ? "instant" : "smooth"
+    });
   }
 };
 // ─────────────────────────────────────────
@@ -2796,6 +3062,17 @@ function onEditorMenuForRuby(app, getSettings, menu, editor, _info) {
 }
 
 // src/main.ts
+function hexToRgba(hex, alpha) {
+  const body = hex.trim().replace(/^#/, "");
+  const full = body.length === 3 ? body.split("").map((c) => c + c).join("") : body;
+  const r = parseInt(full.slice(0, 2), 16);
+  const g = parseInt(full.slice(2, 4), 16);
+  const b = parseInt(full.slice(4, 6), 16);
+  if (Number.isNaN(r) || Number.isNaN(g) || Number.isNaN(b)) {
+    return hex;
+  }
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
 var NovelsNoteJP = class extends import_obsidian8.Plugin {
   constructor() {
     super(...arguments);
@@ -2804,6 +3081,12 @@ var NovelsNoteJP = class extends import_obsidian8.Plugin {
     this.statusBarEl = null;
     this.rebuildTimer = null;
     this.adoptedSheet = null;
+    /**
+     * カーソル位置・選択範囲の「確定した」変化を、エディタ拡張
+     * （buildCursorSyncExtension）から縦書きプレビュー（VerticalPreviewView）
+     * へ橋渡しするための共有ストア。詳細は editor/cursorSyncStore.ts を参照。
+     */
+    this.cursorSyncStore = new CursorSyncStore();
   }
   // ─────────────────────────────────────────
   // ロード
@@ -2826,6 +3109,7 @@ var NovelsNoteJP = class extends import_obsidian8.Plugin {
         view.setRubyStyleGetter(() => this.settings.rubyStyle);
         view.setFontSizeGetter(() => this.settings.fontSize);
         view.setWrapColumnGetter(() => this.settings.wrapColumn);
+        view.setCursorSyncStore(this.cursorSyncStore);
         return view;
       }
     );
@@ -2880,6 +3164,9 @@ var NovelsNoteJP = class extends import_obsidian8.Plugin {
     );
     this.registerEditorExtension(
       buildRubyExtension(() => this.settings)
+    );
+    this.registerEditorExtension(
+      buildCursorSyncExtension(this.cursorSyncStore, this.app)
     );
     this.registerEvent(
       this.app.workspace.on("editor-menu", (menu, editor, info) => {
@@ -3061,9 +3348,9 @@ var NovelsNoteJP = class extends import_obsidian8.Plugin {
         border-left: 1px ${s.rulerStyle} ${s.rulerColor};
         opacity: ${s.rulerOpacity}; pointer-events: none;
       }`;
-    const cursorHighlightCss = s.verticalCursorHighlightEnabled ? `.nn-vertical-text .nn-sent.nn-cursor {
-          background: ${s.verticalCursorHighlightColor} !important;
-          opacity: 0.85; border-radius: 2px; }` : `.nn-vertical-text .nn-sent.nn-cursor { background: none; }`;
+    const cursorHighlightCss = s.verticalCursorHighlightEnabled ? `::highlight(nn-cursor) {
+          background-color: ${hexToRgba(s.verticalCursorHighlightColor, 0.85)};
+        }` : `::highlight(nn-cursor) { background-color: transparent; }`;
     const css = `
       .cm-editor[data-novel-mode="true"] .cm-content {
         font-family: var(--nn-font-mono-gothic) !important;

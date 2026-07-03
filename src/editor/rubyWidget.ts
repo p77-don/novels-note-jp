@@ -16,7 +16,7 @@ import {
 import { RangeSetBuilder } from "@codemirror/state";
 import { NovelsNoteSettings } from "../settings";
 import { settingsEffect, novelModeField } from "../types";
-import { findRubyMatches, RubyMatch } from "../core/rubyPatterns";
+import { findRubyMatches, RubyMatch, computeRtFontSizeEm, DEFAULT_RT_FONT_SIZE_EM } from "../core/rubyPatterns";
 
 // ─────────────────────────────────────────
 // ルビウィジェット
@@ -39,6 +39,13 @@ class RubyWidget extends WidgetType {
     rubyEl.appendChild(window.document.createTextNode(this.base));
     const rt = window.document.createElement("rt");
     rt.textContent = this.ruby;
+    // ルビ文字数が親文字数に対して極端に多い場合のみ、
+    // font-size を縮小して折り返しズレを防ぐ
+    // （詳細は core/rubyPatterns.ts の computeRtFontSizeEm() を参照）
+    const fontSizeEm = computeRtFontSizeEm(this.base, this.ruby);
+    if (fontSizeEm !== DEFAULT_RT_FONT_SIZE_EM) {
+      rt.setCssStyles({ fontSize: `${fontSizeEm}em` });
+    }
     rubyEl.appendChild(rt);
     return rubyEl;
   }

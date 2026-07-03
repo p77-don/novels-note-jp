@@ -15,6 +15,7 @@ export { buildRubyExtension } from "./rubyWidget";
 import { RangeSetBuilder, Prec } from "@codemirror/state";
 import { App, MarkdownView, TFile } from "obsidian";
 import { NovelsNoteSettings } from "../settings";
+import { CursorSyncStore } from "./cursorSyncStore";
 import {
   TermEntry,
   settingsEffect,
@@ -412,6 +413,99 @@ export function buildTermDropExtension(app: App) {
       view.focus();
 
       return true;
+    },
+  });
+}
+
+// ─────────────────────────────────────────
+// Extension 6: カーソル同期ストアへの書き込み
+//
+// 縦書きプレビュー（views/verticalPreview.ts）のカーソル文
+// ハイライト・スクロール追従のために、「確定した」カーソル位置・
+// 選択範囲だけを CursorSyncStore（editor/cursorSyncStore.ts）に
+// 書き込む。
+//
+// 【IME変換中は一切書き込まない】
+// compositionstart 〜 compositionend の間は書き込みを止める。
+// IME変換は「確定」という明確な区切りがあるため、変換中の
+// 文字数変化のたびに書き込んでいた以前の実装（縦書きプレビュー側の
+// ポーリング）とは異なり、ここでは変換が終わるまで縦書き
+// プレビュー側には一切通知されない。
+//
+// 【変換中でなくても少しだけデバウンスする】
+// 矢印キーでの連続移動や高速な非IME入力でも書き込みが
+// 過剰にならないよう、CURSOR_SYNC_SETTLE_MS だけ短く安定を
+// 待ってから書き込む。IME変換の確定直後も、CM6内部のドキュメント
+// 更新が同一フレームで反映されない場合があるため、同じ仕組みで
+// 少し待ってから書き込む。
+// ─────────────────────────────────────────
+const CURSOR_SYNC_SETTLE_MS = 150;
+
+export function buildCursorSyncExtension(store: CursorSyncStore, app: App) {
+  // ドロップ処理（buildTermDropExtension）と同じ方法で、
+  // 対象 EditorView に対応する Obsidian 側の TFile を特定する
+  const findFile = (view: EditorView): TFile | null => {
+    const ref: { file: TFile | null } = { file: null };
+    app.workspace.iterateAllLeaves(leaf => {
+      if (ref.file) return;
+      if (leaf.view instanceof MarkdownView) {
+        const cm = (leaf.view.editor as unknown as { cm: EditorView | undefined }).cm;
+        if (cm === view) ref.file = leaf.view.file;
+      }
+    });
+    return ref.file;
+  };
+
+  const commit = (view: EditorView): void => {
+    const range = view.state.selection.main;
+    const line  = view.state.doc.lineAt(range.head);
+    store.set({
+      file:      findFile(view),
+      line:      line.number - 1, // CM6 は1始まり、Obsidian editor / 本プラグイン内部は0始まり
+      ch:        range.head - line.from,
+      selection: view.state.sliceDoc(range.from, range.to),
+      docLength: view.state.doc.length,
+    });
+  };
+
+  class CursorSyncPlugin {
+    composing = false;
+    settleTimer: ReturnType<typeof setTimeout> | null = null;
+
+    scheduleCommit(view: EditorView): void {
+      if (this.composing) return;
+      if (this.settleTimer !== null) window.clearTimeout(this.settleTimer);
+      this.settleTimer = window.setTimeout(() => {
+        this.settleTimer = null;
+        commit(view);
+      }, CURSOR_SYNC_SETTLE_MS);
+    }
+
+    update(update: ViewUpdate): void {
+      if (!update.selectionSet && !update.docChanged) return;
+      this.scheduleCommit(update.view);
+    }
+
+    destroy(): void {
+      if (this.settleTimer !== null) window.clearTimeout(this.settleTimer);
+    }
+  }
+
+  return ViewPlugin.fromClass(CursorSyncPlugin, {
+    eventHandlers: {
+      // IME変換開始：進行中の書き込み予約をすべてキャンセルする
+      compositionstart(_event, _view) {
+        this.composing = true;
+        if (this.settleTimer !== null) {
+          window.clearTimeout(this.settleTimer);
+          this.settleTimer = null;
+        }
+      },
+      // IME変換確定：ここで初めて（少し待ってから）反映する
+      compositionend(_event, view) {
+        this.composing = false;
+        this.scheduleCommit(view);
+      },
     },
   });
 }

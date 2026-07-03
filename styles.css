@@ -585,18 +585,24 @@
    縦書き本文テキスト
    ───────────────────────────────────────── */
 /* .nn-vertical-text: inline-block で writing-mode を継承しつつ幅を本文に合わせる */
-
-/* 行単位 span
-   ─────────────────────────────────────
-   display:inline-block にする理由：
-   ・inline のまま → <br> なしだと改行されず数珠繋ぎになる
-   ・display:block → 要素が列全体を占有し段落中央にスクロールしてしまう
-   ・inline-block + <br> → 改行を保持しつつ getBoundingClientRect() で
-     行単位の正確な画面位置を取得できる（カーソル連動スクロールに使用）
-   ───────────────────────────────────── */
-.nn-vertical-text .nn-sent {
-  display: inline;
+.nn-vertical-text {
+  /* 文字選択を有効にする。
+     Obsidian は ItemView のコンテンツ領域にデフォルトで
+     選択無効相当のスタイルを当てているため、横書きプレビュー
+     （.nn-reading-root）と同様に明示的に有効化する必要がある。 */
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
 }
+
+/* 行（.nn-line）はプレーンテキストの流れそのままで、
+   文単位の <span> は作らない（縦書き折り返しの禁則処理・約物の
+   詰め処理は、連続したテキストノードに対してブラウザが最適化して
+   いるため、余計な <span> 境界を挟むと 1行に句点が複数ある場合など
+   に折り返し位置がズレることがあった）。
+   カーソル位置のハイライトは CSS Custom Highlight API
+   （::highlight(nn-cursor)、main.ts の applyEditorStyles() で
+   動的に適用）で行うため、.nn-sent 用の display 指定は不要。 */
 
 /* 字下げ行（先頭全角スペースをCSSで再現）
    縦書きでは padding-top が字下げ方向（行頭側）になる。 */
@@ -625,20 +631,32 @@
 }
 
 /* ─────────────────────────────────────────
-   カーソル位置の行ハイライト（背景色）
+   カーソル位置の文ハイライト（背景色）
+   CSS Custom Highlight API（::highlight(nn-cursor)）で
+   Range に対して直接スタイルを当てる。DOM に nn-cursor クラスは
+   付与されないため、通常のクラスセレクタでは選択できない。
    実際の色は main.ts の applyEditorStyles() で
    動的CSSとして上書きされる。ここはフォールバック。
+   ・::highlight() が解釈できるのは background-color / color /
+     font-weight 程度で、border-radius は効かない（ボックスを
+     持たない疑似要素のため、指定しても無視される）。
    ───────────────────────────────────────── */
-.nn-vertical-text .nn-sent.nn-cursor {
-  background: rgba(58, 90, 138, 0.35);
-  border-radius: 2px;
+::highlight(nn-cursor) {
+  background-color: rgba(58, 90, 138, 0.35);
 }
 
 /* ─────────────────────────────────────────
    選択テキストのハイライト
+   （エディタ側で選択した範囲を縦書きプレビューにも反映する）
+
+   以前は --text-highlight-bg（Obsidianの ==ハイライト== 構文用、
+   低いアルファ値の黄色）を流用していたが、「どこが選択されているか
+   分かりにくい」との指摘を受け、エディタの実際の選択色と同じ
+   --text-selection に変更した。これはエディタで文字を選択したときに
+   見えるのと同じ色になるため、視認性・一貫性ともに向上する。
    ───────────────────────────────────────── */
 .nn-vertical-text mark.nn-sel {
-  background: var(--text-highlight-bg);
+  background: var(--text-selection, rgba(61, 132, 214, 0.4));
   color: inherit;
   border-radius: 2px;
 }
@@ -879,7 +897,7 @@
    通常の行高・フォントサイズを継承したまま動作する。
    ───────────────────────────────────────── */
 .cm-editor[data-novel-mode="true"] .cm-content ruby.nn-editor-ruby {
-  ruby-align: center;
+  ruby-align: space-around;
   /* カーソルが乗ったときの選択色を自然に見せる */
   cursor: text;
 }
