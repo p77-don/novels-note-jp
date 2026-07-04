@@ -338,6 +338,20 @@ function parseBrackets(docText, enabledBrackets) {
 
 // src/editor/extensions.ts
 var HIGHLIGHT_REBUILD_DELAY = 200;
+function decorationsChanged(a, b) {
+  var _a, _b;
+  const ia = a.iter();
+  const ib = b.iter();
+  while (ia.value && ib.value) {
+    if (ia.from !== ib.from || ia.to !== ib.to) return true;
+    const specA = (_a = ia.value.spec) != null ? _a : {};
+    const specB = (_b = ib.value.spec) != null ? _b : {};
+    if (specA.class !== specB.class) return true;
+    ia.next();
+    ib.next();
+  }
+  return Boolean(ia.value) || Boolean(ib.value);
+}
 function buildBracketExtension(getSettings) {
   return import_state3.Prec.lowest(
     import_view2.ViewPlugin.fromClass(
@@ -347,10 +361,11 @@ function buildBracketExtension(getSettings) {
           this.decorations = this.build(view);
         }
         update(update) {
-          if (update.transactions.some(
-            (tr) => tr.effects.some((e) => e.is(settingsEffect) || e.is(bracketRebuildEffect))
-          )) {
+          if (update.transactions.some((tr) => tr.effects.some((e) => e.is(settingsEffect)))) {
             this.decorations = this.build(update.view);
+            return;
+          }
+          if (update.transactions.some((tr) => tr.effects.some((e) => e.is(bracketRebuildEffect)))) {
             return;
           }
           if (update.docChanged) {
@@ -361,7 +376,11 @@ function buildBracketExtension(getSettings) {
           if (this.rebuildTimer !== null) window.clearTimeout(this.rebuildTimer);
           this.rebuildTimer = window.setTimeout(() => {
             this.rebuildTimer = null;
-            view.dispatch({ effects: bracketRebuildEffect.of(null) });
+            const next = this.build(view);
+            if (decorationsChanged(this.decorations, next)) {
+              this.decorations = next;
+              view.dispatch({ effects: bracketRebuildEffect.of(null) });
+            }
           }, HIGHLIGHT_REBUILD_DELAY);
         }
         destroy() {
@@ -403,10 +422,11 @@ function buildTermExtension(getTerms, getSettings) {
           this.decorations = this.build(view);
         }
         update(update) {
-          if (update.transactions.some(
-            (tr) => tr.effects.some((e) => e.is(settingsEffect) || e.is(termRebuildEffect))
-          )) {
+          if (update.transactions.some((tr) => tr.effects.some((e) => e.is(settingsEffect)))) {
             this.decorations = this.build(update.view);
+            return;
+          }
+          if (update.transactions.some((tr) => tr.effects.some((e) => e.is(termRebuildEffect)))) {
             return;
           }
           if (update.docChanged) {
@@ -417,7 +437,11 @@ function buildTermExtension(getTerms, getSettings) {
           if (this.rebuildTimer !== null) window.clearTimeout(this.rebuildTimer);
           this.rebuildTimer = window.setTimeout(() => {
             this.rebuildTimer = null;
-            view.dispatch({ effects: termRebuildEffect.of(null) });
+            const next = this.build(view);
+            if (decorationsChanged(this.decorations, next)) {
+              this.decorations = next;
+              view.dispatch({ effects: termRebuildEffect.of(null) });
+            }
           }, HIGHLIGHT_REBUILD_DELAY);
         }
         destroy() {
@@ -2609,8 +2633,8 @@ var _VerticalPreviewView = class _VerticalPreviewView extends import_obsidian5.I
   // ちらつきの主因であり、Range・Highlight の再構築タイミングを
   // 同期化しただけでは解決しなかった。
   //
-  // 実際のDOM書き換えは patchVerticalBody() に委譲し、変わった行
-  // だけを個別に差し替える方式にした（詳細は同関数のコメント参照）。
+  // 実際のDOM書き換えは patchVerticalBody() に委譲し、変わった
+  // チャンクだけを個別に差し替える方式にした（詳細は同関数のコメント参照）。
   // Range の構築自体はレイアウト計算を必要としないため、DOM更新の
   // 直後・同一タスク内で同期的に行って問題ない
   // （Range.getBoundingClientRect() を使うスクロール位置計算のみ
@@ -2638,9 +2662,13 @@ var _VerticalPreviewView = class _VerticalPreviewView extends import_obsidian5.I
     if (!this.bodyEl) return;
     this.applyLayoutSettings();
     this.bodyEl.empty();
-    this.bodyEl.createEl("p", { text: message, cls: "nn-vertical-empty" });
     this.lineSentences = /* @__PURE__ */ new Map();
     this.lineSentPlainLengths = /* @__PURE__ */ new Map();
+    if (this.cursorHighlight) {
+      this.cursorHighlight.clear();
+      this.cursorHighlight = null;
+    }
+    this.bodyEl.createEl("p", { text: message, cls: "nn-vertical-empty" });
   }
   // ─────────────────────────────────────────
   // カーソル・選択 連動
@@ -2749,6 +2777,13 @@ var _VerticalPreviewView = class _VerticalPreviewView extends import_obsidian5.I
   // 呼び出すとブラウザがその場で同期的にレイアウトを確定させるため、
   // requestAnimationFrame を挟まなくても正しい値が返る
   // （Obsidian は Chromium 上で動作するためこれに依存できる）。
+  //
+  // 【注記】エディタ側のちらつき調査の過程で、切り分けのため
+  // 一時的にハイライト付け替え処理を撤去したことがあったが、
+  // 撤去してもエディタ側のちらつきには変化がなかった
+  // （＝原因は縦書きプレビューのハイライトではなかった）ため、
+  // ハイライト表示は復元してある。オプション設定
+  // （verticalCursorHighlightEnabled）の対象であり必須の機能。
   // ─────────────────────────────────────────
   syncCursorHighlight(cursorLine, cursorCh, selection, instant) {
     var _a, _b, _c, _d, _e;
@@ -3170,6 +3205,19 @@ function hexToRgba(hex, alpha) {
   }
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
+function areTermListsEqual(a, b) {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i];
+    const y = b[i];
+    if (x.name !== y.name || x.tag !== y.tag || x.filePath !== y.filePath) return false;
+    if (x.aliases.length !== y.aliases.length) return false;
+    for (let j = 0; j < x.aliases.length; j++) {
+      if (x.aliases[j] !== y.aliases[j]) return false;
+    }
+  }
+  return true;
+}
 var NovelsNoteJP = class extends import_obsidian8.Plugin {
   constructor() {
     super(...arguments);
@@ -3306,7 +3354,8 @@ var NovelsNoteJP = class extends import_obsidian8.Plugin {
     }
     this.rebuildTimer = window.setTimeout(() => {
       this.rebuildTimer = null;
-      void this.buildTermIndex().then(() => {
+      void this.buildTermIndex().then((changed) => {
+        if (!changed) return;
         this.updateSidebar();
         this.refreshEditors();
       });
@@ -3478,8 +3527,15 @@ var NovelsNoteJP = class extends import_obsidian8.Plugin {
   // ─────────────────────────────────────────
   // 用語インデックス構築
   // ─────────────────────────────────────────
+  /**
+   * 用語インデックスを再構築する。
+   * 戻り値は「実際に用語リストの内容が変化したかどうか」。
+   * 呼び出し元はこれを見て、変化がなければ updateSidebar() /
+   * refreshEditors() をスキップできる（詳細は scheduleRebuild() 参照）。
+   */
   async buildTermIndex() {
     var _a;
+    const previousTerms = this.terms;
     this.terms = [];
     const validTags = new Set(this.settings.tagDefinitions.map((td) => td.tag));
     const files = this.app.vault.getMarkdownFiles();
@@ -3508,6 +3564,7 @@ var NovelsNoteJP = class extends import_obsidian8.Plugin {
     }
     this.terms.sort((a, b) => b.name.length - a.name.length);
     console.log(`Novels Note JP: ${this.terms.length} \u4EF6\u306E\u7528\u8A9E\u3092\u8AAD\u307F\u8FBC\u307F\u307E\u3057\u305F\u3002`);
+    return !areTermListsEqual(previousTerms, this.terms);
   }
   // ─────────────────────────────────────────
   // 指定ファイルが mode:novel かどうかを判定する

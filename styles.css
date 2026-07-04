@@ -890,7 +890,7 @@
    ルビ
    ───────────────────────────────────────── */
 .nn-reading-root ruby {
-  ruby-align: center;
+  ruby-align: space-around;
 }
 .nn-reading-root rt {
   font-size: 0.5em;
@@ -943,7 +943,7 @@
 
 .nn-ruby-modal ruby.nn-ruby-preview {
   font-size: 1.3em;
-  ruby-align: center;
+  ruby-align: space-around;
 }
 
 .nn-ruby-modal ruby.nn-ruby-preview rt {

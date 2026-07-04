@@ -36,6 +36,52 @@ import { parseBrackets } from "./bracketParser";
 const HIGHLIGHT_REBUILD_DELAY = 200;
 
 // ─────────────────────────────────────────
+// カッコ・用語ハイライトの再構築を「実際に内容が変わった場合だけ」
+// エディタへ反映するためのユーティリティ。
+//
+// 【背景】
+// 以前は 200ms のデバウンス後、常に
+//   view.dispatch({ effects: bracketRebuildEffect.of(null) })
+// を実行し、update() 内で無条件に this.decorations を
+// 作り直していた。しかし文書末尾に追記するような通常の入力では、
+// 既存のカッコ・用語の一致範囲はほとんどの場合まったく変化しない
+// （新しく完成した組み合わせがなければ、直前の再構築結果と
+//   1文字も違わない）。それにもかかわらず、入力が一瞬止まる
+// たび（＝通常の日本語入力では非常に高頻度に発生する）に
+// 必ず1回、空のトランザクションを dispatch していた。
+//
+// トランザクションの dispatch は、たとえ内容に変化がなくても
+// CodeMirror にビューポート全体の再描画パスを走らせる。これが
+// 「入力中ずっとカッコ・用語のハイライトがチカチカする」の
+// 直接の原因だった可能性が高い。
+//
+// 対策として、デバウンス後にまず新しい DecorationSet を
+// （dispatch を伴わずに）計算し、直前の結果と実際に異なる場合に
+// 限って dispatch するようにした。多くの入力では新しい
+// DecorationSet が直前と完全に同一になるため、dispatch 自体が
+// 発生しなくなる。
+// ─────────────────────────────────────────
+// 【重要】RangeSet.eq() はスタンドアロンで使うと期待通りに
+// 差分を検出しないことを確認したため（同一内容でも異なる内容でも
+// true を返すケースがあった）、確実な手動比較に切り替えている。
+// イテレータで両方の RangeSet を並走させ、range（from/to）と
+// Decoration.mark の class 名が完全に一致するかを直接比較する。
+function decorationsChanged(a: DecorationSet, b: DecorationSet): boolean {
+  const ia = a.iter();
+  const ib = b.iter();
+  while (ia.value && ib.value) {
+    if (ia.from !== ib.from || ia.to !== ib.to) return true;
+    const specA = (ia.value.spec ?? {}) as { class?: string };
+    const specB = (ib.value.spec ?? {}) as { class?: string };
+    if (specA.class !== specB.class) return true;
+    ia.next();
+    ib.next();
+  }
+  // 両方が終端に達していなければ、要素数が異なる＝変化あり
+  return Boolean(ia.value) || Boolean(ib.value);
+}
+
+// ─────────────────────────────────────────
 // Extension 1: カッコハイライト（最低優先度）
 // mode:novel のエディタのみ動作する
 // ─────────────────────────────────────────
@@ -49,13 +95,19 @@ export function buildBracketExtension(getSettings: () => NovelsNoteSettings) {
         constructor(view: EditorView) { this.decorations = this.build(view); }
 
         update(update: ViewUpdate) {
-          // 設定変更・デバウンス後の再構築要求 → 即座に再構築
+          // 設定変更 → 即座に再構築
           if (
-            update.transactions.some(tr =>
-              tr.effects.some(e => e.is(settingsEffect) || e.is(bracketRebuildEffect))
-            )
+            update.transactions.some(tr => tr.effects.some(e => e.is(settingsEffect)))
           ) {
             this.decorations = this.build(update.view);
+            return;
+          }
+          // scheduleRebuild() 側の dispatch による再描画通知。
+          // decorations は dispatch 前に既に最新化済みのため、
+          // ここでの再計算は不要（詳細は scheduleRebuild() 参照）。
+          if (
+            update.transactions.some(tr => tr.effects.some(e => e.is(bracketRebuildEffect)))
+          ) {
             return;
           }
           // build() は文書全体をスキャンするため viewportChanged /
@@ -72,7 +124,14 @@ export function buildBracketExtension(getSettings: () => NovelsNoteSettings) {
           if (this.rebuildTimer !== null) window.clearTimeout(this.rebuildTimer);
           this.rebuildTimer = window.setTimeout(() => {
             this.rebuildTimer = null;
-            view.dispatch({ effects: bracketRebuildEffect.of(null) });
+            // dispatch する前に新しい DecorationSet を計算し、
+            // 実際に変化がある場合だけ dispatch する
+            // （詳細は decorationsChanged() 手前のコメント参照）。
+            const next = this.build(view);
+            if (decorationsChanged(this.decorations, next)) {
+              this.decorations = next;
+              view.dispatch({ effects: bracketRebuildEffect.of(null) });
+            }
           }, HIGHLIGHT_REBUILD_DELAY);
         }
 
@@ -134,14 +193,21 @@ export function buildTermExtension(
         constructor(view: EditorView) { this.decorations = this.build(view); }
 
         update(update: ViewUpdate) {
-          // 設定変更（用語インデックス再構築完了の通知を含む）・
-          // デバウンス後の再構築要求 → 即座に再構築
+          // 設定変更（用語インデックス再構築完了の通知を含む）
+          // → 即座に再構築
           if (
-            update.transactions.some(tr =>
-              tr.effects.some(e => e.is(settingsEffect) || e.is(termRebuildEffect))
-            )
+            update.transactions.some(tr => tr.effects.some(e => e.is(settingsEffect)))
           ) {
             this.decorations = this.build(update.view);
+            return;
+          }
+          // scheduleRebuild() 側の dispatch による再描画通知。
+          // decorations は dispatch 前に既に最新化済みのため、
+          // ここでの再計算は不要（詳細は buildBracketExtension 内の
+          // scheduleRebuild() のコメント参照）。
+          if (
+            update.transactions.some(tr => tr.effects.some(e => e.is(termRebuildEffect)))
+          ) {
             return;
           }
           // build() は文書全体をスキャンするため viewportChanged /
@@ -158,7 +224,13 @@ export function buildTermExtension(
           if (this.rebuildTimer !== null) window.clearTimeout(this.rebuildTimer);
           this.rebuildTimer = window.setTimeout(() => {
             this.rebuildTimer = null;
-            view.dispatch({ effects: termRebuildEffect.of(null) });
+            // dispatch する前に新しい DecorationSet を計算し、
+            // 実際に変化がある場合だけ dispatch する。
+            const next = this.build(view);
+            if (decorationsChanged(this.decorations, next)) {
+              this.decorations = next;
+              view.dispatch({ effects: termRebuildEffect.of(null) });
+            }
           }, HIGHLIGHT_REBUILD_DELAY);
         }
 

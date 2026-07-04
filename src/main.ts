@@ -52,6 +52,40 @@ function hexToRgba(hex: string, alpha: number): string {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
+// ─────────────────────────────────────────
+// 用語リストの内容比較
+//
+// buildTermIndex() は vault 内の「用語ファイル」（frontmatter に
+// 有効なタグを持つファイル）を毎回スキャンし直すが、これは
+// エディタで原稿を保存するたびにも呼ばれる（vault の modify /
+// metadataCache の changed イベントは、原稿ファイル自身の保存でも
+// 区別なく発火するため）。
+//
+// 用語リストの中身が実際には1つも変わっていないのに
+// updateSidebar() / refreshEditors() まで実行してしまうと、
+// refreshEditors() が全エディタに settingsEffect を即座に
+// ディスパッチし、カッコ・用語ハイライトの装飾（Decoration）を
+// 強制的に全文書ぶん作り直す。これは無駄な処理であるだけでなく、
+// 原稿を書いて保存するたびにエディタのハイライトが明滅する
+// （チカチカする）原因になっていた。
+//
+// そのため、用語リストの内容が実際に変化した場合だけ
+// updateSidebar() / refreshEditors() を呼ぶようにする。
+// ─────────────────────────────────────────
+function areTermListsEqual(a: TermEntry[], b: TermEntry[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i];
+    const y = b[i];
+    if (x.name !== y.name || x.tag !== y.tag || x.filePath !== y.filePath) return false;
+    if (x.aliases.length !== y.aliases.length) return false;
+    for (let j = 0; j < x.aliases.length; j++) {
+      if (x.aliases[j] !== y.aliases[j]) return false;
+    }
+  }
+  return true;
+}
+
 export default class NovelsNoteJP extends Plugin {
   private terms: TermEntry[] = [];
   settings: NovelsNoteSettings = DEFAULT_SETTINGS;
@@ -228,7 +262,11 @@ export default class NovelsNoteJP extends Plugin {
     }
     this.rebuildTimer = window.setTimeout(() => {
       this.rebuildTimer = null;
-      void this.buildTermIndex().then(() => {
+      void this.buildTermIndex().then(changed => {
+        // 用語リストの中身が実際に変わった場合だけサイドバー更新・
+        // エディタのハイライト再構築を行う（詳細は
+        // areTermListsEqual() のコメント参照）。
+        if (!changed) return;
         this.updateSidebar();
         this.refreshEditors();
       });
@@ -460,7 +498,14 @@ export default class NovelsNoteJP extends Plugin {
   // ─────────────────────────────────────────
   // 用語インデックス構築
   // ─────────────────────────────────────────
-  async buildTermIndex(): Promise<void> {
+  /**
+   * 用語インデックスを再構築する。
+   * 戻り値は「実際に用語リストの内容が変化したかどうか」。
+   * 呼び出し元はこれを見て、変化がなければ updateSidebar() /
+   * refreshEditors() をスキップできる（詳細は scheduleRebuild() 参照）。
+   */
+  async buildTermIndex(): Promise<boolean> {
+    const previousTerms = this.terms;
     this.terms = [];
     const validTags = new Set(this.settings.tagDefinitions.map(td => td.tag));
     const files = this.app.vault.getMarkdownFiles();
@@ -505,6 +550,8 @@ export default class NovelsNoteJP extends Plugin {
 
     this.terms.sort((a, b) => b.name.length - a.name.length);
     console.log(`Novels Note JP: ${this.terms.length} 件の用語を読み込みました。`);
+
+    return !areTermListsEqual(previousTerms, this.terms);
   }
 
   // ─────────────────────────────────────────

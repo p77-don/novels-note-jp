@@ -940,8 +940,8 @@ export class VerticalPreviewView extends ItemView {
   // ちらつきの主因であり、Range・Highlight の再構築タイミングを
   // 同期化しただけでは解決しなかった。
   //
-  // 実際のDOM書き換えは patchVerticalBody() に委譲し、変わった行
-  // だけを個別に差し替える方式にした（詳細は同関数のコメント参照）。
+  // 実際のDOM書き換えは patchVerticalBody() に委譲し、変わった
+  // チャンクだけを個別に差し替える方式にした（詳細は同関数のコメント参照）。
   // Range の構築自体はレイアウト計算を必要としないため、DOM更新の
   // 直後・同一タスク内で同期的に行って問題ない
   // （Range.getBoundingClientRect() を使うスクロール位置計算のみ
@@ -966,7 +966,7 @@ export class VerticalPreviewView extends ItemView {
     if (!textEl) {
       textEl = this.bodyEl.createEl("div", { cls: "nn-vertical-text" });
     }
-    // 変わった行だけを差し替える（詳細は patchVerticalBody() 参照）
+    // 変わったチャンクだけを差し替える（詳細は patchVerticalBody() 参照）
     patchVerticalBody(textEl, html);
   }
 
@@ -974,9 +974,15 @@ export class VerticalPreviewView extends ItemView {
     if (!this.bodyEl) return;
     this.applyLayoutSettings();
     this.bodyEl.empty();
-    this.bodyEl.createEl("p", { text: message, cls: "nn-vertical-empty" });
     this.lineSentences = new Map();
     this.lineSentPlainLengths = new Map();
+    // bodyEl.empty() で本文DOMが破棄されるため、既存の Range を
+    // 参照したままの Highlight も後始末する（次回同期時に作り直される）。
+    if (this.cursorHighlight) {
+      this.cursorHighlight.clear();
+      this.cursorHighlight = null;
+    }
+    this.bodyEl.createEl("p", { text: message, cls: "nn-vertical-empty" });
   }
 
   // ─────────────────────────────────────────
@@ -1107,6 +1113,13 @@ export class VerticalPreviewView extends ItemView {
   // 呼び出すとブラウザがその場で同期的にレイアウトを確定させるため、
   // requestAnimationFrame を挟まなくても正しい値が返る
   // （Obsidian は Chromium 上で動作するためこれに依存できる）。
+  //
+  // 【注記】エディタ側のちらつき調査の過程で、切り分けのため
+  // 一時的にハイライト付け替え処理を撤去したことがあったが、
+  // 撤去してもエディタ側のちらつきには変化がなかった
+  // （＝原因は縦書きプレビューのハイライトではなかった）ため、
+  // ハイライト表示は復元してある。オプション設定
+  // （verticalCursorHighlightEnabled）の対象であり必須の機能。
   // ─────────────────────────────────────────
   private syncCursorHighlight(
     cursorLine: number,
