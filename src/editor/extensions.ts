@@ -21,65 +21,8 @@ import {
   settingsEffect,
   novelModeField,
   TERM_DRAG_MIME_TYPE,
-  bracketRebuildEffect,
-  termRebuildEffect,
 } from "../types";
 import { parseBrackets } from "./bracketParser";
-
-// ─────────────────────────────────────────
-// デバウンス再構築のディレイ（ms）
-//
-// main.ts の用語インデックス再構築（400ms）と同じ考え方。
-// カッコ・用語ハイライトは文書全体をスキャンするため、
-// 1キー入力ごとに即座に再構築するとタイプ入力がもたつく。
-// ─────────────────────────────────────────
-const HIGHLIGHT_REBUILD_DELAY = 200;
-
-// ─────────────────────────────────────────
-// カッコ・用語ハイライトの再構築を「実際に内容が変わった場合だけ」
-// エディタへ反映するためのユーティリティ。
-//
-// 【背景】
-// 以前は 200ms のデバウンス後、常に
-//   view.dispatch({ effects: bracketRebuildEffect.of(null) })
-// を実行し、update() 内で無条件に this.decorations を
-// 作り直していた。しかし文書末尾に追記するような通常の入力では、
-// 既存のカッコ・用語の一致範囲はほとんどの場合まったく変化しない
-// （新しく完成した組み合わせがなければ、直前の再構築結果と
-//   1文字も違わない）。それにもかかわらず、入力が一瞬止まる
-// たび（＝通常の日本語入力では非常に高頻度に発生する）に
-// 必ず1回、空のトランザクションを dispatch していた。
-//
-// トランザクションの dispatch は、たとえ内容に変化がなくても
-// CodeMirror にビューポート全体の再描画パスを走らせる。これが
-// 「入力中ずっとカッコ・用語のハイライトがチカチカする」の
-// 直接の原因だった可能性が高い。
-//
-// 対策として、デバウンス後にまず新しい DecorationSet を
-// （dispatch を伴わずに）計算し、直前の結果と実際に異なる場合に
-// 限って dispatch するようにした。多くの入力では新しい
-// DecorationSet が直前と完全に同一になるため、dispatch 自体が
-// 発生しなくなる。
-// ─────────────────────────────────────────
-// 【重要】RangeSet.eq() はスタンドアロンで使うと期待通りに
-// 差分を検出しないことを確認したため（同一内容でも異なる内容でも
-// true を返すケースがあった）、確実な手動比較に切り替えている。
-// イテレータで両方の RangeSet を並走させ、range（from/to）と
-// Decoration.mark の class 名が完全に一致するかを直接比較する。
-function decorationsChanged(a: DecorationSet, b: DecorationSet): boolean {
-  const ia = a.iter();
-  const ib = b.iter();
-  while (ia.value && ib.value) {
-    if (ia.from !== ib.from || ia.to !== ib.to) return true;
-    const specA = (ia.value.spec ?? {}) as { class?: string };
-    const specB = (ib.value.spec ?? {}) as { class?: string };
-    if (specA.class !== specB.class) return true;
-    ia.next();
-    ib.next();
-  }
-  // 両方が終端に達していなければ、要素数が異なる＝変化あり
-  return Boolean(ia.value) || Boolean(ib.value);
-}
 
 // ─────────────────────────────────────────
 // Extension 1: カッコハイライト（最低優先度）
@@ -90,53 +33,32 @@ export function buildBracketExtension(getSettings: () => NovelsNoteSettings) {
     ViewPlugin.fromClass(
       class {
         decorations: DecorationSet;
-        private rebuildTimer: ReturnType<typeof setTimeout> | null = null;
 
         constructor(view: EditorView) { this.decorations = this.build(view); }
 
         update(update: ViewUpdate) {
-          // 設定変更 → 即座に再構築
+          // v0.6.4 と同じ同期方式に戻した（詳細は下記コメント参照）。
+          //
+          // 【経緯】0.6.5 で「文書全体スキャンのコストを避けるため」
+          // docChanged を200msデバウンスし、別トランザクションで
+          // dispatch する方式に変更したが、これにより「入力した瞬間は
+          // 古いハイライトのまま表示され、ワンテンポ遅れてハイライトが
+          // 切り替わる」状態になり、日本語入力（IME変換のたびに
+          // docChanged が高頻度発生する）で顕著な「ちらつき」として
+          // 体感される原因になっていた。
+          // dispatch を実際に内容が変わった場合だけに絞る改善を
+          // 挟んでも、遅延そのもの（ワンテンポ遅れる感覚）は
+          // 解消されなかったため、根本原因である非同期化を撤回し、
+          // 0.6.4 時点の「同じ update() サイクル内で同期的に
+          // 再構築する」方式に戻す。
           if (
+            update.docChanged ||
+            update.viewportChanged ||
+            update.selectionSet ||
             update.transactions.some(tr => tr.effects.some(e => e.is(settingsEffect)))
           ) {
             this.decorations = this.build(update.view);
-            return;
           }
-          // scheduleRebuild() 側の dispatch による再描画通知。
-          // decorations は dispatch 前に既に最新化済みのため、
-          // ここでの再計算は不要（詳細は scheduleRebuild() 参照）。
-          if (
-            update.transactions.some(tr => tr.effects.some(e => e.is(bracketRebuildEffect)))
-          ) {
-            return;
-          }
-          // build() は文書全体をスキャンするため viewportChanged /
-          // selectionSet では再構築しない（結果が viewport・選択に
-          // 依存しないため、再構築しても無駄な再計算になるだけ）。
-          // docChanged のみデバウンスして再構築する（連続入力での
-          // 都度フルスキャンを防ぐ）。
-          if (update.docChanged) {
-            this.scheduleRebuild(update.view);
-          }
-        }
-
-        private scheduleRebuild(view: EditorView): void {
-          if (this.rebuildTimer !== null) window.clearTimeout(this.rebuildTimer);
-          this.rebuildTimer = window.setTimeout(() => {
-            this.rebuildTimer = null;
-            // dispatch する前に新しい DecorationSet を計算し、
-            // 実際に変化がある場合だけ dispatch する
-            // （詳細は decorationsChanged() 手前のコメント参照）。
-            const next = this.build(view);
-            if (decorationsChanged(this.decorations, next)) {
-              this.decorations = next;
-              view.dispatch({ effects: bracketRebuildEffect.of(null) });
-            }
-          }, HIGHLIGHT_REBUILD_DELAY);
-        }
-
-        destroy(): void {
-          if (this.rebuildTimer !== null) window.clearTimeout(this.rebuildTimer);
         }
 
         build(view: EditorView): DecorationSet {
@@ -188,54 +110,20 @@ export function buildTermExtension(
     ViewPlugin.fromClass(
       class {
         decorations: DecorationSet;
-        private rebuildTimer: ReturnType<typeof setTimeout> | null = null;
 
         constructor(view: EditorView) { this.decorations = this.build(view); }
 
         update(update: ViewUpdate) {
-          // 設定変更（用語インデックス再構築完了の通知を含む）
-          // → 即座に再構築
+          // v0.6.4 と同じ同期方式に戻した。
+          // 経緯は buildBracketExtension 内の update() コメントを参照。
           if (
+            update.docChanged ||
+            update.viewportChanged ||
+            update.selectionSet ||
             update.transactions.some(tr => tr.effects.some(e => e.is(settingsEffect)))
           ) {
             this.decorations = this.build(update.view);
-            return;
           }
-          // scheduleRebuild() 側の dispatch による再描画通知。
-          // decorations は dispatch 前に既に最新化済みのため、
-          // ここでの再計算は不要（詳細は buildBracketExtension 内の
-          // scheduleRebuild() のコメント参照）。
-          if (
-            update.transactions.some(tr => tr.effects.some(e => e.is(termRebuildEffect)))
-          ) {
-            return;
-          }
-          // build() は文書全体をスキャンするため viewportChanged /
-          // selectionSet では再構築しない（結果が viewport・選択に
-          // 依存しないため）。docChanged のみデバウンスして再構築する。
-          // 用語数が多い Vault ほど build() のコストが大きいため、
-          // カッコハイライト以上にデバウンスの効果が大きい。
-          if (update.docChanged) {
-            this.scheduleRebuild(update.view);
-          }
-        }
-
-        private scheduleRebuild(view: EditorView): void {
-          if (this.rebuildTimer !== null) window.clearTimeout(this.rebuildTimer);
-          this.rebuildTimer = window.setTimeout(() => {
-            this.rebuildTimer = null;
-            // dispatch する前に新しい DecorationSet を計算し、
-            // 実際に変化がある場合だけ dispatch する。
-            const next = this.build(view);
-            if (decorationsChanged(this.decorations, next)) {
-              this.decorations = next;
-              view.dispatch({ effects: termRebuildEffect.of(null) });
-            }
-          }, HIGHLIGHT_REBUILD_DELAY);
-        }
-
-        destroy(): void {
-          if (this.rebuildTimer !== null) window.clearTimeout(this.rebuildTimer);
         }
 
         build(view: EditorView): DecorationSet {

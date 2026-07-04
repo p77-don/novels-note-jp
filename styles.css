@@ -630,13 +630,11 @@
   padding-top: 1em;
 }
 
-/* 段落区切りスペーサー
-   段落間に空き幅を挿入する inline-block 要素。
-   writing-mode:vertical-rl では width が「列方向の幅」になる。 */
-.nn-vertical-text .nn-sep {
-  display: inline-block;
-  width: 0.8em;
-}
+/* 空行（.nn-line で中身が空のもの）
+   通常の行と同じく <br> で1列として区切られるため、中身が
+   なくても行の高さ（.nn-vertical-body の line-height）に応じた
+   列幅がそのまま確保される。横書きプレビュー（.nn-reading-root
+   p.nn-blank）と異なり明示的な min-width 指定は不要。 */
 
 /* ─────────────────────────────────────────
    ルビ（縦書き対応）

@@ -267,20 +267,30 @@ function buildSentenceRange(
 //   （チャンク1つぶんのサイズにしか依存しなくなる）ことを確認済み。
 //
 // 【DOM構造】
-// トップレベルの子要素列は次の2種類のブロックが交互に並ぶ：
+// トップレベルの子要素列は次の1種類のブロックが並ぶ：
 //   ・<span class="nn-chunk" data-chunk="開始行番号">
 //       <span class="nn-line" data-line="N">...</span><br>
-//       ...（最大 CHUNK_MAX_LINES 行、または段落の終わりまで）
+//       ...（最大 CHUNK_MAX_LINES 行、または段落／空行の連続の
+//            切れ目まで）
 //     </span>
-//   ・<span class="nn-sep"></span><br>  （段落区切り、内容は常に空）
 //
-// data-chunk（チャンク先頭行番号）または段落区切りの出現順を
-// 安定したキーとして新旧のブロック列を比較し、構造（チャンク・
-// 区切りの並び）が変わっていなければ、中身が実際に変わった
-// チャンクの <span> 要素だけを丸ごと差し替える。1チャンクの
-// 内部で何行変わっていても、置き換えの単位は常にチャンク1個分
-// （最大 CHUNK_MAX_LINES 行）に制限されるため、レイアウト
-// コストが文書全体のサイズに依存しない。
+// 空行はソース1行につき1行分の「中身が空の .nn-line」として
+// そのまま出力する（エディタで見えるのと同じ行数・行送りを
+// プレビュー側でも保つため。以前は空行を読み飛ばして段落の
+// 切れ目に固定幅の区切りスペーサーを1個だけ挿む実装だったが、
+// これだと空行が何行連続していても区切り1個分にしか見えず、
+// 「空行が圧縮される」問題の原因になっていた）。
+//
+// data-chunk（チャンク先頭行番号）の出現順を安定したキーとして
+// 新旧のブロック列を比較し、構造（チャンクの並び）が変わって
+// いなければ、中身が実際に変わったチャンクの <span> 要素だけを
+// 丸ごと差し替える。1チャンクの内部で何行変わっていても、
+// 置き換えの単位は常にチャンク1個分（最大 CHUNK_MAX_LINES 行）に
+// 制限されるため、レイアウトコストが文書全体のサイズに依存しない。
+//
+// パフォーマンス最適化のため、非空行の連続（段落）と空行の連続の
+// 境目でも必ずチャンクを区切る（通常のタイピングは常にどちらか
+// 一方の内部で完結するため）。
 //
 // 段落の増減・チャンク数が変わるような構造変化（Enterで新しい
 // 段落ができた場合など）はキー列が一致しなくなるため、安全のため
@@ -288,28 +298,22 @@ function buildSentenceRange(
 // 発生する。通常のタイピングよりずっと低頻度）。
 // ─────────────────────────────────────────
 interface DomBlock {
-  kind: "chunk" | "sep";
+  kind: "chunk";
   key: string;
-  /** "chunk" は span 1個、"sep" は span+br の2個 */
+  /** "chunk" は span 1個 */
   nodes: Element[];
 }
 
 function extractBlocks(nodes: ChildNode[]): DomBlock[] | null {
   const blocks: DomBlock[] = [];
-  let sepCounter = 0;
   let i = 0;
   while (i < nodes.length) {
     const node = nodes[i];
-    if (!(node instanceof Element) || node.tagName !== "SPAN") return null;
+    if (!node.instanceOf(Element) || node.tagName !== "SPAN") return null;
 
     if (node.classList.contains("nn-chunk")) {
       blocks.push({ kind: "chunk", key: `C${node.getAttribute("data-chunk") ?? ""}`, nodes: [node] });
       i += 1;
-    } else if (node.classList.contains("nn-sep")) {
-      const brEl = nodes[i + 1];
-      if (!(brEl instanceof Element) || brEl.tagName !== "BR") return null;
-      blocks.push({ kind: "sep", key: `S${sepCounter++}`, nodes: [node, brEl] });
-      i += 2;
     } else {
       // 想定外の構造。診断を諦め、呼び出し元に丸ごと作り直させる
       return null;
@@ -341,10 +345,9 @@ function patchVerticalBody(textEl: HTMLElement, html: string): void {
   }
 
   // 構造は同じなので、中身が実際に変わったチャンクだけを丸ごと
-  // 差し替える（nn-sep は常に内容が空なので比較不要）。
+  // 差し替える。
   for (let i = 0; i < oldBlocks.length; i++) {
     const oldB = oldBlocks[i];
-    if (oldB.kind !== "chunk") continue;
     const newB = newBlocks[i];
     const oldEl = oldB.nodes[0];
     const newEl = newB.nodes[0];
@@ -384,7 +387,7 @@ interface VerticalHtmlResult {
 //   <br>  ← 行の後に改行（= 縦書きの行送り）
 //   <span class="nn-line" data-line="N+1">次の行の文章</span>
 //   <br>
-//   <span class="nn-sep"></span><br>  ← 段落区切り
+//   <span class="nn-line" data-line="N+2"></span><br>  ← 空行（中身なし、行送りだけ発生）
 //
 // 【文単位の <span> を廃止した理由】
 // 以前は行内の各文を <span class="nn-sent">…</span> で個別に
@@ -628,7 +631,6 @@ export function toVerticalHtml(
   const lineSentPlainLengths = new Map<number, number[]>();  // ソース行 → 各文の見た目の文字数
   const parts: string[] = [];
   let prevBlank = true;
-  let firstPara = true;
 
   let chunkParts: string[] = [];
   let chunkStartLine = -1;
@@ -662,19 +664,29 @@ export function toVerticalHtml(
     // ─────────────────────────────────────────
     const cleanedLine = cleanedLines[i - frontmatterLineCount] ?? "";
 
-    if (!isBlank && prevBlank) {
-      if (!firstPara) {
-        // 段落の切れ目では必ずチャンクも区切る。
-        // これにより「1段落＝原則1チャンク」となり、通常の
-        // タイピング（1段落内での編集）は常にチャンク単位の
-        // 差分パッチで済む。
-        flushChunk();
-        parts.push(`<span class="nn-sep" aria-hidden="true"></span><br>`);
-      }
-      firstPara = false;
+    if (isBlank !== prevBlank) {
+      // 非空行の連続（段落）と空行の連続の境目では必ずチャンクも
+      // 区切る。これにより通常のタイピング（1段落内・空行の追加や
+      // 削除を伴わない編集）は常にチャンク単位の差分パッチで済む。
+      flushChunk();
     }
 
-    if (!isBlank) {
+    if (isBlank) {
+      // ─────────────────────────────────────────
+      // 空行：ソース1行につき「中身が空の .nn-line」を1つ出力する。
+      // エディタで見えるのと同じ行数・行送りをプレビュー側でも
+      // そのまま保つ（以前は空行を読み飛ばし、段落の切れ目に
+      // 固定幅スペーサーを1個だけ挿んでいたため、空行が何行
+      // 連続していても圧縮されて見えていた）。
+      // ─────────────────────────────────────────
+      if (chunkStartLine === -1) chunkStartLine = i;
+      chunkParts.push(`<span class="nn-line" data-line="${i}"></span><br>`);
+      chunkLineCount++;
+
+      if (chunkLineCount >= CHUNK_MAX_LINES) {
+        flushChunk();
+      }
+    } else {
       // ─────────────────────────────────────────
       // 先頭全角スペース（字下げ）の検出
       // ─────────────────────────────────────────

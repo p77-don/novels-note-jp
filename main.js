@@ -81,8 +81,6 @@ var VERTICAL_VIEW_TYPE = "novels-note-jp-vertical";
 var NOVEL_READING_VIEW_TYPE = "novel-reading-view";
 var settingsEffect = import_state.StateEffect.define();
 var novelModeEffect = import_state.StateEffect.define();
-var bracketRebuildEffect = import_state.StateEffect.define();
-var termRebuildEffect = import_state.StateEffect.define();
 var novelModeField = import_state.StateField.define({
   create: () => false,
   update(value, tr) {
@@ -337,54 +335,17 @@ function parseBrackets(docText, enabledBrackets) {
 }
 
 // src/editor/extensions.ts
-var HIGHLIGHT_REBUILD_DELAY = 200;
-function decorationsChanged(a, b) {
-  var _a, _b;
-  const ia = a.iter();
-  const ib = b.iter();
-  while (ia.value && ib.value) {
-    if (ia.from !== ib.from || ia.to !== ib.to) return true;
-    const specA = (_a = ia.value.spec) != null ? _a : {};
-    const specB = (_b = ib.value.spec) != null ? _b : {};
-    if (specA.class !== specB.class) return true;
-    ia.next();
-    ib.next();
-  }
-  return Boolean(ia.value) || Boolean(ib.value);
-}
 function buildBracketExtension(getSettings) {
   return import_state3.Prec.lowest(
     import_view2.ViewPlugin.fromClass(
       class {
         constructor(view) {
-          this.rebuildTimer = null;
           this.decorations = this.build(view);
         }
         update(update) {
-          if (update.transactions.some((tr) => tr.effects.some((e) => e.is(settingsEffect)))) {
+          if (update.docChanged || update.viewportChanged || update.selectionSet || update.transactions.some((tr) => tr.effects.some((e) => e.is(settingsEffect)))) {
             this.decorations = this.build(update.view);
-            return;
           }
-          if (update.transactions.some((tr) => tr.effects.some((e) => e.is(bracketRebuildEffect)))) {
-            return;
-          }
-          if (update.docChanged) {
-            this.scheduleRebuild(update.view);
-          }
-        }
-        scheduleRebuild(view) {
-          if (this.rebuildTimer !== null) window.clearTimeout(this.rebuildTimer);
-          this.rebuildTimer = window.setTimeout(() => {
-            this.rebuildTimer = null;
-            const next = this.build(view);
-            if (decorationsChanged(this.decorations, next)) {
-              this.decorations = next;
-              view.dispatch({ effects: bracketRebuildEffect.of(null) });
-            }
-          }, HIGHLIGHT_REBUILD_DELAY);
-        }
-        destroy() {
-          if (this.rebuildTimer !== null) window.clearTimeout(this.rebuildTimer);
         }
         build(view) {
           const builder = new import_state3.RangeSetBuilder();
@@ -418,34 +379,12 @@ function buildTermExtension(getTerms, getSettings) {
     import_view2.ViewPlugin.fromClass(
       class {
         constructor(view) {
-          this.rebuildTimer = null;
           this.decorations = this.build(view);
         }
         update(update) {
-          if (update.transactions.some((tr) => tr.effects.some((e) => e.is(settingsEffect)))) {
+          if (update.docChanged || update.viewportChanged || update.selectionSet || update.transactions.some((tr) => tr.effects.some((e) => e.is(settingsEffect)))) {
             this.decorations = this.build(update.view);
-            return;
           }
-          if (update.transactions.some((tr) => tr.effects.some((e) => e.is(termRebuildEffect)))) {
-            return;
-          }
-          if (update.docChanged) {
-            this.scheduleRebuild(update.view);
-          }
-        }
-        scheduleRebuild(view) {
-          if (this.rebuildTimer !== null) window.clearTimeout(this.rebuildTimer);
-          this.rebuildTimer = window.setTimeout(() => {
-            this.rebuildTimer = null;
-            const next = this.build(view);
-            if (decorationsChanged(this.decorations, next)) {
-              this.decorations = next;
-              view.dispatch({ effects: termRebuildEffect.of(null) });
-            }
-          }, HIGHLIGHT_REBUILD_DELAY);
-        }
-        destroy() {
-          if (this.rebuildTimer !== null) window.clearTimeout(this.rebuildTimer);
         }
         build(view) {
           const builder = new import_state3.RangeSetBuilder();
@@ -2311,19 +2250,13 @@ function buildSentenceRange(lineEl, startCp, endCp) {
 function extractBlocks(nodes) {
   var _a;
   const blocks = [];
-  let sepCounter = 0;
   let i = 0;
   while (i < nodes.length) {
     const node = nodes[i];
-    if (!(node instanceof Element) || node.tagName !== "SPAN") return null;
+    if (!node.instanceOf(Element) || node.tagName !== "SPAN") return null;
     if (node.classList.contains("nn-chunk")) {
       blocks.push({ kind: "chunk", key: `C${(_a = node.getAttribute("data-chunk")) != null ? _a : ""}`, nodes: [node] });
       i += 1;
-    } else if (node.classList.contains("nn-sep")) {
-      const brEl = nodes[i + 1];
-      if (!(brEl instanceof Element) || brEl.tagName !== "BR") return null;
-      blocks.push({ kind: "sep", key: `S${sepCounter++}`, nodes: [node, brEl] });
-      i += 2;
     } else {
       return null;
     }
@@ -2345,7 +2278,6 @@ function patchVerticalBody(textEl, html) {
   }
   for (let i = 0; i < oldBlocks.length; i++) {
     const oldB = oldBlocks[i];
-    if (oldB.kind !== "chunk") continue;
     const newB = newBlocks[i];
     const oldEl = oldB.nodes[0];
     const newEl = newB.nodes[0];
@@ -2443,7 +2375,6 @@ function toVerticalHtml(source, rubyStyle, selectedText = "") {
   const lineSentPlainLengths = /* @__PURE__ */ new Map();
   const parts = [];
   let prevBlank = true;
-  let firstPara = true;
   let chunkParts = [];
   let chunkStartLine = -1;
   let chunkLineCount = 0;
@@ -2458,14 +2389,17 @@ function toVerticalHtml(source, rubyStyle, selectedText = "") {
     const srcLine = sourceLines[i];
     const isBlank = srcLine.trim() === "";
     const cleanedLine = (_a = cleanedLines[i - frontmatterLineCount]) != null ? _a : "";
-    if (!isBlank && prevBlank) {
-      if (!firstPara) {
-        flushChunk();
-        parts.push(`<span class="nn-sep" aria-hidden="true"></span><br>`);
-      }
-      firstPara = false;
+    if (isBlank !== prevBlank) {
+      flushChunk();
     }
-    if (!isBlank) {
+    if (isBlank) {
+      if (chunkStartLine === -1) chunkStartLine = i;
+      chunkParts.push(`<span class="nn-line" data-line="${i}"></span><br>`);
+      chunkLineCount++;
+      if (chunkLineCount >= CHUNK_MAX_LINES) {
+        flushChunk();
+      }
+    } else {
       const hasIndent = srcLine.startsWith("\u3000");
       const srcLineForSplit = hasIndent ? srcLine.slice(1) : srcLine;
       const srcSents = splitIntoSentences(srcLineForSplit);

@@ -284,7 +284,7 @@ export class NovelReadingView extends ItemView {
 
     // mode: novel チェック
     const cache = this.app.metadataCache.getFileCache(file);
-    const frontmatter = cache?.frontmatter as Record<string, unknown> | undefined;
+    const frontmatter = cache?.frontmatter;
     const mode  = frontmatter?.["mode"];
     if (mode !== "novel") {
       this.renderMessage(

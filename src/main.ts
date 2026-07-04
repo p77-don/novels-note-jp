@@ -358,7 +358,7 @@ export default class NovelsNoteJP extends Plugin {
   // ─────────────────────────────────────────
   async loadSettings(): Promise<void> {
     const saved = await this.loadData() as Partial<NovelsNoteSettings> | null;
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, saved) as NovelsNoteSettings;
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, saved);
     if (!saved?.tagDefinitions) {
       this.settings.tagDefinitions = DEFAULT_TAG_DEFINITIONS.map(td => ({ ...td }));
     }
@@ -560,7 +560,7 @@ export default class NovelsNoteJP extends Plugin {
   private isNovelModeFile(file: TFile | null): boolean {
     if (!file) return false;
     const cache = this.app.metadataCache.getFileCache(file);
-    const fm = cache?.frontmatter as Record<string, unknown> | undefined;
+    const fm = cache?.frontmatter;
     return fm?.["mode"] === "novel";
   }
 
