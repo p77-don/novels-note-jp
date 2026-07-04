@@ -628,7 +628,7 @@ function buildCursorSyncExtension(store, app) {
       // CM6 は1始まり、Obsidian editor / 本プラグイン内部は0始まり
       ch: range.head - line.from,
       selection: view.state.sliceDoc(range.from, range.to),
-      docLength: view.state.doc.length
+      text: view.state.doc.toString()
     });
   };
   class CursorSyncPlugin {
@@ -672,7 +672,7 @@ function buildCursorSyncExtension(store, app) {
 }
 
 // src/editor/cursorSyncStore.ts
-var EMPTY_SNAPSHOT = { file: null, line: -1, ch: -1, selection: "", docLength: -1 };
+var EMPTY_SNAPSHOT = { file: null, line: -1, ch: -1, selection: "", text: "" };
 var CursorSyncStore = class {
   constructor() {
     this.snapshot = EMPTY_SNAPSHOT;
@@ -2284,6 +2284,53 @@ function buildSentenceRange(lineEl, startCp, endCp) {
   }
   return range;
 }
+function extractBlocks(nodes) {
+  var _a;
+  const blocks = [];
+  let sepCounter = 0;
+  let i = 0;
+  while (i < nodes.length) {
+    const node = nodes[i];
+    if (!(node instanceof Element) || node.tagName !== "SPAN") return null;
+    if (node.classList.contains("nn-chunk")) {
+      blocks.push({ kind: "chunk", key: `C${(_a = node.getAttribute("data-chunk")) != null ? _a : ""}`, nodes: [node] });
+      i += 1;
+    } else if (node.classList.contains("nn-sep")) {
+      const brEl = nodes[i + 1];
+      if (!(brEl instanceof Element) || brEl.tagName !== "BR") return null;
+      blocks.push({ kind: "sep", key: `S${sepCounter++}`, nodes: [node, brEl] });
+      i += 2;
+    } else {
+      return null;
+    }
+  }
+  return blocks;
+}
+function patchVerticalBody(textEl, html) {
+  const parsedDoc = new DOMParser().parseFromString(html, "text/html");
+  const newNodes = Array.from(parsedDoc.body.childNodes);
+  const newBlocks = extractBlocks(newNodes);
+  const oldBlocks = extractBlocks(Array.from(textEl.childNodes));
+  const sameStructure = oldBlocks !== null && newBlocks !== null && oldBlocks.length === newBlocks.length && oldBlocks.every((b, i) => b.key === newBlocks[i].key);
+  if (!sameStructure || !oldBlocks || !newBlocks) {
+    textEl.empty();
+    for (const node of newNodes) {
+      textEl.appendChild(textEl.ownerDocument.adoptNode(node));
+    }
+    return;
+  }
+  for (let i = 0; i < oldBlocks.length; i++) {
+    const oldB = oldBlocks[i];
+    if (oldB.kind !== "chunk") continue;
+    const newB = newBlocks[i];
+    const oldEl = oldB.nodes[0];
+    const newEl = newB.nodes[0];
+    if (oldEl.innerHTML !== newEl.innerHTML || oldEl.className !== newEl.className) {
+      const adopted = textEl.ownerDocument.adoptNode(newEl);
+      textEl.replaceChild(adopted, oldEl);
+    }
+  }
+}
 function toVerticalHtml(source, rubyStyle, selectedText = "") {
   var _a;
   const SEL_START = "\0\0";
@@ -2367,17 +2414,29 @@ function toVerticalHtml(source, rubyStyle, selectedText = "") {
       frontmatterLineCount = fmMatch[0].replace(/\n$/, "").split("\n").length;
     }
   }
+  const CHUNK_MAX_LINES = 20;
   const lineSentences = /* @__PURE__ */ new Map();
   const lineSentPlainLengths = /* @__PURE__ */ new Map();
   const parts = [];
   let prevBlank = true;
   let firstPara = true;
+  let chunkParts = [];
+  let chunkStartLine = -1;
+  let chunkLineCount = 0;
+  const flushChunk = () => {
+    if (chunkParts.length === 0) return;
+    parts.push(`<span class="nn-chunk" data-chunk="${chunkStartLine}">${chunkParts.join("")}</span>`);
+    chunkParts = [];
+    chunkStartLine = -1;
+    chunkLineCount = 0;
+  };
   for (let i = frontmatterLineCount; i < sourceLines.length; i++) {
     const srcLine = sourceLines[i];
     const isBlank = srcLine.trim() === "";
     const cleanedLine = (_a = cleanedLines[i - frontmatterLineCount]) != null ? _a : "";
     if (!isBlank && prevBlank) {
       if (!firstPara) {
+        flushChunk();
         parts.push(`<span class="nn-sep" aria-hidden="true"></span><br>`);
       }
       firstPara = false;
@@ -2401,18 +2460,23 @@ function toVerticalHtml(source, rubyStyle, selectedText = "") {
       const closes = (inner.match(/<\/mark>/g) || []).length;
       if (opens > closes) inner += `</mark>`;
       const lineClass = hasIndent ? "nn-line nn-line--indent" : "nn-line";
-      parts.push(
+      if (chunkStartLine === -1) chunkStartLine = i;
+      chunkParts.push(
         `<span class="${lineClass}" data-line="${i}">${inner}</span><br>`
       );
+      chunkLineCount++;
+      if (chunkLineCount >= CHUNK_MAX_LINES) {
+        flushChunk();
+      }
     }
     prevBlank = isBlank;
   }
+  flushChunk();
   return { html: parts.join(""), lineSentences, lineSentPlainLengths };
 }
 var _VerticalPreviewView = class _VerticalPreviewView extends import_obsidian5.ItemView {
   constructor(leaf) {
     super(leaf);
-    this.updateTimer = null;
     this.lastFile = null;
     this.lastText = "";
     this.lastCursorLine = -1;
@@ -2473,14 +2537,6 @@ var _VerticalPreviewView = class _VerticalPreviewView extends import_obsidian5.I
     this.bodyEl = this.scrollerEl.createEl("div", { cls: "nn-vertical-body" });
     await this.loadFromActiveEditor();
     this.registerEvent(
-      this.app.workspace.on("editor-change", () => {
-        if (this.updateTimer) window.clearTimeout(this.updateTimer);
-        this.updateTimer = window.setTimeout(() => {
-          void this.loadFromActiveEditor();
-        }, 1200);
-      })
-    );
-    this.registerEvent(
       this.app.workspace.on("active-leaf-change", () => {
         const mdView = this.app.workspace.getActiveViewOfType(import_obsidian5.MarkdownView);
         if (mdView == null ? void 0 : mdView.file) void this.loadFromActiveEditor();
@@ -2495,7 +2551,6 @@ var _VerticalPreviewView = class _VerticalPreviewView extends import_obsidian5.I
   }
   async onClose() {
     var _a;
-    if (this.updateTimer) window.clearTimeout(this.updateTimer);
     (_a = this.unsubscribeCursorSync) == null ? void 0 : _a.call(this);
     this.unsubscribeCursorSync = null;
     if (typeof CSS !== "undefined" && CSS.highlights) {
@@ -2507,6 +2562,7 @@ var _VerticalPreviewView = class _VerticalPreviewView extends import_obsidian5.I
   // 読み込み・レンダリング
   // ─────────────────────────────────────────
   async loadFromActiveEditor() {
+    var _a;
     const mdView = this.app.workspace.getActiveViewOfType(import_obsidian5.MarkdownView);
     if (!(mdView == null ? void 0 : mdView.file)) return;
     const ext = mdView.file.extension;
@@ -2518,7 +2574,14 @@ var _VerticalPreviewView = class _VerticalPreviewView extends import_obsidian5.I
     if (mdView.file === this.lastFile && text === this.lastText) return;
     this.lastFile = mdView.file;
     this.lastText = text;
-    this.renderContent(text);
+    this.lastSelection = (_a = mdView.editor.getSelection()) != null ? _a : "";
+    this.renderBody(text, this.lastSelection);
+    if (this.scrollerEl) {
+      this.scrollerEl.scrollLeft = this.scrollerEl.scrollWidth;
+    }
+    this.lastCursorLine = -1;
+    this.lastCursorCh = -1;
+    this.forceSyncNow();
   }
   forceReload() {
     this.lastText = "";
@@ -2532,30 +2595,44 @@ var _VerticalPreviewView = class _VerticalPreviewView extends import_obsidian5.I
     this.bodyEl.style.setProperty("--nn-vertical-font-size", `${fontSize}px`);
     this.bodyEl.style.setProperty("--nn-vertical-max-height", `${maxHeight}em`);
   }
-  renderContent(text) {
-    var _a;
+  // ─────────────────────────────────────────
+  // 本文DOMの再構築のみを行う（カーソル同期・スクロールは行わない）
+  //
+  // 【設計変更の経緯】
+  // 以前はこの処理の末尾で textEl.empty() により本文DOM全体を
+  // 一度破棄してから丸ごと再構築していた。しかしこれは
+  // ・CSS Custom Highlight API の Range が一瞬存在しないノードを
+  //   指すことになる（ハイライトの瞬間消失）
+  // ・文書全体（縦書きでは数千〜数万文字ぶんの列になり得る）を
+  //   ブラウザに再レイアウト・再ペイントさせる（画面全体のちらつき）
+  // という2つの問題を引き起こしていた。後者の方が実際の
+  // ちらつきの主因であり、Range・Highlight の再構築タイミングを
+  // 同期化しただけでは解決しなかった。
+  //
+  // 実際のDOM書き換えは patchVerticalBody() に委譲し、変わった行
+  // だけを個別に差し替える方式にした（詳細は同関数のコメント参照）。
+  // Range の構築自体はレイアウト計算を必要としないため、DOM更新の
+  // 直後・同一タスク内で同期的に行って問題ない
+  // （Range.getBoundingClientRect() を使うスクロール位置計算のみ
+  //   レイアウトを要するが、これは呼び出すと同期的にレイアウトが
+  //   確定するため rAF を挟む必要はない）。
+  //
+  // そのため、このメソッドはDOM再構築だけに専念させ、
+  // 呼び出し元（applySnapshot / loadFromActiveEditor）が
+  // 同期的に syncCursorHighlight() を呼んでハイライト・スクロールを
+  // 即座に再構築する形にしている。
+  // ─────────────────────────────────────────
+  renderBody(text, selection) {
     if (!this.bodyEl) return;
     this.applyLayoutSettings();
-    const mdView = this.app.workspace.getActiveViewOfType(import_obsidian5.MarkdownView);
-    const sel = (_a = mdView == null ? void 0 : mdView.editor.getSelection()) != null ? _a : "";
-    const { html, lineSentences, lineSentPlainLengths } = toVerticalHtml(text, this.getRubyStyle(), sel);
+    const { html, lineSentences, lineSentPlainLengths } = toVerticalHtml(text, this.getRubyStyle(), selection);
     this.lineSentences = lineSentences;
     this.lineSentPlainLengths = lineSentPlainLengths;
     let textEl = this.bodyEl.querySelector(".nn-vertical-text");
     if (!textEl) {
       textEl = this.bodyEl.createEl("div", { cls: "nn-vertical-text" });
     }
-    const parsed1 = new DOMParser().parseFromString(html, "text/html");
-    textEl.empty();
-    for (const node of Array.from(parsed1.body.childNodes)) {
-      textEl.appendChild(textEl.ownerDocument.adoptNode(node));
-    }
-    this.lastCursorLine = -1;
-    this.lastCursorCh = -1;
-    window.requestAnimationFrame(() => {
-      this.scrollerEl.scrollLeft = this.scrollerEl.scrollWidth;
-      window.requestAnimationFrame(() => this.forceSyncNow());
-    });
+    patchVerticalBody(textEl, html);
   }
   renderEmpty(message) {
     if (!this.bodyEl) return;
@@ -2593,70 +2670,90 @@ var _VerticalPreviewView = class _VerticalPreviewView extends import_obsidian5.I
    */
   onCursorSync(snapshot) {
     if (snapshot.file !== this.lastFile) return;
-    this.applySnapshot(snapshot, false);
+    this.applySnapshot(snapshot);
   }
   /**
-   * 本文再描画直後など、ストアの通知を待たずに即座に現在位置へ
+   * ファイル読み込み直後など、ストアの通知を待たずに即座に現在位置へ
    * 同期したい場合に呼ぶ。ストアに現在ファイルのスナップショットが
    * あればそれを使い、なければ MarkdownView から直接1回だけ読み取る
    * （購読方式に切り替える前の挙動と同じフォールバック）。
+   * スクロールは即座（instant）に行う。
    */
   forceSyncNow() {
     var _a, _b;
     const stored = (_a = this.cursorSyncStore) == null ? void 0 : _a.get();
     if (stored && stored.file === this.lastFile) {
-      this.applySnapshot(stored, true);
+      this.lastSelection = stored.selection;
+      this.lastCursorLine = stored.line;
+      this.lastCursorCh = stored.ch;
+      this.syncCursorHighlight(stored.line, stored.ch, stored.selection, true);
       return;
     }
     const mdView = this.app.workspace.getActiveViewOfType(import_obsidian5.MarkdownView);
     if ((mdView == null ? void 0 : mdView.file) !== this.lastFile) return;
     const cursor = mdView.editor.getCursor();
-    this.applySnapshot(
-      {
-        file: mdView.file,
-        line: cursor.line,
-        ch: cursor.ch,
-        selection: (_b = mdView.editor.getSelection()) != null ? _b : "",
-        docLength: mdView.editor.getValue().length
-      },
-      true
-    );
+    const selection = (_b = mdView.editor.getSelection()) != null ? _b : "";
+    this.lastSelection = selection;
+    this.lastCursorLine = cursor.line;
+    this.lastCursorCh = cursor.ch;
+    this.syncCursorHighlight(cursor.line, cursor.ch, selection, true);
   }
   /**
-   * カーソル位置・選択範囲のスナップショットを実際に反映する。
-   * force=true の場合、本文データの鮮度チェックをバイパスして
-   * 即座に反映する（本文再描画直後の呼び出し用）。
+   * カーソル位置・選択範囲・本文のスナップショットを実際に反映する。
+   *
+   * 【設計変更の経緯】
+   * 以前はここで snapshot.docLength と this.lastText.length を比較し、
+   * 一致しなければ「本文再描画がまだ追いついていない」とみなして
+   * 即座に return していた（本文再描画は editor-change の
+   * 1200msデバウンスという別タイマーで行われていたため）。
+   * この間、新しいカーソル位置の通知はすべて無視され、ハイライトは
+   * 古い位置に固定されたまま、本文再描画が完了した瞬間に正しい位置へ
+   * ワープする（＝入力文字数ぶんズレてから戻る）という不具合があった。
+   *
+   * CursorSyncStore のスナップショットが本文そのもの（text）を
+   * 運ぶようになったことで、この鮮度チェックは不要になった。
+   * snapshot.text が this.lastText と異なれば、それはこの
+   * スナップショットの時点での最新本文なのでそのまま再描画すればよい。
+   * 本文再描画とカーソル同期が常に同じスナップショットに基づいて
+   * 一体で行われるため、世代がズレる余地自体がなくなる。
    */
-  applySnapshot(snapshot, force) {
-    var _a, _b, _c, _d, _e;
+  applySnapshot(snapshot) {
     if (!this.bodyEl || !this.scrollerEl) return;
-    if (!force && snapshot.docLength !== this.lastText.length) return;
-    const { line: cursorLine, ch: cursorCh, selection } = snapshot;
+    const { line: cursorLine, ch: cursorCh, selection, text } = snapshot;
     if (cursorLine < 0) return;
-    const cursorChanged = force || cursorLine !== this.lastCursorLine || cursorCh !== this.lastCursorCh;
+    const textChanged = text !== this.lastText;
     const selectionChanged = selection !== this.lastSelection;
-    if (!cursorChanged && !selectionChanged) return;
-    if (selectionChanged && this.lastText) {
+    if (textChanged || selectionChanged) {
+      this.lastText = text;
       this.lastSelection = selection;
-      const { html, lineSentences, lineSentPlainLengths } = toVerticalHtml(
-        this.lastText,
-        this.getRubyStyle(),
-        selection
-      );
-      this.lineSentences = lineSentences;
-      this.lineSentPlainLengths = lineSentPlainLengths;
-      const textEl = this.bodyEl.querySelector(".nn-vertical-text");
-      if (textEl) {
-        const parsed2 = new DOMParser().parseFromString(html, "text/html");
-        textEl.empty();
-        for (const node of Array.from(parsed2.body.childNodes)) {
-          textEl.appendChild(textEl.ownerDocument.adoptNode(node));
-        }
-      }
+      this.renderBody(text, selection);
+      this.lastCursorLine = cursorLine;
+      this.lastCursorCh = cursorCh;
+      this.syncCursorHighlight(cursorLine, cursorCh, selection, true);
+      return;
     }
-    if (!(cursorChanged || selectionChanged)) return;
+    const cursorChanged = cursorLine !== this.lastCursorLine || cursorCh !== this.lastCursorCh;
+    if (!cursorChanged) return;
     this.lastCursorLine = cursorLine;
     this.lastCursorCh = cursorCh;
+    this.syncCursorHighlight(cursorLine, cursorCh, selection, false);
+  }
+  // ─────────────────────────────────────────
+  // カーソル文の Range を構築し、ハイライトの付け替え・
+  // スクロール追従を同期的に行う。
+  //
+  // 呼び出し元（applySnapshot / forceSyncNow）は、本文DOMが
+  // 既に確定した状態でこれを呼ぶ。Range の構築・CSS Highlight の
+  // 登録はレイアウトを必要としないため即座に行える。
+  // Range.getBoundingClientRect() はレイアウトを要求するが、
+  // 呼び出すとブラウザがその場で同期的にレイアウトを確定させるため、
+  // requestAnimationFrame を挟まなくても正しい値が返る
+  // （Obsidian は Chromium 上で動作するためこれに依存できる）。
+  // ─────────────────────────────────────────
+  syncCursorHighlight(cursorLine, cursorCh, selection, instant) {
+    var _a, _b, _c, _d, _e;
+    if (!this.bodyEl || !this.scrollerEl) return;
+    if (cursorLine < 0) return;
     let targetLine = cursorLine;
     while (!this.lineSentences.has(targetLine) && targetLine > 0) {
       targetLine--;
@@ -2706,7 +2803,7 @@ var _VerticalPreviewView = class _VerticalPreviewView extends import_obsidian5.I
     const desiredLeft = absCenter - containerWidth / 2;
     this.scrollerEl.scrollTo({
       left: Math.max(0, Math.min(desiredLeft, scrollWidth - containerWidth)),
-      behavior: force ? "instant" : "smooth"
+      behavior: instant ? "instant" : "smooth"
     });
   }
 };

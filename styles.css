@@ -595,6 +595,26 @@
   cursor: text;
 }
 
+/* ─────────────────────────────────────────
+   縦書き本文の「チャンク」
+   段落単位（＋長い段落は一定行数ごと）で本文を独立した
+   writing-mode: vertical-rl のレイアウトコンテキストに分割する。
+   これにより、あるチャンク内でテキストが変わっても、ブラウザは
+   そのチャンクの折り返し（列の区切り）位置だけを再計算すればよく、
+   文書全体を再計算する必要がなくなる（詳細は verticalPreview.ts
+   の patchVerticalBody() のコメントを参照）。
+   height: 100% は親（.nn-vertical-body、flexで高さが確定している）
+   から高さを継承するために必要。
+   ───────────────────────────────────────── */
+.nn-vertical-text .nn-chunk {
+  display: inline-block;
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  direction: ltr;
+  height: 100%;
+  vertical-align: top;
+}
+
 /* 行（.nn-line）はプレーンテキストの流れそのままで、
    文単位の <span> は作らない（縦書き折り返しの禁則処理・約物の
    詰め処理は、連続したテキストノードに対してブラウザが最適化して

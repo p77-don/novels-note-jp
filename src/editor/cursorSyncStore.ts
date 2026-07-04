@@ -38,21 +38,26 @@ export interface CursorSyncSnapshot {
   /** 選択中のテキスト（選択がなければ空文字列） */
   selection: string;
   /**
-   * コミット時点のドキュメント全体の文字数（UTF-16コードユニット単位）。
+   * コミット時点のドキュメント全体の本文（CM6 の view.state.doc.toString()）。
    *
-   * 縦書きプレビュー側が保持する「最後に描画した本文」の文字数と
-   * 比較することで、まだ描画に反映されていない編集があるかどうかを
-   * 直接判定できる。Obsidian の editor-change イベントは内部で
-   * 間引かれることがあり、発火タイミングを信頼して「本文データが
-   * 最新かどうか」を判定すると、CM6拡張側（毎回確実に発火する）の
-   * カーソル通知より遅れてしまうことがあった。ドキュメント長の
-   * 直接比較にすることで、イベント発火タイミングに一切依存しない
-   * 判定にしている。
+   * 以前はここに「ドキュメント長」だけを持たせ、縦書きプレビュー側が
+   * 保持する「最後に描画した本文」の文字数と比較して鮮度判定を行って
+   * いた。しかしこの方式では、本文の再描画（縦書きプレビュー側の
+   * 独自デバウンス）とカーソル通知（このストアへの書き込み）が
+   * 別々のタイマーで動いており、本文再描画が追いつくまでの間
+   * カーソル追従が丸ごと停止する（＝入力文字数ぶんハイライトが
+   * 固定されたままになり、再描画完了時に正しい位置へ飛ぶ）不具合の
+   * 原因になっていた。
+   *
+   * カーソル位置と本文そのものを常に同じスナップショットとして
+   * セットで運ぶことで、縦書きプレビュー側は「本文が最新かどうか」を
+   * 判定する必要がなくなる。届いたスナップショットの text が
+   * 直前と違えば再描画すればよいだけになる。
    */
-  docLength: number;
+  text: string;
 }
 
-const EMPTY_SNAPSHOT: CursorSyncSnapshot = { file: null, line: -1, ch: -1, selection: "", docLength: -1 };
+const EMPTY_SNAPSHOT: CursorSyncSnapshot = { file: null, line: -1, ch: -1, selection: "", text: "" };
 
 export class CursorSyncStore {
   private snapshot: CursorSyncSnapshot = EMPTY_SNAPSHOT;

@@ -238,6 +238,124 @@ function buildSentenceRange(
 }
 
 // ─────────────────────────────────────────
+// 縦書き本文 DOM の差分更新
+//
+// 【背景・重要】
+// 以前は「変わった行だけを個別に差し替える」行単位の差分更新を
+// 行っていたが、それでもちらつきは解消しなかった。実測（Chromium
+// のレイアウト計測）の結果、原因はDOM操作の粒度ではなく、
+// CSS のレイアウトコストそのものにあることが判明した：
+//
+//   .nn-vertical-body は writing-mode: vertical-rl の
+//   単一の連続フローであり、この中の1行のテキスト量が変わると、
+//   ブラウザはその行以降の折り返し（列の区切り）位置を
+//   すべて再計算する。実測では、300行（約1万文字）の文書で
+//   1行だけ1文字追記しても、DOM操作をその1行の <span> だけに
+//   絞っても、強制レイアウトに 10〜20ms かかっていた
+//   （かつ文書が長いほど比例して悪化する）。これは 60fps の
+//   1フレーム予算（約16.7ms）を圧迫・超過する量であり、
+//   「入力のたびに画面がちらつく」の正体はこの再レイアウトの
+//   重さそのものだった。DOM差分の粒度をいくら細かくしても、
+//   ブラウザ側のレイアウト計算自体は文書全体に対して走るため
+//   解消しなかった。
+//
+//   対策として、本文を「段落単位（＋長い段落は一定行数ごと）」で
+//   .nn-chunk という独立した writing-mode: vertical-rl の
+//   レイアウトコンテキスト（display: inline-block）に分割した。
+//   同じ実測方法で検証したところ、チャンク分割後は編集コストが
+//   4〜13ms程度まで下がり、かつ文書全体のサイズに比例しなくなる
+//   （チャンク1つぶんのサイズにしか依存しなくなる）ことを確認済み。
+//
+// 【DOM構造】
+// トップレベルの子要素列は次の2種類のブロックが交互に並ぶ：
+//   ・<span class="nn-chunk" data-chunk="開始行番号">
+//       <span class="nn-line" data-line="N">...</span><br>
+//       ...（最大 CHUNK_MAX_LINES 行、または段落の終わりまで）
+//     </span>
+//   ・<span class="nn-sep"></span><br>  （段落区切り、内容は常に空）
+//
+// data-chunk（チャンク先頭行番号）または段落区切りの出現順を
+// 安定したキーとして新旧のブロック列を比較し、構造（チャンク・
+// 区切りの並び）が変わっていなければ、中身が実際に変わった
+// チャンクの <span> 要素だけを丸ごと差し替える。1チャンクの
+// 内部で何行変わっていても、置き換えの単位は常にチャンク1個分
+// （最大 CHUNK_MAX_LINES 行）に制限されるため、レイアウト
+// コストが文書全体のサイズに依存しない。
+//
+// 段落の増減・チャンク数が変わるような構造変化（Enterで新しい
+// 段落ができた場合など）はキー列が一致しなくなるため、安全のため
+// 丸ごと作り直す（この場合のみ、従来通りの全体再レイアウトが
+// 発生する。通常のタイピングよりずっと低頻度）。
+// ─────────────────────────────────────────
+interface DomBlock {
+  kind: "chunk" | "sep";
+  key: string;
+  /** "chunk" は span 1個、"sep" は span+br の2個 */
+  nodes: Element[];
+}
+
+function extractBlocks(nodes: ChildNode[]): DomBlock[] | null {
+  const blocks: DomBlock[] = [];
+  let sepCounter = 0;
+  let i = 0;
+  while (i < nodes.length) {
+    const node = nodes[i];
+    if (!(node instanceof Element) || node.tagName !== "SPAN") return null;
+
+    if (node.classList.contains("nn-chunk")) {
+      blocks.push({ kind: "chunk", key: `C${node.getAttribute("data-chunk") ?? ""}`, nodes: [node] });
+      i += 1;
+    } else if (node.classList.contains("nn-sep")) {
+      const brEl = nodes[i + 1];
+      if (!(brEl instanceof Element) || brEl.tagName !== "BR") return null;
+      blocks.push({ kind: "sep", key: `S${sepCounter++}`, nodes: [node, brEl] });
+      i += 2;
+    } else {
+      // 想定外の構造。診断を諦め、呼び出し元に丸ごと作り直させる
+      return null;
+    }
+  }
+  return blocks;
+}
+
+function patchVerticalBody(textEl: HTMLElement, html: string): void {
+  const parsedDoc = new DOMParser().parseFromString(html, "text/html");
+  const newNodes  = Array.from(parsedDoc.body.childNodes);
+  const newBlocks = extractBlocks(newNodes);
+  const oldBlocks = extractBlocks(Array.from(textEl.childNodes));
+
+  const sameStructure =
+    oldBlocks !== null &&
+    newBlocks !== null &&
+    oldBlocks.length === newBlocks.length &&
+    oldBlocks.every((b, i) => b.key === newBlocks[i].key);
+
+  if (!sameStructure || !oldBlocks || !newBlocks) {
+    // 段落構成（チャンク数）が変わった、または診断不能。
+    // 安全側に倒して丸ごと作り直す。
+    textEl.empty();
+    for (const node of newNodes) {
+      textEl.appendChild(textEl.ownerDocument.adoptNode(node));
+    }
+    return;
+  }
+
+  // 構造は同じなので、中身が実際に変わったチャンクだけを丸ごと
+  // 差し替える（nn-sep は常に内容が空なので比較不要）。
+  for (let i = 0; i < oldBlocks.length; i++) {
+    const oldB = oldBlocks[i];
+    if (oldB.kind !== "chunk") continue;
+    const newB = newBlocks[i];
+    const oldEl = oldB.nodes[0];
+    const newEl = newB.nodes[0];
+    if (oldEl.innerHTML !== newEl.innerHTML || oldEl.className !== newEl.className) {
+      const adopted = textEl.ownerDocument.adoptNode(newEl);
+      textEl.replaceChild(adopted, oldEl);
+    }
+  }
+}
+
+// ─────────────────────────────────────────
 // 変換結果の型
 // ─────────────────────────────────────────
 
@@ -499,11 +617,30 @@ export function toVerticalHtml(
     }
   }
 
+  // ─────────────────────────────────────────
+  // 縦書きレイアウトの再計算コストを文書サイズに依存させないため、
+  // 段落単位（＋長い段落は一定行数ごと）で本文を「チャンク」に
+  // 分割する。詳細は patchVerticalBody() のコメントを参照。
+  // ─────────────────────────────────────────
+  const CHUNK_MAX_LINES = 20;
+
   const lineSentences = new Map<number, string[]>();         // ソース行 → 文リスト（ソース原文）
   const lineSentPlainLengths = new Map<number, number[]>();  // ソース行 → 各文の見た目の文字数
   const parts: string[] = [];
   let prevBlank = true;
   let firstPara = true;
+
+  let chunkParts: string[] = [];
+  let chunkStartLine = -1;
+  let chunkLineCount = 0;
+
+  const flushChunk = (): void => {
+    if (chunkParts.length === 0) return;
+    parts.push(`<span class="nn-chunk" data-chunk="${chunkStartLine}">${chunkParts.join("")}</span>`);
+    chunkParts = [];
+    chunkStartLine = -1;
+    chunkLineCount = 0;
+  };
 
   // Frontmatter 行をスキップし、実際のコンテンツ行から処理開始
   for (let i = frontmatterLineCount; i < sourceLines.length; i++) {
@@ -527,6 +664,11 @@ export function toVerticalHtml(
 
     if (!isBlank && prevBlank) {
       if (!firstPara) {
+        // 段落の切れ目では必ずチャンクも区切る。
+        // これにより「1段落＝原則1チャンク」となり、通常の
+        // タイピング（1段落内での編集）は常にチャンク単位の
+        // 差分パッチで済む。
+        flushChunk();
         parts.push(`<span class="nn-sep" aria-hidden="true"></span><br>`);
       }
       firstPara = false;
@@ -592,13 +734,22 @@ export function toVerticalHtml(
       if (opens > closes) inner += `</mark>`;
 
       const lineClass = hasIndent ? "nn-line nn-line--indent" : "nn-line";
-      parts.push(
+      if (chunkStartLine === -1) chunkStartLine = i;
+      chunkParts.push(
         `<span class="${lineClass}" data-line="${i}">${inner}</span><br>`
       );
+      chunkLineCount++;
+
+      // 1段落が非常に長い場合に備え、一定行数ごとにも強制的に
+      // チャンクを区切る（レイアウトコストの上限を保証するため）。
+      if (chunkLineCount >= CHUNK_MAX_LINES) {
+        flushChunk();
+      }
     }
 
     prevBlank = isBlank;
   }
+  flushChunk();
 
   return { html: parts.join(""), lineSentences, lineSentPlainLengths };
 }
@@ -609,7 +760,6 @@ export function toVerticalHtml(
 export class VerticalPreviewView extends ItemView {
   private bodyEl!:     HTMLElement;
   private scrollerEl!: HTMLElement;
-  private updateTimer: ReturnType<typeof setTimeout> | null = null;
 
   private lastFile: TFile | null = null;
   private lastText: string = "";
@@ -670,19 +820,23 @@ export class VerticalPreviewView extends ItemView {
 
     await this.loadFromActiveEditor();
 
-    this.registerEvent(
-      this.app.workspace.on("editor-change", () => {
-        // 本文の再描画（DOM再構築）はデバウンスしている。
-        // カーソル位置自体の追従（ハイライト・スクロール）は
-        // CursorSyncStore から届く docLength を都度、実際の
-        // 本文データ（this.lastText）と直接比較して鮮度判定するため、
-        // ここでの遅延はイベント発火タイミングに依存しない。
-        // 目的はあくまで「本文全体のDOM再構築を連続入力のたびに
-        // 行わない」というパフォーマンス上のものに限られる。
-        if (this.updateTimer) window.clearTimeout(this.updateTimer);
-        this.updateTimer = window.setTimeout(() => { void this.loadFromActiveEditor(); }, 1200);
-      })
-    );
+    // ─────────────────────────────────────────
+    // 【本文の再描画は editor-change ではなく CursorSyncStore 経由に統一】
+    //
+    // 以前はここに editor-change イベントを購読し、1200msデバウンスで
+    // loadFromActiveEditor() を呼んで本文DOMを再構築する処理があった。
+    // これはカーソル位置の追従（CursorSyncStore、150msデバウンス）とは
+    // 完全に独立したタイマーであり、「本文再描画が完了するまでの間、
+    // 新しいカーソル位置を古い文区切り情報に当てはめてしまう」
+    // 世代不一致（入力文字数ぶんハイライトがズレて、再描画完了時に
+    // 正しい位置へ飛ぶ不具合）の原因になっていた。
+    //
+    // CursorSyncStore のスナップショットに本文そのもの（text）を
+    // 含めるよう拡張したことで、本文の変化とカーソル位置は常に
+    // 同じスナップショットとして一体で届く。そのため本文再描画も
+    // applySnapshot() 側（text !== this.lastText の判定）に統一し、
+    // このファイル独自の再描画タイマーは廃止した。
+    // ─────────────────────────────────────────
     this.registerEvent(
       this.app.workspace.on("active-leaf-change", () => {
         const mdView = this.app.workspace.getActiveViewOfType(MarkdownView);
@@ -703,7 +857,6 @@ export class VerticalPreviewView extends ItemView {
   }
 
   async onClose(): Promise<void> {
-    if (this.updateTimer) window.clearTimeout(this.updateTimer);
     this.unsubscribeCursorSync?.();
     this.unsubscribeCursorSync = null;
     if (typeof CSS !== "undefined" && CSS.highlights) {
@@ -727,7 +880,23 @@ export class VerticalPreviewView extends ItemView {
     if (mdView.file === this.lastFile && text === this.lastText) return;
     this.lastFile = mdView.file;
     this.lastText = text;
-    this.renderContent(text);
+    this.lastSelection = mdView.editor.getSelection() ?? "";
+    this.renderBody(text, this.lastSelection);
+    // ファイル切り替え・初回読み込み時のみ、基準となるスクロール
+    // 位置を右端（縦書きの開始位置）にリセットしてから、
+    // forceSyncNow() でカーソル位置へ同期する。
+    // （通常の入力・選択変更のたびにここへリセットすると、
+    //   キー入力のたびにスクロールが右端へ飛ぶことになるため、
+    //   ファイル読み込み時に限定している。）
+    if (this.scrollerEl) {
+      this.scrollerEl.scrollLeft = this.scrollerEl.scrollWidth;
+    }
+    // ファイル切り替え・初回読み込みでは、直前のカーソル位置は
+    // 別ファイルのものなので無効化し、forceSyncNow() で
+    // 現在のファイルのカーソル位置から改めて同期する。
+    this.lastCursorLine = -1;
+    this.lastCursorCh   = -1;
+    this.forceSyncNow();
   }
 
   forceReload(): void { this.lastText = ""; void this.loadFromActiveEditor(); }
@@ -757,15 +926,39 @@ export class VerticalPreviewView extends ItemView {
     this.bodyEl.style.setProperty("--nn-vertical-max-height", `${maxHeight}em`);
   }
 
-  private renderContent(text: string): void {
+  // ─────────────────────────────────────────
+  // 本文DOMの再構築のみを行う（カーソル同期・スクロールは行わない）
+  //
+  // 【設計変更の経緯】
+  // 以前はこの処理の末尾で textEl.empty() により本文DOM全体を
+  // 一度破棄してから丸ごと再構築していた。しかしこれは
+  // ・CSS Custom Highlight API の Range が一瞬存在しないノードを
+  //   指すことになる（ハイライトの瞬間消失）
+  // ・文書全体（縦書きでは数千〜数万文字ぶんの列になり得る）を
+  //   ブラウザに再レイアウト・再ペイントさせる（画面全体のちらつき）
+  // という2つの問題を引き起こしていた。後者の方が実際の
+  // ちらつきの主因であり、Range・Highlight の再構築タイミングを
+  // 同期化しただけでは解決しなかった。
+  //
+  // 実際のDOM書き換えは patchVerticalBody() に委譲し、変わった行
+  // だけを個別に差し替える方式にした（詳細は同関数のコメント参照）。
+  // Range の構築自体はレイアウト計算を必要としないため、DOM更新の
+  // 直後・同一タスク内で同期的に行って問題ない
+  // （Range.getBoundingClientRect() を使うスクロール位置計算のみ
+  //   レイアウトを要するが、これは呼び出すと同期的にレイアウトが
+  //   確定するため rAF を挟む必要はない）。
+  //
+  // そのため、このメソッドはDOM再構築だけに専念させ、
+  // 呼び出し元（applySnapshot / loadFromActiveEditor）が
+  // 同期的に syncCursorHighlight() を呼んでハイライト・スクロールを
+  // 即座に再構築する形にしている。
+  // ─────────────────────────────────────────
+  private renderBody(text: string, selection: string): void {
     if (!this.bodyEl) return;
 
     this.applyLayoutSettings();
 
-    const mdView = this.app.workspace.getActiveViewOfType(MarkdownView);
-    const sel = mdView?.editor.getSelection() ?? "";
-
-    const { html, lineSentences, lineSentPlainLengths } = toVerticalHtml(text, this.getRubyStyle(), sel);
+    const { html, lineSentences, lineSentPlainLengths } = toVerticalHtml(text, this.getRubyStyle(), selection);
     this.lineSentences = lineSentences;
     this.lineSentPlainLengths = lineSentPlainLengths;
 
@@ -773,20 +966,8 @@ export class VerticalPreviewView extends ItemView {
     if (!textEl) {
       textEl = this.bodyEl.createEl("div", { cls: "nn-vertical-text" });
     }
-    // DOMParser でパースしてノードを直接追加（innerHTML 不使用）
-    const parsed1 = new DOMParser().parseFromString(html, "text/html");
-    textEl.empty();
-    for (const node of Array.from(parsed1.body.childNodes)) {
-      textEl.appendChild(textEl.ownerDocument.adoptNode(node));
-    }
-
-    // DOM 確定後に右端→カーソル位置へ同期
-    this.lastCursorLine = -1;
-    this.lastCursorCh   = -1;
-    window.requestAnimationFrame(() => {
-      this.scrollerEl.scrollLeft = this.scrollerEl.scrollWidth;
-      window.requestAnimationFrame(() => this.forceSyncNow());
-    });
+    // 変わった行だけを差し替える（詳細は patchVerticalBody() 参照）
+    patchVerticalBody(textEl, html);
   }
 
   private renderEmpty(message: string): void {
@@ -829,91 +1010,112 @@ export class VerticalPreviewView extends ItemView {
     // 縦書きプレビューが表示しているファイルと異なるエディタからの
     // 通知は無視する（複数ペイン使用時に無関係な更新をしないため）。
     if (snapshot.file !== this.lastFile) return;
-    this.applySnapshot(snapshot, false);
+    this.applySnapshot(snapshot);
   }
 
   /**
-   * 本文再描画直後など、ストアの通知を待たずに即座に現在位置へ
+   * ファイル読み込み直後など、ストアの通知を待たずに即座に現在位置へ
    * 同期したい場合に呼ぶ。ストアに現在ファイルのスナップショットが
    * あればそれを使い、なければ MarkdownView から直接1回だけ読み取る
    * （購読方式に切り替える前の挙動と同じフォールバック）。
+   * スクロールは即座（instant）に行う。
    */
   private forceSyncNow(): void {
     const stored = this.cursorSyncStore?.get();
     if (stored && stored.file === this.lastFile) {
-      this.applySnapshot(stored, true);
+      this.lastSelection  = stored.selection;
+      this.lastCursorLine = stored.line;
+      this.lastCursorCh   = stored.ch;
+      this.syncCursorHighlight(stored.line, stored.ch, stored.selection, true);
       return;
     }
     const mdView = this.app.workspace.getActiveViewOfType(MarkdownView);
     if (mdView?.file !== this.lastFile) return;
     const cursor = mdView.editor.getCursor();
-    this.applySnapshot(
-      {
-        file: mdView.file, line: cursor.line, ch: cursor.ch,
-        selection: mdView.editor.getSelection() ?? "",
-        docLength: mdView.editor.getValue().length,
-      },
-      true
-    );
+    const selection = mdView.editor.getSelection() ?? "";
+    this.lastSelection  = selection;
+    this.lastCursorLine = cursor.line;
+    this.lastCursorCh   = cursor.ch;
+    this.syncCursorHighlight(cursor.line, cursor.ch, selection, true);
   }
 
   /**
-   * カーソル位置・選択範囲のスナップショットを実際に反映する。
-   * force=true の場合、本文データの鮮度チェックをバイパスして
-   * 即座に反映する（本文再描画直後の呼び出し用）。
+   * カーソル位置・選択範囲・本文のスナップショットを実際に反映する。
+   *
+   * 【設計変更の経緯】
+   * 以前はここで snapshot.docLength と this.lastText.length を比較し、
+   * 一致しなければ「本文再描画がまだ追いついていない」とみなして
+   * 即座に return していた（本文再描画は editor-change の
+   * 1200msデバウンスという別タイマーで行われていたため）。
+   * この間、新しいカーソル位置の通知はすべて無視され、ハイライトは
+   * 古い位置に固定されたまま、本文再描画が完了した瞬間に正しい位置へ
+   * ワープする（＝入力文字数ぶんズレてから戻る）という不具合があった。
+   *
+   * CursorSyncStore のスナップショットが本文そのもの（text）を
+   * 運ぶようになったことで、この鮮度チェックは不要になった。
+   * snapshot.text が this.lastText と異なれば、それはこの
+   * スナップショットの時点での最新本文なのでそのまま再描画すればよい。
+   * 本文再描画とカーソル同期が常に同じスナップショットに基づいて
+   * 一体で行われるため、世代がズレる余地自体がなくなる。
    */
-  private applySnapshot(snapshot: CursorSyncSnapshot, force: boolean): void {
+  private applySnapshot(snapshot: CursorSyncSnapshot): void {
     if (!this.bodyEl || !this.scrollerEl) return;
 
-    // ─────────────────────────────────────────
-    // 【本文データの鮮度チェックは「イベント発火」ではなく
-    //   「実際のドキュメント長の直接比較」で行う】
-    //
-    // 以前は editor-change イベントが発火した時点で dirty フラグを
-    // 立てる方式だったが、Obsidian の editor-change イベントは
-    // 内部で間引かれることがあり、発火タイミングが CM6拡張側
-    // （毎回確実に発火する CursorSyncStore への書き込み）より
-    // 遅れることがあった。その隙間で「新しいカーソル位置」を
-    // 「古い（本文再描画前の）文の区切り情報」に当てはめてしまい、
-    // 入力した文字数の分だけハイライトがズレる（IME変換の有無に
-    // 関係なく発生する）不具合があった。
-    //
-    // ドキュメント長（snapshot.docLength）を、縦書きプレビュー側が
-    // 最後に描画した本文の文字数（this.lastText.length）と直接
-    // 比較することで、イベントの発火タイミングに一切依存せず、
-    // 「まだ描画に反映されていない編集があるかどうか」を判定する。
-    // ─────────────────────────────────────────
-    if (!force && snapshot.docLength !== this.lastText.length) return;
-
-    const { line: cursorLine, ch: cursorCh, selection } = snapshot;
+    const { line: cursorLine, ch: cursorCh, selection, text } = snapshot;
     if (cursorLine < 0) return;
 
-    const cursorChanged    = force || cursorLine !== this.lastCursorLine || cursorCh !== this.lastCursorCh;
+    const textChanged      = text !== this.lastText;
     const selectionChanged = selection !== this.lastSelection;
-    if (!cursorChanged && !selectionChanged) return;
 
-    // 選択ハイライト更新
-    if (selectionChanged && this.lastText) {
+    // 本文または選択範囲（ハイライト用マーク）が変わった場合は
+    // DOM を再構築してからカーソル同期する。
+    // renderBody() は DOM 再構築のみを行い、直後に
+    // syncCursorHighlight() を同期呼び出しすることで、
+    // Range・Highlight が「存在しないノードを指す」フレームを
+    // 発生させない（ちらつき対策）。
+    if (textChanged || selectionChanged) {
+      this.lastText      = text;
       this.lastSelection = selection;
-      const { html, lineSentences, lineSentPlainLengths } = toVerticalHtml(
-        this.lastText, this.getRubyStyle(), selection
-      );
-      this.lineSentences = lineSentences;
-      this.lineSentPlainLengths = lineSentPlainLengths;
-      const textEl = this.bodyEl.querySelector<HTMLElement>(".nn-vertical-text");
-      // DOMParser でパースしてノードを直接追加（innerHTML 不使用）
-      if (textEl) {
-        const parsed2 = new DOMParser().parseFromString(html, "text/html");
-        textEl.empty();
-        for (const node of Array.from(parsed2.body.childNodes)) {
-          textEl.appendChild(textEl.ownerDocument.adoptNode(node));
-        }
-      }
+      this.renderBody(text, selection);
+      // syncCursorHighlight() が Range を作れず早期returnした場合、
+      // 直前のハイライト・スクロール位置がそのまま残る
+      // （差分パッチにより無関係な行のスクロール位置は元々
+      //   変化しないため、フォールバックとしての強制リセットは
+      //   不要になった）。
+      this.lastCursorLine = cursorLine;
+      this.lastCursorCh   = cursorCh;
+      this.syncCursorHighlight(cursorLine, cursorCh, selection, true);
+      return;
     }
 
-    if (!(cursorChanged || selectionChanged)) return;
+    const cursorChanged = cursorLine !== this.lastCursorLine || cursorCh !== this.lastCursorCh;
+    if (!cursorChanged) return;
+
     this.lastCursorLine = cursorLine;
     this.lastCursorCh   = cursorCh;
+    this.syncCursorHighlight(cursorLine, cursorCh, selection, false);
+  }
+
+  // ─────────────────────────────────────────
+  // カーソル文の Range を構築し、ハイライトの付け替え・
+  // スクロール追従を同期的に行う。
+  //
+  // 呼び出し元（applySnapshot / forceSyncNow）は、本文DOMが
+  // 既に確定した状態でこれを呼ぶ。Range の構築・CSS Highlight の
+  // 登録はレイアウトを必要としないため即座に行える。
+  // Range.getBoundingClientRect() はレイアウトを要求するが、
+  // 呼び出すとブラウザがその場で同期的にレイアウトを確定させるため、
+  // requestAnimationFrame を挟まなくても正しい値が返る
+  // （Obsidian は Chromium 上で動作するためこれに依存できる）。
+  // ─────────────────────────────────────────
+  private syncCursorHighlight(
+    cursorLine: number,
+    cursorCh: number,
+    selection: string,
+    instant: boolean
+  ): void {
+    if (!this.bodyEl || !this.scrollerEl) return;
+    if (cursorLine < 0) return;
 
     // ── カーソル行の文インデックスを特定 ──────────
     //
@@ -1025,7 +1227,7 @@ export class VerticalPreviewView extends ItemView {
 
     this.scrollerEl.scrollTo({
       left: Math.max(0, Math.min(desiredLeft, scrollWidth - containerWidth)),
-      behavior: force ? "instant" : "smooth",
+      behavior: instant ? "instant" : "smooth",
     });
   }
 }

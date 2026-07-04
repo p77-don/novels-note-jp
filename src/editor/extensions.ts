@@ -464,7 +464,7 @@ export function buildCursorSyncExtension(store: CursorSyncStore, app: App) {
       line:      line.number - 1, // CM6 は1始まり、Obsidian editor / 本プラグイン内部は0始まり
       ch:        range.head - line.from,
       selection: view.state.sliceDoc(range.from, range.to),
-      docLength: view.state.doc.length,
+      text:      view.state.doc.toString(),
     });
   };
 
