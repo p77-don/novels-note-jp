@@ -18,6 +18,7 @@ import {
   buildTermExtension,
   buildRulerExtension,
   buildFullWidthSpaceExtension,
+  buildEolMarkerExtension,
   buildTermDropExtension,
   buildRubyExtension,
   buildCursorSyncExtension,
@@ -183,6 +184,9 @@ export default class NovelsNoteJP extends Plugin {
     );
     this.registerEditorExtension(
       buildFullWidthSpaceExtension(() => this.settings)
+    );
+    this.registerEditorExtension(
+      buildEolMarkerExtension(() => this.settings)
     );
 
     // ─────────────────────────────────────────
@@ -431,6 +435,19 @@ export default class NovelsNoteJP extends Plugin {
       }
       .cm-editor[data-novel-mode="true"] .cm-content .novel-fwsp--box {
         outline: 1px solid ${fwColor}; opacity: 0.6;
+      }
+      .cm-editor[data-novel-mode="true"] .cm-content .novel-eol {
+        position: relative;
+        display: inline-block;
+        width: 0;
+      }
+      .cm-editor[data-novel-mode="true"] .cm-content .novel-eol-mark {
+        position: absolute;
+        top: 50%; left: 0.15em;
+        transform: translateY(-50%);
+        color: ${fwColor}; opacity: 0.5;
+        font-size: 1em; pointer-events: none; line-height: 1;
+        user-select: none;
       }`
       : "";
 

@@ -8,6 +8,7 @@ import {
   DecorationSet,
   Decoration,
   ViewUpdate,
+  WidgetType,
 } from "@codemirror/view";
 
 // ルビ表示 Extension（別ファイルで定義）
@@ -297,7 +298,96 @@ export function buildFullWidthSpaceExtension(getSettings: () => NovelsNoteSettin
 }
 
 // ─────────────────────────────────────────
-// Extension 5: 用語のドラッグ＆ドロップ挿入
+// Extension 4.5: 改行記号可視化
+// mode:novel のエディタのみ動作する
+//
+// 【折り返しへの影響について】
+// 実際に文字を挿入する（Decoration.replace など）方式だと、記号の
+// 分だけ幅が増え、折り返し境界ぎりぎりの行では記号だけが次行に
+// 押し出されてしまう可能性がある。
+// これを避けるため、記号本体はレイアウト幅を持たない
+// width:0 の inline-block ラッパー（Decoration.widget）に収め、
+// 見た目の記号は position:absolute の子要素として重ねて描画する
+// （全角スペース可視化の ::after オーバーレイと同じ考え方）。
+// ラッパー自体の幅が 0 のため、折り返し判定に影響を与えない。
+// ─────────────────────────────────────────
+class EolWidget extends WidgetType {
+  eq(): boolean {
+    // どの行の改行記号も見た目・状態は同一なので、常に等価として
+    // 扱い、無駄な DOM 再生成を避ける。
+    return true;
+  }
+
+  toDOM(): HTMLElement {
+    const wrap = window.document.createElement("span");
+    wrap.className = "novel-eol";
+    wrap.setAttribute("aria-hidden", "true");
+    const mark = window.document.createElement("span");
+    mark.className = "novel-eol-mark";
+    mark.textContent = "↵";
+    wrap.appendChild(mark);
+    return wrap;
+  }
+
+  ignoreEvent(): boolean {
+    // クリック等はエディタ本体に委ね、記号自体はカーソル操作に
+    // 割り込まない。
+    return true;
+  }
+}
+
+export function buildEolMarkerExtension(getSettings: () => NovelsNoteSettings) {
+  return ViewPlugin.fromClass(
+    class {
+      decorations: DecorationSet;
+      constructor(view: EditorView) { this.decorations = this.build(view); }
+      update(update: ViewUpdate) {
+        if (
+          update.docChanged ||
+          update.viewportChanged ||
+          update.transactions.some(tr => tr.effects.some(e => e.is(settingsEffect)))
+        ) {
+          this.decorations = this.build(update.view);
+        }
+      }
+      build(view: EditorView): DecorationSet {
+        const builder = new RangeSetBuilder<Decoration>();
+
+        // mode:novel でないエディタでは何もしない
+        if (!view.state.field(novelModeField, false)) return builder.finish();
+
+        const settings = getSettings();
+
+        // 全角スペース可視化と表示条件・トグルを共有する
+        // （全角スペースを非表示にした場合は改行記号も非表示にする）。
+        if (!settings.showFullWidthSpace || settings.fullWidthSpaceStyle === "none") {
+          return builder.finish();
+        }
+
+        const widget = Decoration.widget({ widget: new EolWidget(), side: 1 });
+        const doc = view.state.doc;
+        const lastLine = doc.lines;
+
+        for (const { from, to } of view.visibleRanges) {
+          let pos = from;
+          while (pos <= to) {
+            const line = doc.lineAt(pos);
+            // 文書の最終行には改行が存在しないため記号を出さない
+            if (line.number < lastLine) {
+              builder.add(line.to, line.to, widget);
+            }
+            if (line.to >= to) break;
+            pos = line.to + 1;
+          }
+        }
+        return builder.finish();
+      }
+    },
+    { decorations: v => v.decorations }
+  );
+}
+
+
 //
 // サイドバー（用語インデックス）の用語行をメインエディタへ
 // ドラッグ＆ドロップすると、ドロップした正確な位置に

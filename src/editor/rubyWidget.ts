@@ -14,6 +14,7 @@ import {
   ViewUpdate,
 } from "@codemirror/view";
 import { RangeSetBuilder } from "@codemirror/state";
+import { editorLivePreviewField } from "obsidian";
 import { NovelsNoteSettings } from "../settings";
 import { settingsEffect, novelModeField } from "../types";
 import { findRubyMatches, RubyMatch, computeRtFontSizeEm, DEFAULT_RT_FONT_SIZE_EM } from "../core/rubyPatterns";
@@ -82,7 +83,12 @@ export function buildRubyExtension(getSettings: () => NovelsNoteSettings) {
           update.selectionSet ||
           update.transactions.some(tr =>
             tr.effects.some(e => e.is(settingsEffect))
-          )
+          ) ||
+          // ソースモード ⇔ ライブプレビューの切り替えでも再構築する
+          // （切り替え自体は docChanged 等を伴わないため、この判定が
+          //   ないとモード切替直後は古い描画のままになる）
+          update.startState.field(editorLivePreviewField, false) !==
+            update.state.field(editorLivePreviewField, false)
         ) {
           this.decorations = this.build(update.view);
         }
@@ -93,6 +99,11 @@ export function buildRubyExtension(getSettings: () => NovelsNoteSettings) {
 
         // mode:novel 以外では何もしない
         if (!view.state.field(novelModeField, false)) return builder.finish();
+
+        // ソースモードでは記入内容をそのまま表示する（ルビ記法を
+        // 生テキストのまま見せる）ため、ウィジェット置換を行わない。
+        // ライブプレビューでのみルビ表示を有効にする。
+        if (!view.state.field(editorLivePreviewField, false)) return builder.finish();
 
         const settings = getSettings();
         const style = settings.rubyStyle;

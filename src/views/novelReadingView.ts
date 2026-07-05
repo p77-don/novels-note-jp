@@ -285,8 +285,7 @@ export class NovelReadingView extends ItemView {
     // mode: novel チェック
     const cache = this.app.metadataCache.getFileCache(file);
     const frontmatter = cache?.frontmatter;
-    const mode  = frontmatter?.["mode"];
-    if (mode !== "novel") {
+    if (frontmatter?.["mode"] !== "novel") {
       this.renderMessage(
         "このファイルは対象外です。\nFrontmatter に `mode: novel` を設定してください。"
       );

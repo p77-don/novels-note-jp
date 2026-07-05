@@ -118,8 +118,19 @@ class RubyInputModal extends Modal {
     };
 
     input.addEventListener("keydown", (e: KeyboardEvent) => {
-      if (e.key === "Enter") submit();
-      if (e.key === "Escape") this.close();
+      // モーダル内でのキー操作を「ルビ挿入」または「モーダルを閉じる」
+      // だけに留める。preventDefault/stopPropagation を呼ばないと、
+      // Enter キーがモーダルの外（下layerのCodeMirrorエディタ）にも
+      // 届いてしまい、ルビ挿入と同時に本文が改行される原因になる。
+      if (e.key === "Enter") {
+        e.preventDefault();
+        e.stopPropagation();
+        submit();
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        this.close();
+      }
     });
     cancelBtn.addEventListener("click", () => this.close());
     insertBtn.addEventListener("click", submit);

@@ -5,6 +5,24 @@
 import { App, PluginSettingTab, Setting } from "obsidian";
 import NovelsNoteJP from "../main";
 
+// ─────────────────────────────────────────
+// 説明文（setDesc）を複数行に分けて表示するためのヘルパー
+//
+// Setting.setDesc() は string を渡すと単なるテキストノードとして
+// 挿入されるため、"\n" や "<br>" をそのまま書いても改行されない
+// （HTMLタグは自動エスケープされ、改行コードは空白として扱われる）。
+// DocumentFragment を組み立てて渡すことで、意図した箇所で
+// 確実に改行できる。
+// ─────────────────────────────────────────
+function descLines(...lines: string[]): DocumentFragment {
+  const frag = document.createDocumentFragment();
+  lines.forEach((line, i) => {
+    if (i > 0) frag.appendChild(document.createElement("br"));
+    frag.appendChild(document.createTextNode(line));
+  });
+  return frag;
+}
+
 export class NovelsNoteSettingTab extends PluginSettingTab {
   plugin: NovelsNoteJP;
 
@@ -178,15 +196,19 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
   // 全角スペース可視化セクション
   // ─────────────────────────────────────────
   private renderFullWidthSpaceSection(containerEl: HTMLElement): void {
-    new Setting(containerEl).setName("全角スペースの表示").setHeading();
+    new Setting(containerEl).setName("全角スペースと改行記号の表示").setHeading();
     containerEl.createEl("p", {
-      text: "段落先頭の全角スペースを目視で確認できます。本文テキストは変更しません。",
+      text: "段落先頭の全角スペースと、行末の改行位置を目視で確認できます。",
       cls: "setting-item-description",
     });
 
     new Setting(containerEl)
       .setName("全角スペースを可視化する")
-      .setDesc("オンにすると全角スペース（\u3000）の位置を記号で表示します。")
+      .setDesc(descLines(
+        "オンにすると全角スペース（\u3000）の位置を記号で表示します。",
+        "あわせて行末に改行記号（↵）も表示します（オフにすると両方とも非表示になります）。",
+        "※改行記号は幅を持たないため、折り返し位置には影響しません。"
+      ))
       .addToggle(toggle =>
         toggle.setValue(this.plugin.settings.showFullWidthSpace)
           .onChange(async value => {
@@ -198,12 +220,13 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("表示スタイル")
-      .setDesc(
-        "dot: 中央に薄いドットを重ねる（目立ちにくい）　" +
-        "underline: 下線で幅を示す　" +
-        "box: 薄い枠線で囲む"
-      )
+      .setName("全角スペースの表示スタイル")
+      .setDesc(descLines(
+        "全角スペースの表示方法を選べます（改行記号の見た目には影響しません）。",
+        "・ドット： 中央に薄いドットを重ねる",
+        "・下線：アンダーラインで幅を示す",
+        "・枠線： 薄い線で枠を囲む"
+      ))
       .addDropdown(drop =>
         drop
           .addOption("dot",       "ドット（中央の点）")
@@ -223,7 +246,7 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("表示色")
-      .setDesc("可視化マーカーの色（エディタのテーマに合わせて調整してください）。")
+      .setDesc("全角スペースの記号・改行記号の色（エディタのテーマに合わせて調整してください）。")
       .addColorPicker(picker =>
         picker.setValue(this.plugin.settings.fullWidthSpaceColor)
           .onChange(async value => {
@@ -262,7 +285,11 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
     let folderInput = "";
     new Setting(containerEl)
       .setName("フォルダを追加")
-      .setDesc("Vault ルートからの相対パスを入力してください（例：_templates、characters/_templates）。")
+      .setDesc(descLines(
+        "Vault ルートからの相対パスを入力してください。",
+        "（例：templates、characters/templates）"
+        )
+      )
       .addText(text => {
         text.setPlaceholder("フォルダパスを入力…");
         text.inputEl.addClass("nn-folder-path-input");
@@ -635,12 +662,12 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("ルビの記法")
-      .setDesc([
-        "なろう式：漢字《ルビ》 または |漢字《ルビ》（半角縦棒）",
-        "青空文庫式：漢字《ルビ》 または ｜漢字《ルビ》（全角縦棒）",
-        "でんでん式：{漢字|ルビ}",
-        "HTMLタグ：<ruby>漢字<rt>ルビ</rt></ruby>",
-      ].join("　/　"))
+      .setDesc(descLines(
+        "・なろう式：漢字《ルビ》 または |漢字《ルビ》（半角縦棒）",
+        "・青空文庫式：漢字《ルビ》 または ｜漢字《ルビ》（全角縦棒）",
+        "・でんでん式：{漢字|ルビ}",
+        "・HTMLタグ：<ruby>漢字<rt>ルビ</rt></ruby>"
+      ))
       .addDropdown(drop =>
         drop
           .addOption("narou",  "なろう式（漢字《ルビ》 / |漢字《ルビ》）")
@@ -669,11 +696,11 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("カウントモード")
-      .setDesc(
-        "raw: 文字数そのまま　" +
-        "novel: 全角1字・半角0.5字で換算　" +
+      .setDesc(descLines(
+        "raw: 文字数そのまま",
+        "novel: 全角1字・半角0.5字で換算",
         "manuscript: 400字詰め原稿用紙の枚数"
-      )
+      ))
       .addDropdown(drop =>
         drop
           .addOption("raw",        "raw（文字数）")
@@ -689,10 +716,10 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("全角スペースを文字数に含める")
-      .setDesc(
-        "オンにすると段落先頭などの全角スペース（　）も1文字としてカウントします。" +
+      .setDesc(descLines(
+        "オンにすると段落先頭などの全角スペース（　）も1文字としてカウントします。",
         "オフ（デフォルト）にすると除外します。"
-      )
+      ))
       .addToggle(toggle =>
         toggle.setValue(this.plugin.settings.countFullWidthSpace)
           .onChange(async value => {
@@ -704,10 +731,10 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("空行を文字数に含める")
-      .setDesc(
-        "オンにすると内容のない行（空行）の改行文字もカウント対象にします。" +
+      .setDesc(descLines(
+        "オンにすると内容のない行（空行）の改行文字もカウント対象にします。",
         "通常はオフ（デフォルト）のままで構いません。"
-      )
+      ))
       .addToggle(toggle =>
         toggle.setValue(this.plugin.settings.countEmptyLines)
           .onChange(async value => {
@@ -719,10 +746,10 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("#tag を文字数に含める")
-      .setDesc(
-        "オンにすると原稿中に書いた #tag（キャラクター登録などの目印）も文字数としてカウントします。" +
+      .setDesc(descLines(
+        "オンにすると原稿中に書いた #tag（キャラクター登録などの目印）も文字数としてカウントします。",
         "オフ（デフォルト）にすると #tag を除外します（エクスポート時の除去と同じ扱いになります）。"
-      )
+      ))
       .addToggle(toggle =>
         toggle.setValue(this.plugin.settings.countHashtags)
           .onChange(async value => {
