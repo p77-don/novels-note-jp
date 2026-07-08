@@ -12,7 +12,17 @@ import {
   DEFAULT_BRACKET_DEFINITIONS,
   TagDefinition,
 } from "./settings";
-import { SIDEBAR_VIEW_TYPE, VERTICAL_VIEW_TYPE, NOVEL_READING_VIEW_TYPE, TermEntry, settingsEffect, novelModeEffect, novelModeField } from "./types";
+import {
+  SIDEBAR_VIEW_TYPE,
+  VERTICAL_VIEW_TYPE,
+  NOVEL_READING_VIEW_TYPE,
+  WRITING_STATS_VIEW_TYPE,
+  TermEntry,
+  WritingStatsEntry,
+  settingsEffect,
+  novelModeEffect,
+  novelModeField,
+} from "./types";
 import {
   buildBracketExtension,
   buildTermExtension,
@@ -26,10 +36,11 @@ import {
 import { CursorSyncStore } from "./editor/cursorSyncStore";
 import { NovelsNoteSidebarView } from "./views/sidebarView";
 import { NovelsNoteSettingTab } from "./core/settingTab";
-import { countCharacters, formatCount, CountMode } from "./core/wordCount";
+import { countCharacters, countNarrativeAndDialogue, formatCount, CountMode } from "./core/wordCount";
 import { ExportModal } from "./export/exportModal";
 import { VerticalPreviewView } from "./views/verticalPreview";
 import { NovelReadingView } from "./views/novelReadingView";
+import { WritingStatsView } from "./views/writingStatsView";
 import { onEditorMenuForRuby } from "./editor/rubyInserter";
 
 // ─────────────────────────────────────────
@@ -140,6 +151,12 @@ export default class NovelsNoteJP extends Plugin {
       }
     );
 
+    // 執筆情報一覧 View 登録
+    this.registerView(
+      WRITING_STATS_VIEW_TYPE,
+      leaf => new WritingStatsView(leaf, () => this.buildWritingStats())
+    );
+
     this.addRibbonIcon("list-tree", "用語インデックスを開く", () =>
       this.activateSidebar()
     );
@@ -149,10 +166,14 @@ export default class NovelsNoteJP extends Plugin {
     this.addRibbonIcon("square-chart-gantt", "小説用ビューで表示", () =>
       this.activateNovelReadingView()
     );
+    this.addRibbonIcon("bar-chart-3", "執筆情報一覧を開く", () =>
+      this.activateWritingStatsView()
+    );
     this.addSettingTab(new NovelsNoteSettingTab(this.app, this));
     this.registerExportCommand();
     this.registerVerticalPreviewCommand();
     this.registerNovelReadingViewCommand();
+    this.registerWritingStatsCommand();
 
     // ─────────────────────────────────────────
     // novelModeField を全エディタに登録
@@ -372,6 +393,10 @@ export default class NovelsNoteJP extends Plugin {
     // 旧バージョンの保存データには excludeFolders がないため明示的に保証する
     if (!Array.isArray(this.settings.excludeFolders)) {
       this.settings.excludeFolders = [];
+    }
+    // 旧バージョンの保存データには statsExcludeFolders がないため明示的に保証する
+    if (!Array.isArray(this.settings.statsExcludeFolders)) {
+      this.settings.statsExcludeFolders = [];
     }
   }
 
@@ -898,5 +923,83 @@ export default class NovelsNoteJP extends Plugin {
         leaf.view.forceReload();
       }
     }
+  }
+
+  // ─────────────────────────────────────────
+  // 執筆情報一覧 コマンド
+  // ─────────────────────────────────────────
+  private registerWritingStatsCommand(): void {
+    this.addCommand({
+      id: "open-writing-stats",
+      name: "執筆情報一覧を開く",
+      callback: () => this.activateWritingStatsView(),
+    });
+  }
+
+  async activateWritingStatsView(): Promise<void> {
+    const { workspace } = this.app;
+
+    // 既に開いていればそのタブを表示し、最新状態に再読み込みする
+    const existing = workspace.getLeavesOfType(WRITING_STATS_VIEW_TYPE);
+    if (existing.length > 0) {
+      void workspace.revealLeaf(existing[0]);
+      const view = existing[0].view;
+      if (view instanceof WritingStatsView) {
+        void view.reload();
+      }
+      return;
+    }
+
+    // メインエリアに新規タブとして開く
+    const leaf = workspace.getLeaf("tab");
+    await leaf.setViewState({ type: WRITING_STATS_VIEW_TYPE, active: true });
+    void workspace.revealLeaf(leaf);
+  }
+
+  // ─────────────────────────────────────────
+  // 執筆情報一覧 データ構築
+  //
+  // mode:novel の frontmatter を持つノートを vault 全体から検索し、
+  // statsExcludeFolders で指定されたフォルダを除外する。
+  // 各ノートの本文を読み込み、執筆文字数・地の文／会話文の文字数・
+  // 作成日時・最終更新日時を集計して返す。
+  // ─────────────────────────────────────────
+  async buildWritingStats(): Promise<WritingStatsEntry[]> {
+    const entries: WritingStatsEntry[] = [];
+    const files = this.app.vault.getMarkdownFiles();
+
+    // 除外フォルダのリストを正規化（末尾スラッシュを統一）
+    const excludedPrefixes = (this.settings.statsExcludeFolders ?? [])
+      .map(f => f.trim())
+      .filter(f => f.length > 0)
+      .map(f => f.endsWith("/") ? f : f + "/");
+
+    for (const file of files) {
+      // 除外フォルダに含まれるファイルはスキップ
+      if (excludedPrefixes.some(prefix => file.path.startsWith(prefix))) continue;
+
+      const cache = this.app.metadataCache.getFileCache(file);
+      if (cache?.frontmatter?.["mode"] !== "novel") continue;
+
+      const source = await this.app.vault.cachedRead(file);
+      const { raw: totalChars } = countCharacters(source, this.settings);
+      const { narrativeChars, dialogueChars } = countNarrativeAndDialogue(source, this.settings);
+
+      const slashIdx = file.path.lastIndexOf("/");
+      const folderPath = slashIdx === -1 ? "" : file.path.slice(0, slashIdx);
+
+      entries.push({
+        filePath: file.path,
+        fileName: file.name,
+        folderPath,
+        createdAt: file.stat.ctime,
+        modifiedAt: file.stat.mtime,
+        totalChars,
+        narrativeChars,
+        dialogueChars,
+      });
+    }
+
+    return entries;
   }
 }

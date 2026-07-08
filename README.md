@@ -105,6 +105,20 @@ Export the current note as clean manuscript text via a dedicated export dialog:
 
 ![export-document](docs/export-document.png)
 
+### Writing Stats
+Open a manuscript overview in the main pane, aggregating every `mode: novel` note in the vault into one place.
+
+- Run **執筆情報一覧を開く** from the command palette to open the view as a new tab
+- A fixed summary at the top shows the vault-wide total character count, narrative-text (地の文) count, and dialogue-text (会話文) count, each with its ratio
+- Below it, every matching note is listed as its own card showing character count, narrative/dialogue split and ratios, creation date, and last-modified date
+- Dialogue is detected using whichever bracket types are enabled in Bracket Highlighting settings (`「」`, `『』`, etc.)
+- Sort the note list by filename, creation date, or last-modified date; only the note list scrolls, so the summary and sort controls stay visible
+- Click a filename to jump straight to that note
+- A **再集計** (recalculate) button refreshes the list on demand
+- Folders can be excluded from the scan via a dedicated exclude-folder list in Settings, independent of the term index's exclude list
+
+![writingStats](./docs/writingStats.png)
+
 ---
 
 ## Installation
@@ -157,6 +171,9 @@ Run **Novels Note JP: 小説閲覧ビューを開く** from the command palette 
 ### Export
 Run **Novels Note JP: 現在のファイルを原稿 Export する** from the command palette to open the export dialog.
 
+### Writing Stats
+Run **Novels Note JP: 執筆情報一覧を開く** from the command palette to open the manuscript stats overview in a new tab.
+
 ---
 
 ## Settings
@@ -176,6 +193,7 @@ Run **Novels Note JP: 現在のファイルを原稿 Export する** from the co
 | Word count options | Whether to include full-width spaces, blank lines, and hashtags in the count |
 | Vertical preview cursor highlight | Enable/disable and color for the cursor-line highlight in vertical preview |
 | Exclude folders | Folders excluded from the term index |
+| Writing Stats exclude folders | Folders excluded from the Writing Stats scan (managed separately from the term index's exclude list) |
 
 ---
 
@@ -314,6 +332,20 @@ WikiLink・タグ・本文以外のコンテンツを除去したクリーンな
 
 ![export-document](docs/export-document.png)
 
+### 執筆情報一覧
+Vault 全体の `mode: novel` ノートを集計し、メインペインに一覧表示します。
+
+- コマンドパレットから **執筆情報一覧を開く** を実行すると、新規タブとして開きます
+- 上部には全原稿の合計（執筆文字数・地の文・会話文の文字数と比率）が固定表示されます
+- その下に、該当する原稿ノートごとのカードが並び、執筆文字数・地の文／会話文の文字数と比率・作成日時・最終更新日時を表示します
+- 会話文の判定は、括弧ハイライト設定で有効になっている括弧の種類（「」『』など）に基づきます
+- ファイル名・作成日時・最終更新日時で並び替え可能。並び替え時にスクロールするのは原稿の一覧部分のみで、合計サマリーと並び替えボタンは常に表示され続けます
+- ファイル名をクリックすると、そのノートを直接開けます
+- **再集計** ボタンでいつでも最新の状態に更新できます
+- 設定にて、集計対象から除外するフォルダを指定可能（用語インデックスの除外フォルダとは別に管理されます）
+
+![writingStats](./docs/writingStats.png)
+
 ---
 
 ## インストール
@@ -364,6 +396,9 @@ WikiLink・タグ・本文以外のコンテンツを除去したクリーンな
 ### エクスポート
 コマンドパレットから **Novels Note JP: 現在のファイルを原稿 Export する** を実行します。
 
+### 執筆情報一覧
+コマンドパレットから **Novels Note JP: 執筆情報一覧を開く** を実行すると、原稿の集計一覧が新規タブとして開きます。
+
 ---
 
 ## 設定一覧
@@ -383,6 +418,7 @@ WikiLink・タグ・本文以外のコンテンツを除去したクリーンな
 | 文字数カウントオプション | 全角スペース・空行・ハッシュタグをカウントに含めるか |
 | 縦書きプレビューのカーソルハイライト | カーソル行の背景色とオン/オフ |
 | 除外フォルダ | 用語インデックスから除外するフォルダ |
+| 執筆情報一覧 除外フォルダ | 執筆情報一覧の集計対象から除外するフォルダ（用語インデックスの除外フォルダとは別に管理） |
 
 ---
 

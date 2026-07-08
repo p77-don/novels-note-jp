@@ -77,6 +77,9 @@ export interface NovelsNoteSettings {
 
   // 用語インデックス除外フォルダ
   excludeFolders: string[];  // 用語インデックス（サイドバー・ハイライト）から除外するフォルダパス
+
+  // 執筆情報一覧 除外フォルダ
+  statsExcludeFolders: string[]; // 執筆情報一覧（原稿ノートの検索）から除外するフォルダパス
 }
 
 // ─────────────────────────────────────────
@@ -131,4 +134,7 @@ export const DEFAULT_SETTINGS: NovelsNoteSettings = {
 
   // 用語インデックス除外フォルダ
   excludeFolders: [],
+
+  // 執筆情報一覧 除外フォルダ
+  statsExcludeFolders: [],
 };

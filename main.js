@@ -26,7 +26,7 @@ __export(main_exports, {
   default: () => NovelsNoteJP
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian9 = require("obsidian");
+var import_obsidian10 = require("obsidian");
 var import_view3 = require("@codemirror/view");
 
 // src/settings.ts
@@ -71,7 +71,9 @@ var DEFAULT_SETTINGS = {
   verticalCursorHighlightColor: "#3a5a8a",
   verticalCursorHighlightEnabled: true,
   // 用語インデックス除外フォルダ
-  excludeFolders: []
+  excludeFolders: [],
+  // 執筆情報一覧 除外フォルダ
+  statsExcludeFolders: []
 };
 
 // src/types.ts
@@ -79,6 +81,7 @@ var import_state = require("@codemirror/state");
 var SIDEBAR_VIEW_TYPE = "novels-note-jp-sidebar";
 var VERTICAL_VIEW_TYPE = "novels-note-jp-vertical";
 var NOVEL_READING_VIEW_TYPE = "novel-reading-view";
+var WRITING_STATS_VIEW_TYPE = "novels-note-jp-writing-stats";
 var settingsEffect = import_state.StateEffect.define();
 var novelModeEffect = import_state.StateEffect.define();
 var novelModeField = import_state.StateField.define({
@@ -1372,10 +1375,10 @@ tags:
 // src/core/settingTab.ts
 var import_obsidian4 = require("obsidian");
 function descLines(...lines) {
-  const frag = document.createDocumentFragment();
+  const frag = activeDocument.createDocumentFragment();
   lines.forEach((line, i) => {
-    if (i > 0) frag.appendChild(document.createElement("br"));
-    frag.appendChild(document.createTextNode(line));
+    if (i > 0) frag.appendChild(activeDocument.createElement("br"));
+    frag.appendChild(activeDocument.createTextNode(line));
   });
   return frag;
 }
@@ -1397,6 +1400,7 @@ var NovelsNoteSettingTab = class extends import_obsidian4.PluginSettingTab {
     this.renderFullWidthSpaceSection(containerEl);
     this.renderWordCountSection(containerEl);
     this.renderExcludeFoldersSection(containerEl);
+    this.renderStatsExcludeFoldersSection(containerEl);
     this.renderHighlightSection(containerEl);
     this.renderTagSection(containerEl);
     this.renderBracketSection(containerEl);
@@ -1626,6 +1630,85 @@ var NovelsNoteSettingTab = class extends import_obsidian4.PluginSettingTab {
     await this.plugin.buildTermIndex();
     this.plugin.updateSidebar();
     this.plugin.refreshEditors();
+    this.refresh();
+  }
+  // ─────────────────────────────────────────
+  // 執筆情報一覧 — 除外フォルダ設定
+  // ─────────────────────────────────────────
+  renderStatsExcludeFoldersSection(containerEl) {
+    new import_obsidian4.Setting(containerEl).setName("\u57F7\u7B46\u60C5\u5831\u4E00\u89A7 \u2014 \u9664\u5916\u30D5\u30A9\u30EB\u30C0").setHeading();
+    containerEl.createEl("p", {
+      text: "\u6307\u5B9A\u3057\u305F\u30D5\u30A9\u30EB\u30C0\u5185\u306E\u30D5\u30A1\u30A4\u30EB\u3092\u300C\u57F7\u7B46\u60C5\u5831\u4E00\u89A7\u300D\u306E\u96C6\u8A08\u5BFE\u8C61\u304B\u3089\u9664\u5916\u3057\u307E\u3059\u3002\u30C6\u30F3\u30D7\u30EC\u30FC\u30C8\u30D5\u30A9\u30EB\u30C0\u306A\u3069\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044\u3002\u30D5\u30A9\u30EB\u30C0\u30D1\u30B9\u306F Vault \u30EB\u30FC\u30C8\u304B\u3089\u306E\u76F8\u5BFE\u30D1\u30B9\u3067\u5165\u529B\u3057\u307E\u3059\uFF08\u4F8B\uFF1A_templates\uFF09\u3002\u7528\u8A9E\u30A4\u30F3\u30C7\u30C3\u30AF\u30B9\u306E\u9664\u5916\u30D5\u30A9\u30EB\u30C0\u3068\u306F\u5225\u306B\u7BA1\u7406\u3055\u308C\u307E\u3059\u3002",
+      cls: "setting-item-description"
+    });
+    this.renderStatsExcludeFolderList(containerEl);
+    let folderInput = "";
+    new import_obsidian4.Setting(containerEl).setName("\u30D5\u30A9\u30EB\u30C0\u3092\u8FFD\u52A0").setDesc(
+      descLines(
+        "Vault \u30EB\u30FC\u30C8\u304B\u3089\u306E\u76F8\u5BFE\u30D1\u30B9\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044\u3002",
+        "\uFF08\u4F8B\uFF1Atemplates\u3001characters/templates\uFF09"
+      )
+    ).addText((text) => {
+      text.setPlaceholder("\u30D5\u30A9\u30EB\u30C0\u30D1\u30B9\u3092\u5165\u529B\u2026");
+      text.inputEl.addClass("nn-folder-path-input");
+      text.onChange((value) => {
+        folderInput = value;
+      });
+      text.inputEl.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          void this.addStatsExcludeFolder(folderInput).then(() => {
+            text.setValue("");
+            folderInput = "";
+          });
+        }
+      });
+    }).addButton(
+      (btn) => btn.setButtonText("\u8FFD\u52A0").setCta().onClick(() => {
+        void this.addStatsExcludeFolder(folderInput).then(() => {
+          folderInput = "";
+          this.refresh();
+        });
+      })
+    );
+  }
+  renderStatsExcludeFolderList(containerEl) {
+    var _a;
+    containerEl.querySelectorAll(".nn-stats-exclude-folder-row").forEach((el) => el.remove());
+    const folders = (_a = this.plugin.settings.statsExcludeFolders) != null ? _a : [];
+    if (folders.length === 0) {
+      const empty = containerEl.createEl("p", {
+        text: "\u9664\u5916\u30D5\u30A9\u30EB\u30C0\u306F\u8A2D\u5B9A\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002",
+        cls: "nn-stats-exclude-folder-empty setting-item-description"
+      });
+      empty.addClass("nn-stats-exclude-folder-row");
+      return;
+    }
+    for (let i = 0; i < folders.length; i++) {
+      const row = containerEl.createEl("div", {
+        cls: "setting-item nn-stats-exclude-folder-row"
+      });
+      row.addClass("nn-exclude-folder-item-row");
+      const label = row.createEl("span", { cls: "setting-item-name nn-folder-label" });
+      label.createEl("span", { cls: "nn-folder-icon", text: "\u{1F4C1}" });
+      label.createEl("code", { text: folders[i] });
+      const delBtn = row.createEl("button", { text: "\u524A\u9664", cls: "mod-warning nn-folder-del-btn" });
+      delBtn.addEventListener("click", () => {
+        this.plugin.settings.statsExcludeFolders.splice(i, 1);
+        void this.plugin.saveSettings().then(() => {
+          this.refresh();
+        });
+      });
+    }
+  }
+  async addStatsExcludeFolder(value) {
+    const folder = value.trim().replace(/\/+$/, "");
+    if (!folder) return;
+    if (!this.plugin.settings.statsExcludeFolders) {
+      this.plugin.settings.statsExcludeFolders = [];
+    }
+    if (this.plugin.settings.statsExcludeFolders.includes(folder)) return;
+    this.plugin.settings.statsExcludeFolders.push(folder);
+    await this.plugin.saveSettings();
     this.refresh();
   }
   // ─────────────────────────────────────────
@@ -1976,8 +2059,7 @@ function charWidth(ch) {
   }
   return 1;
 }
-function countCharacters(text, settings) {
-  let cleaned = cleanNovelText(text);
+function applyCountSettings(cleaned, settings) {
   if (!settings.countHashtags) {
     cleaned = stripHashtags(cleaned);
     cleaned = cleaned.replace(/[ \t\u3000]{2,}/g, " ");
@@ -1990,6 +2072,10 @@ function countCharacters(text, settings) {
   }
   cleaned = cleaned.replace(/[ \t]/g, "");
   cleaned = cleaned.replace(/\n/g, "");
+  return cleaned;
+}
+function countCharacters(text, settings) {
+  const cleaned = applyCountSettings(cleanNovelText(text), settings);
   const raw = [...cleaned].length;
   let novel = 0;
   for (const ch of cleaned) {
@@ -1998,6 +2084,34 @@ function countCharacters(text, settings) {
   novel = Math.round(novel * 10) / 10;
   const manuscript = Math.round(raw / 400 * 10) / 10;
   return { raw, novel, manuscript };
+}
+function mergeRanges(ranges) {
+  if (ranges.length === 0) return [];
+  const sorted = [...ranges].sort((a, b) => a.start - b.start || a.end - b.end);
+  const merged = [{ ...sorted[0] }];
+  for (let i = 1; i < sorted.length; i++) {
+    const current = sorted[i];
+    const last = merged[merged.length - 1];
+    if (current.start <= last.end) {
+      last.end = Math.max(last.end, current.end);
+    } else {
+      merged.push({ ...current });
+    }
+  }
+  return merged;
+}
+function countNarrativeAndDialogue(text, settings) {
+  const cleaned = applyCountSettings(cleanNovelText(text), settings);
+  const totalChars = [...cleaned].length;
+  const enabledBrackets = settings.bracketDefinitions.filter((bd) => bd.enabled);
+  const matches = parseBrackets(cleaned, enabledBrackets);
+  const merged = mergeRanges(matches.map((m) => ({ start: m.start, end: m.end })));
+  let dialogueChars = 0;
+  for (const range of merged) {
+    dialogueChars += [...cleaned.slice(range.start, range.end)].length;
+  }
+  const narrativeChars = totalChars - dialogueChars;
+  return { narrativeChars, dialogueChars };
 }
 function formatCount(result, mode) {
   switch (mode) {
@@ -3109,8 +3223,208 @@ var _NovelReadingView = class _NovelReadingView extends import_obsidian7.ItemVie
 _NovelReadingView.WRAP_MARGIN_EM = 1.2;
 var NovelReadingView = _NovelReadingView;
 
-// src/editor/rubyInserter.ts
+// src/views/writingStatsView.ts
 var import_obsidian8 = require("obsidian");
+function formatDateTime(ms) {
+  const d = new Date(ms);
+  const pad = (n) => n < 10 ? "0" + n : String(n);
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+function formatRatio(part, total) {
+  if (total <= 0) return "\u2014";
+  return `${(part / total * 100).toFixed(1)}%`;
+}
+var WritingStatsView = class extends import_obsidian8.ItemView {
+  constructor(leaf, fetchEntries) {
+    super(leaf);
+    this.entries = [];
+    this.sortKey = "name";
+    this.sortAsc = true;
+    this.loading = true;
+    this.fetchEntries = fetchEntries;
+  }
+  getViewType() {
+    return WRITING_STATS_VIEW_TYPE;
+  }
+  getDisplayText() {
+    return "\u57F7\u7B46\u60C5\u5831\u4E00\u89A7";
+  }
+  getIcon() {
+    return "bar-chart-3";
+  }
+  async onOpen() {
+    await this.reload();
+  }
+  async onClose() {
+    this.contentEl.empty();
+  }
+  // ─────────────────────────────────────────
+  // データ再取得＋再描画（コマンド再実行・「再集計」ボタンからも呼ばれる）
+  // ─────────────────────────────────────────
+  async reload() {
+    this.loading = true;
+    this.render();
+    this.entries = await this.fetchEntries();
+    this.loading = false;
+    this.render();
+  }
+  // ─────────────────────────────────────────
+  // 描画本体
+  //
+  // contentEl 自体を flex column にし、
+  //   ・headerEl（サマリー＋ツールバー）：flex-shrink: 0（固定）
+  //   ・scrollEl（カード一覧）        ：flex: 1、overflow-y: auto（独立スクロール）
+  // に分離する。
+  // ─────────────────────────────────────────
+  render() {
+    const container = this.contentEl;
+    container.empty();
+    container.addClass("nn-stats-view");
+    const headerEl = container.createEl("div", { cls: "nn-stats-header" });
+    const scrollEl = container.createEl("div", { cls: "nn-stats-scroll" });
+    if (this.loading) {
+      scrollEl.createEl("p", {
+        text: "\u539F\u7A3F\u30CE\u30FC\u30C8\u3092\u96C6\u8A08\u3057\u3066\u3044\u307E\u3059\u2026",
+        cls: "nn-stats-loading"
+      });
+      return;
+    }
+    if (this.entries.length === 0) {
+      this.renderToolbar(headerEl);
+      scrollEl.createEl("p", {
+        text: "mode: novel \u306E\u30CE\u30FC\u30C8\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3067\u3057\u305F\u3002\u9664\u5916\u30D5\u30A9\u30EB\u30C0\u306E\u8A2D\u5B9A\u3082\u3042\u308F\u305B\u3066\u3054\u78BA\u8A8D\u304F\u3060\u3055\u3044\u3002",
+        cls: "nn-stats-empty"
+      });
+      return;
+    }
+    this.renderSummary(headerEl);
+    this.renderToolbar(headerEl);
+    this.renderList(scrollEl);
+  }
+  // ─────────────────────────────────────────
+  // 固定ヘッダー：全原稿の合計サマリー（ソート対象外・常時表示）
+  // ─────────────────────────────────────────
+  renderSummary(container) {
+    const totalNotes = this.entries.length;
+    let totalChars = 0;
+    let narrativeChars = 0;
+    let dialogueChars = 0;
+    for (const e of this.entries) {
+      totalChars += e.totalChars;
+      narrativeChars += e.narrativeChars;
+      dialogueChars += e.dialogueChars;
+    }
+    const summary = container.createEl("div", { cls: "nn-stats-summary" });
+    summary.createEl("div", { text: "\u5168\u539F\u7A3F\u306E\u5408\u8A08", cls: "nn-stats-summary-label" });
+    const grid = summary.createEl("div", { cls: "nn-stats-summary-grid" });
+    const addMetric = (label, value) => {
+      const metric = grid.createEl("div", { cls: "nn-stats-metric" });
+      metric.createEl("div", { text: label, cls: "nn-stats-metric-label" });
+      metric.createEl("div", { text: value, cls: "nn-stats-metric-value" });
+    };
+    addMetric("\u5BFE\u8C61\u30CE\u30FC\u30C8\u6570", `${totalNotes.toLocaleString()} \u4EF6`);
+    addMetric("\u57F7\u7B46\u6587\u5B57\u6570", `${totalChars.toLocaleString()} \u5B57`);
+    addMetric("\u5730\u306E\u6587", `${narrativeChars.toLocaleString()} \u5B57 (${formatRatio(narrativeChars, totalChars)})`);
+    addMetric("\u4F1A\u8A71\u6587", `${dialogueChars.toLocaleString()} \u5B57 (${formatRatio(dialogueChars, totalChars)})`);
+  }
+  // ─────────────────────────────────────────
+  // 固定ヘッダー：並び替えツールバー＋再集計ボタン
+  // ─────────────────────────────────────────
+  renderToolbar(container) {
+    const toolbar = container.createEl("div", { cls: "nn-stats-toolbar" });
+    toolbar.createEl("span", { text: "\u4E26\u3073\u66FF\u3048:", cls: "nn-stats-toolbar-label" });
+    const addSortButton = (key, label) => {
+      const isActive = this.sortKey === key;
+      const btn = toolbar.createEl("button", {
+        text: isActive ? `${label} ${this.sortAsc ? "\u25B2" : "\u25BC"}` : label,
+        cls: "nn-stats-sort-btn" + (isActive ? " nn-stats-sort-btn-active" : "")
+      });
+      btn.addEventListener("click", () => {
+        if (this.sortKey === key) {
+          this.sortAsc = !this.sortAsc;
+        } else {
+          this.sortKey = key;
+          this.sortAsc = true;
+        }
+        this.render();
+      });
+    };
+    addSortButton("name", "\u30D5\u30A1\u30A4\u30EB\u540D");
+    addSortButton("created", "\u4F5C\u6210\u65E5\u6642");
+    addSortButton("modified", "\u6700\u7D42\u66F4\u65B0\u65E5\u6642");
+    const refreshBtn = toolbar.createEl("button", {
+      text: "\u518D\u96C6\u8A08",
+      cls: "nn-stats-refresh-btn"
+    });
+    refreshBtn.addEventListener("click", () => {
+      void this.reload();
+    });
+  }
+  // ─────────────────────────────────────────
+  // スクロール領域：ファイル単位カードの一覧
+  // ─────────────────────────────────────────
+  renderList(container) {
+    const sorted = [...this.entries].sort((a, b) => {
+      let cmp = 0;
+      if (this.sortKey === "name") {
+        cmp = a.fileName.localeCompare(b.fileName, "ja");
+      } else if (this.sortKey === "created") {
+        cmp = a.createdAt - b.createdAt;
+      } else {
+        cmp = a.modifiedAt - b.modifiedAt;
+      }
+      return this.sortAsc ? cmp : -cmp;
+    });
+    const list = container.createEl("div", { cls: "nn-stats-list" });
+    for (const entry of sorted) {
+      const card = list.createEl("div", { cls: "nn-stats-card" });
+      const row1 = card.createEl("div", { cls: "nn-stats-card-row1" });
+      const nameLink = row1.createEl("a", {
+        text: entry.fileName,
+        cls: "nn-stats-card-filename internal-link",
+        href: "#"
+      });
+      nameLink.addEventListener("click", (e) => {
+        e.preventDefault();
+        this.openEntryFile(entry);
+      });
+      row1.createEl("span", {
+        text: entry.folderPath ? `${entry.folderPath}/` : "(vault\u76F4\u4E0B)",
+        cls: "nn-stats-card-folder"
+      });
+      const row2 = card.createEl("div", { cls: "nn-stats-card-row2" });
+      row2.createEl("div", { text: `\u4F5C\u6210: ${formatDateTime(entry.createdAt)}` });
+      row2.createEl("div", { text: `\u66F4\u65B0: ${formatDateTime(entry.modifiedAt)}` });
+      const row3 = card.createEl("div", { cls: "nn-stats-card-row3" });
+      const addStat = (label, text) => {
+        const stat = row3.createEl("div", { cls: "nn-stats-card-stat" });
+        stat.createEl("div", { text: label, cls: "nn-stats-card-stat-label" });
+        stat.createEl("div", { text, cls: "nn-stats-card-stat-value" });
+      };
+      addStat("\u57F7\u7B46\u6587\u5B57\u6570", `${entry.totalChars.toLocaleString()} \u5B57`);
+      addStat(
+        "\u5730\u306E\u6587",
+        `${entry.narrativeChars.toLocaleString()} \u5B57 (${formatRatio(entry.narrativeChars, entry.totalChars)})`
+      );
+      addStat(
+        "\u4F1A\u8A71\u6587",
+        `${entry.dialogueChars.toLocaleString()} \u5B57 (${formatRatio(entry.dialogueChars, entry.totalChars)})`
+      );
+    }
+  }
+  // ─────────────────────────────────────────
+  // ファイル名クリック時：対象ノートを開く
+  // 直前にアクティブだったリーフに開く（このView自身は差し替えない）。
+  // ─────────────────────────────────────────
+  openEntryFile(entry) {
+    const file = this.app.vault.getAbstractFileByPath(entry.filePath);
+    if (!(file instanceof import_obsidian8.TFile)) return;
+    void this.app.workspace.getLeaf(false).openFile(file);
+  }
+};
+
+// src/editor/rubyInserter.ts
+var import_obsidian9 = require("obsidian");
 function buildRubyText(base, ruby, style) {
   switch (style) {
     case "narou":
@@ -3126,7 +3440,7 @@ function buildRubyText(base, ruby, style) {
 function buildBoutenText(selected, style) {
   return Array.from(selected).map((ch) => buildRubyText(ch, "\u30FB", style)).join("");
 }
-var RubyInputModal = class extends import_obsidian8.Modal {
+var RubyInputModal = class extends import_obsidian9.Modal {
   constructor(app, baseText, style, onSubmit) {
     super(app);
     this.baseText = baseText;
@@ -3205,7 +3519,7 @@ function onEditorMenuForRuby(app, getSettings, menu, editor, _info) {
       const settings = getSettings();
       new RubyInputModal(app, selected, settings.rubyStyle, (rubyText) => {
         editor.replaceSelection(rubyText);
-        new import_obsidian8.Notice(`\u30EB\u30D3\u3092\u633F\u5165\u3057\u307E\u3057\u305F\u3002`);
+        new import_obsidian9.Notice(`\u30EB\u30D3\u3092\u633F\u5165\u3057\u307E\u3057\u305F\u3002`);
       }).open();
     });
   });
@@ -3214,7 +3528,7 @@ function onEditorMenuForRuby(app, getSettings, menu, editor, _info) {
       const settings = getSettings();
       const boutenText = buildBoutenText(selected, settings.rubyStyle);
       editor.replaceSelection(boutenText);
-      new import_obsidian8.Notice(`\u508D\u70B9\u3092\u633F\u5165\u3057\u307E\u3057\u305F\u3002`);
+      new import_obsidian9.Notice(`\u508D\u70B9\u3092\u633F\u5165\u3057\u307E\u3057\u305F\u3002`);
     });
   });
 }
@@ -3244,7 +3558,7 @@ function areTermListsEqual(a, b) {
   }
   return true;
 }
-var NovelsNoteJP = class extends import_obsidian9.Plugin {
+var NovelsNoteJP = class extends import_obsidian10.Plugin {
   constructor() {
     super(...arguments);
     this.terms = [];
@@ -3294,6 +3608,10 @@ var NovelsNoteJP = class extends import_obsidian9.Plugin {
         return view;
       }
     );
+    this.registerView(
+      WRITING_STATS_VIEW_TYPE,
+      (leaf) => new WritingStatsView(leaf, () => this.buildWritingStats())
+    );
     this.addRibbonIcon(
       "list-tree",
       "\u7528\u8A9E\u30A4\u30F3\u30C7\u30C3\u30AF\u30B9\u3092\u958B\u304F",
@@ -3309,10 +3627,16 @@ var NovelsNoteJP = class extends import_obsidian9.Plugin {
       "\u5C0F\u8AAC\u7528\u30D3\u30E5\u30FC\u3067\u8868\u793A",
       () => this.activateNovelReadingView()
     );
+    this.addRibbonIcon(
+      "bar-chart-3",
+      "\u57F7\u7B46\u60C5\u5831\u4E00\u89A7\u3092\u958B\u304F",
+      () => this.activateWritingStatsView()
+    );
     this.addSettingTab(new NovelsNoteSettingTab(this.app, this));
     this.registerExportCommand();
     this.registerVerticalPreviewCommand();
     this.registerNovelReadingViewCommand();
+    this.registerWritingStatsCommand();
     this.registerEditorExtension(novelModeField);
     this.registerEditorExtension(import_view3.EditorView.lineWrapping);
     this.registerEditorExtension(
@@ -3344,7 +3668,7 @@ var NovelsNoteJP = class extends import_obsidian9.Plugin {
     );
     this.registerEvent(
       this.app.workspace.on("editor-menu", (menu, editor, info) => {
-        if (!(info instanceof import_obsidian9.MarkdownView)) return;
+        if (!(info instanceof import_obsidian10.MarkdownView)) return;
         onEditorMenuForRuby(this.app, () => this.settings, menu, editor, info);
       })
     );
@@ -3396,7 +3720,7 @@ var NovelsNoteJP = class extends import_obsidian9.Plugin {
   registerVaultEvents() {
     this.registerEvent(
       this.app.vault.on("modify", async (file) => {
-        if (file instanceof import_obsidian9.TFile && file.extension === "md") {
+        if (file instanceof import_obsidian10.TFile && file.extension === "md") {
           await this.waitForMetadata(file);
           this.scheduleRebuild();
         }
@@ -3404,7 +3728,7 @@ var NovelsNoteJP = class extends import_obsidian9.Plugin {
     );
     this.registerEvent(
       this.app.vault.on("create", async (file) => {
-        if (file instanceof import_obsidian9.TFile && file.extension === "md") {
+        if (file instanceof import_obsidian10.TFile && file.extension === "md") {
           await this.waitForMetadata(file);
           this.scheduleRebuild();
         }
@@ -3417,7 +3741,7 @@ var NovelsNoteJP = class extends import_obsidian9.Plugin {
     );
     this.registerEvent(
       this.app.vault.on("rename", async (file) => {
-        if (file instanceof import_obsidian9.TFile && file.extension === "md") {
+        if (file instanceof import_obsidian10.TFile && file.extension === "md") {
           await this.waitForMetadata(file);
         }
         this.scheduleRebuild();
@@ -3466,6 +3790,9 @@ var NovelsNoteJP = class extends import_obsidian9.Plugin {
     }
     if (!Array.isArray(this.settings.excludeFolders)) {
       this.settings.excludeFolders = [];
+    }
+    if (!Array.isArray(this.settings.statsExcludeFolders)) {
+      this.settings.statsExcludeFolders = [];
     }
   }
   async saveSettings() {
@@ -3629,7 +3956,7 @@ var NovelsNoteJP = class extends import_obsidian9.Plugin {
     this.app.workspace.iterateAllLeaves((leaf) => {
       var _a;
       const view = leaf.view;
-      if (view instanceof import_obsidian9.MarkdownView) {
+      if (view instanceof import_obsidian10.MarkdownView) {
         const file = (_a = view.file) != null ? _a : null;
         const isNovel = this.isNovelModeFile(file);
         const cm = view.editor.cm;
@@ -3683,7 +4010,7 @@ var NovelsNoteJP = class extends import_obsidian9.Plugin {
    */
   updateWordCount() {
     if (!this.statusBarEl) return;
-    const view = this.app.workspace.getActiveViewOfType(import_obsidian9.MarkdownView);
+    const view = this.app.workspace.getActiveViewOfType(import_obsidian10.MarkdownView);
     if (!view) {
       this.statusBarEl.setText("\u2014");
       return;
@@ -3766,7 +4093,7 @@ var NovelsNoteJP = class extends import_obsidian9.Plugin {
       name: "\u73FE\u5728\u306E\u30D5\u30A1\u30A4\u30EB\u3092\u539F\u7A3F Export \u3059\u308B",
       callback: () => {
         let file = null;
-        const mdView = this.app.workspace.getActiveViewOfType(import_obsidian9.MarkdownView);
+        const mdView = this.app.workspace.getActiveViewOfType(import_obsidian10.MarkdownView);
         if (mdView == null ? void 0 : mdView.file) {
           file = mdView.file;
         }
@@ -3777,7 +4104,7 @@ var NovelsNoteJP = class extends import_obsidian9.Plugin {
           }
         }
         if (!file) {
-          new import_obsidian9.Notice("\u30A8\u30AF\u30B9\u30DD\u30FC\u30C8\u5BFE\u8C61\u306E\u30D5\u30A1\u30A4\u30EB\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3002");
+          new import_obsidian10.Notice("\u30A8\u30AF\u30B9\u30DD\u30FC\u30C8\u5BFE\u8C61\u306E\u30D5\u30A1\u30A4\u30EB\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3002");
           return;
         }
         new ExportModal(this.app, file, this.settings.rubyStyle).open();
@@ -3822,7 +4149,7 @@ var NovelsNoteJP = class extends import_obsidian9.Plugin {
     const activeLeaf = workspace.getMostRecentLeaf();
     let targetLeaf = activeLeaf;
     let targetFile = null;
-    if (activeLeaf && activeLeaf.view.getViewType() === "markdown" && activeLeaf.view.file instanceof import_obsidian9.TFile) {
+    if (activeLeaf && activeLeaf.view.getViewType() === "markdown" && activeLeaf.view.file instanceof import_obsidian10.TFile) {
       targetFile = activeLeaf.view.file;
     }
     if (!targetFile) {
@@ -3831,7 +4158,7 @@ var NovelsNoteJP = class extends import_obsidian9.Plugin {
         if (targetFile) return;
         if (leaf.view.getViewType() !== "markdown") return;
         const f = leaf.view.file;
-        if (!(f instanceof import_obsidian9.TFile)) return;
+        if (!(f instanceof import_obsidian10.TFile)) return;
         const cache2 = this.app.metadataCache.getFileCache(f);
         if (((_a2 = cache2 == null ? void 0 : cache2.frontmatter) == null ? void 0 : _a2.mode) === "novel") {
           targetFile = f;
@@ -3840,12 +4167,12 @@ var NovelsNoteJP = class extends import_obsidian9.Plugin {
       });
     }
     if (!targetFile) {
-      new import_obsidian9.Notice("\u5C0F\u8AAC\u7528\u30D3\u30E5\u30FC\u306E\u5BFE\u8C61\u5916\u3067\u3059\u3002Frontmatter \u306B mode: novel \u306E\u30D7\u30ED\u30D1\u30C6\u30A3\u3092\u8A2D\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044\u3002");
+      new import_obsidian10.Notice("\u5C0F\u8AAC\u7528\u30D3\u30E5\u30FC\u306E\u5BFE\u8C61\u5916\u3067\u3059\u3002Frontmatter \u306B mode: novel \u306E\u30D7\u30ED\u30D1\u30C6\u30A3\u3092\u8A2D\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044\u3002");
       return;
     }
     const cache = this.app.metadataCache.getFileCache(targetFile);
     if (((_a = cache == null ? void 0 : cache.frontmatter) == null ? void 0 : _a.mode) !== "novel") {
-      new import_obsidian9.Notice("\u5C0F\u8AAC\u7528\u30D3\u30E5\u30FC\u306E\u5BFE\u8C61\u5916\u3067\u3059\u3002Frontmatter \u306B mode: novel \u306E\u30D7\u30ED\u30D1\u30C6\u30A3\u3092\u8A2D\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044\u3002");
+      new import_obsidian10.Notice("\u5C0F\u8AAC\u7528\u30D3\u30E5\u30FC\u306E\u5BFE\u8C61\u5916\u3067\u3059\u3002Frontmatter \u306B mode: novel \u306E\u30D7\u30ED\u30D1\u30C6\u30A3\u3092\u8A2D\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044\u3002");
       const existing2 = workspace.getLeavesOfType(NOVEL_READING_VIEW_TYPE);
       if (existing2.length > 0) {
         void workspace.revealLeaf(existing2[0]);
@@ -3884,5 +4211,65 @@ var NovelsNoteJP = class extends import_obsidian9.Plugin {
         leaf.view.forceReload();
       }
     }
+  }
+  // ─────────────────────────────────────────
+  // 執筆情報一覧 コマンド
+  // ─────────────────────────────────────────
+  registerWritingStatsCommand() {
+    this.addCommand({
+      id: "open-writing-stats",
+      name: "\u57F7\u7B46\u60C5\u5831\u4E00\u89A7\u3092\u958B\u304F",
+      callback: () => this.activateWritingStatsView()
+    });
+  }
+  async activateWritingStatsView() {
+    const { workspace } = this.app;
+    const existing = workspace.getLeavesOfType(WRITING_STATS_VIEW_TYPE);
+    if (existing.length > 0) {
+      void workspace.revealLeaf(existing[0]);
+      const view = existing[0].view;
+      if (view instanceof WritingStatsView) {
+        void view.reload();
+      }
+      return;
+    }
+    const leaf = workspace.getLeaf("tab");
+    await leaf.setViewState({ type: WRITING_STATS_VIEW_TYPE, active: true });
+    void workspace.revealLeaf(leaf);
+  }
+  // ─────────────────────────────────────────
+  // 執筆情報一覧 データ構築
+  //
+  // mode:novel の frontmatter を持つノートを vault 全体から検索し、
+  // statsExcludeFolders で指定されたフォルダを除外する。
+  // 各ノートの本文を読み込み、執筆文字数・地の文／会話文の文字数・
+  // 作成日時・最終更新日時を集計して返す。
+  // ─────────────────────────────────────────
+  async buildWritingStats() {
+    var _a, _b;
+    const entries = [];
+    const files = this.app.vault.getMarkdownFiles();
+    const excludedPrefixes = ((_a = this.settings.statsExcludeFolders) != null ? _a : []).map((f) => f.trim()).filter((f) => f.length > 0).map((f) => f.endsWith("/") ? f : f + "/");
+    for (const file of files) {
+      if (excludedPrefixes.some((prefix) => file.path.startsWith(prefix))) continue;
+      const cache = this.app.metadataCache.getFileCache(file);
+      if (((_b = cache == null ? void 0 : cache.frontmatter) == null ? void 0 : _b["mode"]) !== "novel") continue;
+      const source = await this.app.vault.cachedRead(file);
+      const { raw: totalChars } = countCharacters(source, this.settings);
+      const { narrativeChars, dialogueChars } = countNarrativeAndDialogue(source, this.settings);
+      const slashIdx = file.path.lastIndexOf("/");
+      const folderPath = slashIdx === -1 ? "" : file.path.slice(0, slashIdx);
+      entries.push({
+        filePath: file.path,
+        fileName: file.name,
+        folderPath,
+        createdAt: file.stat.ctime,
+        modifiedAt: file.stat.mtime,
+        totalChars,
+        narrativeChars,
+        dialogueChars
+      });
+    }
+    return entries;
   }
 };

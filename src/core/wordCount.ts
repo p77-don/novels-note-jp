@@ -5,6 +5,7 @@
 import { NovelsNoteSettings } from "../settings";
 import { stripHashtags } from "../core/hashtags";
 import { CJK_PATTERN } from "../core/rubyPatterns";
+import { parseBrackets } from "../editor/bracketParser";
 
 // ─────────────────────────────────────────
 // カウント結果
@@ -126,18 +127,14 @@ function charWidth(ch: string): number {
   return 1;
 }
 
-/**
- * テキストから文字数を集計する。
- * @param text     エディタの生テキスト
- * @param settings プラグイン設定（空白・空行・#tag カウント制御）
- */
-export function countCharacters(
-  text: string,
-  settings: NovelsNoteSettings
-): CountResult {
-  // クリーニング
-  let cleaned = cleanNovelText(text);
-
+// ─────────────────────────────────────────
+// 設定に応じた本文の絞り込み（#tag・空行・全角スペース・空白・改行）
+//
+// countCharacters() と countNarrativeAndDialogue() の両方から呼ばれる。
+// 「原稿本文としてカウント対象にする文字列」の定義を1箇所に集約し、
+// 執筆文字数と地の文／会話文の合計が食い違わないようにするため。
+// ─────────────────────────────────────────
+function applyCountSettings(cleaned: string, settings: NovelsNoteSettings): string {
   // #tag を文字数に含めない場合（デフォルト）：#tag を除去
   if (!settings.countHashtags) {
     cleaned = stripHashtags(cleaned);
@@ -160,6 +157,21 @@ export function countCharacters(
   // 改行は文字数に含めない
   cleaned = cleaned.replace(/\n/g, "");
 
+  return cleaned;
+}
+
+/**
+ * テキストから文字数を集計する。
+ * @param text     エディタの生テキスト
+ * @param settings プラグイン設定（空白・空行・#tag カウント制御）
+ */
+export function countCharacters(
+  text: string,
+  settings: NovelsNoteSettings
+): CountResult {
+  // クリーニング
+  const cleaned = applyCountSettings(cleanNovelText(text), settings);
+
   // スプレッド構文でコードポイント単位に分解（絵文字・拡張漢字などの
   // サロゲートペアを UTF-16 コードユニット 2 個と誤計上しないため）
   const raw = [...cleaned].length;
@@ -176,6 +188,83 @@ export function countCharacters(
   const manuscript = Math.round((raw / 400) * 10) / 10;
 
   return { raw, novel, manuscript };
+}
+
+// ─────────────────────────────────────────
+// 地の文／会話文カウント結果
+// ─────────────────────────────────────────
+export interface NarrativeDialogueCount {
+  narrativeChars: number; // 地の文の文字数
+  dialogueChars: number;  // 会話文の文字数
+}
+
+// ─────────────────────────────────────────
+// カッコ範囲のマージ（重複・入れ子区間の統合）
+//
+// parseBrackets() は有効なカッコ種別ごとにネスト対応で範囲を返すため、
+// 同一カッコの入れ子（「…「…」…」）や、異なるカッコ種別同士が
+// 重なるケース（「…（…）…」）では区間が重複する。
+// 会話文の文字数を二重カウントしないよう、重複・隣接する区間を
+// 1本の連続区間にマージしてから合計する。
+// ─────────────────────────────────────────
+function mergeRanges(
+  ranges: { start: number; end: number }[]
+): { start: number; end: number }[] {
+  if (ranges.length === 0) return [];
+
+  const sorted = [...ranges].sort((a, b) => a.start - b.start || a.end - b.end);
+  const merged: { start: number; end: number }[] = [{ ...sorted[0] }];
+
+  for (let i = 1; i < sorted.length; i++) {
+    const current = sorted[i];
+    const last = merged[merged.length - 1];
+    if (current.start <= last.end) {
+      last.end = Math.max(last.end, current.end);
+    } else {
+      merged.push({ ...current });
+    }
+  }
+
+  return merged;
+}
+
+/**
+ * テキストから地の文／会話文の文字数を集計する。
+ *
+ * 「会話文」は settings.bracketDefinitions で enabled: true になっている
+ * すべてのカッコ種別（鍵カッコ「」・二重鍵カッコ『』など）の内側を対象とする。
+ * 「地の文」はそれ以外（カウント対象の本文からカッコ内を除いた残り）。
+ *
+ * countCharacters() と同じクリーニング・カウント設定
+ * （#tag・空行・全角スペースの扱い）を適用するため、
+ * narrativeChars + dialogueChars は countCharacters().raw と一致する。
+ *
+ * @param text     エディタの生テキスト
+ * @param settings プラグイン設定
+ */
+export function countNarrativeAndDialogue(
+  text: string,
+  settings: NovelsNoteSettings
+): NarrativeDialogueCount {
+  const cleaned = applyCountSettings(cleanNovelText(text), settings);
+  const totalChars = [...cleaned].length;
+
+  const enabledBrackets = settings.bracketDefinitions.filter(bd => bd.enabled);
+  const matches = parseBrackets(cleaned, enabledBrackets);
+  const merged = mergeRanges(matches.map(m => ({ start: m.start, end: m.end })));
+
+  // 各区間はコードポイント境界（カッコ自体はBMP内の1文字）で
+  // 区切られているため、slice() で安全に取り出せる。
+  // サロゲートペアを含む文字を UTF-16 コードユニット単位で
+  // 誤計上しないよう、スプレッド構文でコードポイント単位に分解する。
+  let dialogueChars = 0;
+  for (const range of merged) {
+    dialogueChars += [...cleaned.slice(range.start, range.end)].length;
+  }
+
+  const narrativeChars = totalChars - dialogueChars;
+
+  return { narrativeChars, dialogueChars };
 }
 
 // ─────────────────────────────────────────

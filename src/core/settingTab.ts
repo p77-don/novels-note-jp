@@ -15,10 +15,10 @@ import NovelsNoteJP from "../main";
 // 確実に改行できる。
 // ─────────────────────────────────────────
 function descLines(...lines: string[]): DocumentFragment {
-  const frag = document.createDocumentFragment();
+  const frag = activeDocument.createDocumentFragment();
   lines.forEach((line, i) => {
-    if (i > 0) frag.appendChild(document.createElement("br"));
-    frag.appendChild(document.createTextNode(line));
+    if (i > 0) frag.appendChild(activeDocument.createElement("br"));
+    frag.appendChild(activeDocument.createTextNode(line));
   });
   return frag;
 }
@@ -46,6 +46,7 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
     this.renderFullWidthSpaceSection(containerEl);
     this.renderWordCountSection(containerEl);
     this.renderExcludeFoldersSection(containerEl);
+    this.renderStatsExcludeFoldersSection(containerEl);
     this.renderHighlightSection(containerEl);
     this.renderTagSection(containerEl);
     this.renderBracketSection(containerEl);
@@ -371,6 +372,109 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
     await this.plugin.buildTermIndex();
     this.plugin.updateSidebar();
     this.plugin.refreshEditors();
+    this.refresh(); // セクション全体を再描画
+  }
+
+  // ─────────────────────────────────────────
+  // 執筆情報一覧 — 除外フォルダ設定
+  // ─────────────────────────────────────────
+  private renderStatsExcludeFoldersSection(containerEl: HTMLElement): void {
+    new Setting(containerEl).setName("執筆情報一覧 — 除外フォルダ").setHeading();
+    containerEl.createEl("p", {
+      text:
+        "指定したフォルダ内のファイルを「執筆情報一覧」の集計対象から除外します。" +
+        "テンプレートフォルダなどを指定してください。" +
+        "フォルダパスは Vault ルートからの相対パスで入力します（例：_templates）。" +
+        "用語インデックスの除外フォルダとは別に管理されます。",
+      cls: "setting-item-description",
+    });
+
+    // 現在の除外フォルダリストを描画
+    this.renderStatsExcludeFolderList(containerEl);
+
+    // 追加フォーム：addText + addButton を並べる（Obsidian 標準方式）
+    let folderInput = "";
+    new Setting(containerEl)
+      .setName("フォルダを追加")
+      .setDesc(descLines(
+        "Vault ルートからの相対パスを入力してください。",
+        "（例：templates、characters/templates）"
+        )
+      )
+      .addText(text => {
+        text.setPlaceholder("フォルダパスを入力…");
+        text.inputEl.addClass("nn-folder-path-input");
+        text.onChange(value => { folderInput = value; });
+        // Enter キーでも追加できる
+        text.inputEl.addEventListener("keydown", (e: KeyboardEvent) => {
+          if (e.key === "Enter") {
+            void this.addStatsExcludeFolder(folderInput).then(() => {
+              text.setValue("");
+              folderInput = "";
+            });
+          }
+        });
+      })
+      .addButton(btn =>
+        btn.setButtonText("追加").setCta()
+          .onClick(() => {
+            void this.addStatsExcludeFolder(folderInput).then(() => {
+              folderInput = "";
+              this.refresh();
+            });
+          })
+      );
+  }
+
+  private renderStatsExcludeFolderList(containerEl: HTMLElement): void {
+    // 既存リストを削除して再描画
+    containerEl.querySelectorAll(".nn-stats-exclude-folder-row").forEach(el => el.remove());
+
+    const folders = this.plugin.settings.statsExcludeFolders ?? [];
+    if (folders.length === 0) {
+      const empty = containerEl.createEl("p", {
+        text: "除外フォルダは設定されていません。",
+        cls: "nn-stats-exclude-folder-empty setting-item-description",
+      });
+      empty.addClass("nn-stats-exclude-folder-row");
+      return;
+    }
+
+    for (let i = 0; i < folders.length; i++) {
+      const row = containerEl.createEl("div", {
+        cls: "setting-item nn-stats-exclude-folder-row",
+      });
+      row.addClass("nn-exclude-folder-item-row");
+
+      // フォルダアイコン＋パス
+      const label = row.createEl("span", { cls: "setting-item-name nn-folder-label" });
+      label.createEl("span", { cls: "nn-folder-icon", text: "📁" });
+      label.createEl("code", { text: folders[i] });
+
+      // 削除ボタン
+      const delBtn = row.createEl("button", { text: "削除", cls: "mod-warning nn-folder-del-btn" });
+      delBtn.addEventListener("click", () => {
+        this.plugin.settings.statsExcludeFolders.splice(i, 1);
+        void this.plugin.saveSettings().then(() => {
+          this.refresh();
+        });
+      });
+    }
+  }
+
+  private async addStatsExcludeFolder(value: string): Promise<void> {
+    const folder = value.trim().replace(/\/+$/, ""); // 末尾スラッシュを除去
+    if (!folder) return;
+
+    if (!this.plugin.settings.statsExcludeFolders) {
+      this.plugin.settings.statsExcludeFolders = [];
+    }
+
+    // 重複チェック
+    if (this.plugin.settings.statsExcludeFolders.includes(folder)) return;
+
+    this.plugin.settings.statsExcludeFolders.push(folder);
+    await this.plugin.saveSettings();
     this.refresh(); // セクション全体を再描画
   }
 

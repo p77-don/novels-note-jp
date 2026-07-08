@@ -11,6 +11,21 @@ import { NovelsNoteSettings } from "./settings";
 export const SIDEBAR_VIEW_TYPE        = "novels-note-jp-sidebar";
 export const VERTICAL_VIEW_TYPE       = "novels-note-jp-vertical";
 export const NOVEL_READING_VIEW_TYPE  = "novel-reading-view";
+export const WRITING_STATS_VIEW_TYPE  = "novels-note-jp-writing-stats";
+
+// ─────────────────────────────────────────
+// 執筆情報一覧
+// ─────────────────────────────────────────
+export interface WritingStatsEntry {
+  filePath: string;     // Vault ルートからの相対パス
+  fileName: string;     // 拡張子込みのファイル名
+  folderPath: string;   // 親フォルダのパス（Vault 直下の場合は空文字）
+  createdAt: number;    // 作成日時（epoch ms）
+  modifiedAt: number;   // 最終更新日時（epoch ms）
+  totalChars: number;      // 執筆文字数
+  narrativeChars: number;  // 地の文の文字数
+  dialogueChars: number;   // 会話文の文字数
+}
 
 // ─────────────────────────────────────────
 // 用語インデックス
