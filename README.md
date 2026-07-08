@@ -117,7 +117,7 @@ Open a manuscript overview in the main pane, aggregating every `mode: novel` not
 - A **再集計** (recalculate) button refreshes the list on demand
 - Folders can be excluded from the scan via a dedicated exclude-folder list in Settings, independent of the term index's exclude list
 
-![writingStats](./docs/writingStats.png)
+![writingStats](docs/writingStats.png)
 
 ---
 
@@ -344,7 +344,7 @@ Vault 全体の `mode: novel` ノートを集計し、メインペインに一�
 - **再集計** ボタンでいつでも最新の状態に更新できます
 - 設定にて、集計対象から除外するフォルダを指定可能（用語インデックスの除外フォルダとは別に管理されます）
 
-![writingStats](./docs/writingStats.png)
+![writingStats](docs/writingStats.png)
 
 ---
 
