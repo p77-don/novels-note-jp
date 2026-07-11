@@ -57,6 +57,9 @@ export interface NovelsNoteSettings {
   tagDefinitions: TagDefinition[];
   bracketDefinitions: BracketDefinition[];
 
+  // 用語ハイライトのホバープレビュー（エディタ上で用語ノートを確認する機能）
+  termHoverPreviewEnabled: boolean;
+
   // 全角スペース可視化
   showFullWidthSpace: boolean;
   fullWidthSpaceStyle: FullWidthSpaceStyle;
@@ -113,6 +116,9 @@ export const DEFAULT_SETTINGS: NovelsNoteSettings = {
   highlightEnabled: true,
   tagDefinitions: DEFAULT_TAG_DEFINITIONS.map(v => ({ ...v })),
   bracketDefinitions: DEFAULT_BRACKET_DEFINITIONS.map(v => ({ ...v })),
+
+  // 用語ハイライトのホバープレビュー
+  termHoverPreviewEnabled: true,
 
   // 全角スペース可視化
   showFullWidthSpace: true,

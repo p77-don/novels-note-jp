@@ -496,6 +496,22 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
             this.plugin.refreshEditors();
           })
       );
+
+    new Setting(containerEl)
+      .setName("用語ハイライトのホバープレビュー")
+      .setDesc(descLines(
+        "エディタ上でハイライトされた用語にマウスを合わせると、対応する用語ノートを" +
+        "Obsidian標準のページプレビュー（Hover Preview）で表示します。" ,
+        "※WikiLinkを書く必要はありません。")
+      )
+      .addToggle(toggle =>
+        toggle.setValue(this.plugin.settings.termHoverPreviewEnabled)
+          .onChange(async value => {
+            this.plugin.settings.termHoverPreviewEnabled = value;
+            await this.plugin.saveSettings();
+            this.plugin.applyEditorStyles();
+          })
+      );
   }
 
   // ─────────────────────────────────────────

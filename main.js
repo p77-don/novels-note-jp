@@ -56,6 +56,8 @@ var DEFAULT_SETTINGS = {
   highlightEnabled: true,
   tagDefinitions: DEFAULT_TAG_DEFINITIONS.map((v) => ({ ...v })),
   bracketDefinitions: DEFAULT_BRACKET_DEFINITIONS.map((v) => ({ ...v })),
+  // 用語ハイライトのホバープレビュー
+  termHoverPreviewEnabled: true,
   // 全角スペース可視化
   showFullWidthSpace: true,
   fullWidthSpaceStyle: "dot",
@@ -382,11 +384,24 @@ function buildBracketExtension(getSettings) {
     )
   );
 }
-function buildTermExtension(getTerms, getSettings) {
+var TERM_HOVER_SOURCE_ID = "novels-note-jp-term-hover";
+function buildTermExtension(app, getTerms, getSettings) {
   return import_state3.Prec.highest(
     import_view2.ViewPlugin.fromClass(
       class {
         constructor(view) {
+          // build() のたびに再計算する、ホバー判定用の生データ。
+          // Decoration（CM6内部表現）から逆引きするより、開始・終了
+          // 位置と用語ノートのファイルパスを直接保持する方が単純。
+          this.matches = [];
+          // 直前にホバー通知を送った対象要素（同一要素への
+          // mousemove の連続発火で何度も trigger しないようにする）
+          this.hoverTarget = null;
+          // Page Preview 側が Popover の表示状態を追跡するための
+          // 入れ物。HoverParent インターフェースを満たすだけの
+          // 単純なオブジェクトで、Component のライフサイクルには
+          // 依存しない。
+          this.hoverParent = { hoverPopover: null };
           this.decorations = this.build(view);
         }
         update(update) {
@@ -396,6 +411,7 @@ function buildTermExtension(getTerms, getSettings) {
         }
         build(view) {
           const builder = new import_state3.RangeSetBuilder();
+          this.matches = [];
           if (!view.state.field(novelModeField, false)) return builder.finish();
           const settings = getSettings();
           if (!settings.highlightEnabled) return builder.finish();
@@ -407,10 +423,10 @@ function buildTermExtension(getTerms, getSettings) {
           const searchList = [];
           for (const term of terms) {
             if (!enabledTags.has(term.tag)) continue;
-            searchList.push({ word: term.name, cssClass: `novel-hl-${term.tag}` });
+            searchList.push({ word: term.name, cssClass: `novel-hl-${term.tag}`, filePath: term.filePath });
             for (const alias of term.aliases) {
               if (alias.trim().length > 0) {
-                searchList.push({ word: alias.trim(), cssClass: `novel-hl-${term.tag}` });
+                searchList.push({ word: alias.trim(), cssClass: `novel-hl-${term.tag}`, filePath: term.filePath });
               }
             }
           }
@@ -419,7 +435,7 @@ function buildTermExtension(getTerms, getSettings) {
           const docLength = docText.length;
           const covered = new Uint8Array(docLength);
           const matches = [];
-          for (const { word, cssClass } of searchList) {
+          for (const { word, cssClass, filePath } of searchList) {
             if (word.length === 0) continue;
             let pos = 0;
             while (pos <= docLength - word.length) {
@@ -433,7 +449,7 @@ function buildTermExtension(getTerms, getSettings) {
                 }
               }
               if (!skip) {
-                matches.push({ start: idx, end: idx + word.length, cssClass });
+                matches.push({ start: idx, end: idx + word.length, cssClass, filePath });
                 for (let i = idx; i < idx + word.length; i++) covered[i] = 1;
               }
               pos = idx + word.length;
@@ -445,11 +461,62 @@ function buildTermExtension(getTerms, getSettings) {
               class: m.cssClass,
               inclusive: false
             }));
+            this.matches.push({ start: m.start, end: m.end, filePath: m.filePath });
           }
           return builder.finish();
         }
       },
-      { decorations: (v) => v.decorations }
+      {
+        decorations: (v) => v.decorations,
+        eventHandlers: {
+          mouseover(event, view) {
+            var _a, _b, _c, _d;
+            if (!getSettings().termHoverPreviewEnabled) return false;
+            if (!view.state.field(novelModeField, false)) return false;
+            const targetEl = (_b = (_a = event.target) == null ? void 0 : _a.closest) == null ? void 0 : _b.call(
+              _a,
+              '[class*="novel-hl-"]'
+            );
+            if (!targetEl) return false;
+            if (targetEl === this.hoverTarget) return false;
+            this.hoverTarget = targetEl;
+            let pos;
+            try {
+              pos = view.posAtDOM(targetEl);
+            } catch (e) {
+              return false;
+            }
+            const match = this.matches.find((m) => pos >= m.start && pos < m.end);
+            if (!match) return false;
+            const file = app.vault.getAbstractFileByPath(match.filePath);
+            if (!(file instanceof import_obsidian2.TFile)) return false;
+            const sourceRef = { file: null };
+            app.workspace.iterateAllLeaves((leaf) => {
+              if (sourceRef.file) return;
+              if (leaf.view instanceof import_obsidian2.MarkdownView) {
+                const cm = leaf.view.editor.cm;
+                if (cm === view) sourceRef.file = leaf.view.file;
+              }
+            });
+            app.workspace.trigger("hover-link", {
+              event,
+              source: TERM_HOVER_SOURCE_ID,
+              hoverParent: this.hoverParent,
+              targetEl,
+              linktext: match.filePath,
+              sourcePath: (_d = (_c = sourceRef.file) == null ? void 0 : _c.path) != null ? _d : ""
+            });
+            return false;
+          },
+          mouseout(event) {
+            const related = event.relatedTarget;
+            if (this.hoverTarget && (!related || !this.hoverTarget.contains(related))) {
+              this.hoverTarget = null;
+            }
+            return false;
+          }
+        }
+      }
     )
   );
 }
@@ -1724,6 +1791,18 @@ var NovelsNoteSettingTab = class extends import_obsidian4.PluginSettingTab {
         this.plugin.refreshEditors();
       })
     );
+    new import_obsidian4.Setting(containerEl).setName("\u7528\u8A9E\u30CF\u30A4\u30E9\u30A4\u30C8\u306E\u30DB\u30D0\u30FC\u30D7\u30EC\u30D3\u30E5\u30FC").setDesc(
+      descLines(
+        "\u30A8\u30C7\u30A3\u30BF\u4E0A\u3067\u30CF\u30A4\u30E9\u30A4\u30C8\u3055\u308C\u305F\u7528\u8A9E\u306B\u30DE\u30A6\u30B9\u3092\u5408\u308F\u305B\u308B\u3068\u3001\u5BFE\u5FDC\u3059\u308B\u7528\u8A9E\u30CE\u30FC\u30C8\u3092Obsidian\u6A19\u6E96\u306E\u30DA\u30FC\u30B8\u30D7\u30EC\u30D3\u30E5\u30FC\uFF08Hover Preview\uFF09\u3067\u8868\u793A\u3057\u307E\u3059\u3002",
+        "\u203BWikiLink\u3092\u66F8\u304F\u5FC5\u8981\u306F\u3042\u308A\u307E\u305B\u3093\u3002"
+      )
+    ).addToggle(
+      (toggle) => toggle.setValue(this.plugin.settings.termHoverPreviewEnabled).onChange(async (value) => {
+        this.plugin.settings.termHoverPreviewEnabled = value;
+        await this.plugin.saveSettings();
+        this.plugin.applyEditorStyles();
+      })
+    );
   }
   // ─────────────────────────────────────────
   // カテゴリ定義セクション
@@ -2344,6 +2423,9 @@ function applyTcy(text) {
         }
         return `<span class="latin">${m}</span>`;
       }
+    ).replace(
+      /([!?！？]{1,2})/g,
+      (m) => `<span class="tcy">${m}</span>`
     );
   }).join("");
 }
@@ -3637,6 +3719,10 @@ var NovelsNoteJP = class extends import_obsidian10.Plugin {
     this.registerVerticalPreviewCommand();
     this.registerNovelReadingViewCommand();
     this.registerWritingStatsCommand();
+    this.registerHoverLinkSource(TERM_HOVER_SOURCE_ID, {
+      display: "Novels Note JP\uFF08\u7528\u8A9E\u30CF\u30A4\u30E9\u30A4\u30C8\uFF09",
+      defaultMod: false
+    });
     this.registerEditorExtension(novelModeField);
     this.registerEditorExtension(import_view3.EditorView.lineWrapping);
     this.registerEditorExtension(
@@ -3644,6 +3730,7 @@ var NovelsNoteJP = class extends import_obsidian10.Plugin {
     );
     this.registerEditorExtension(
       buildTermExtension(
+        this.app,
         () => this.terms,
         () => this.settings
       )
@@ -3820,6 +3907,7 @@ var NovelsNoteJP = class extends import_obsidian10.Plugin {
     const bracketColorCss = s.bracketDefinitions.map((bd) => `.cm-editor[data-novel-mode="true"] .novel-bracket-${bd.id} { color: ${bd.color}; }`).join("\n");
     const tagColorCss = s.tagDefinitions.map((td) => `.cm-editor[data-novel-mode="true"] .cm-content .novel-hl-${td.tag} { color: ${td.color} !important; }`).join("\n");
     const tagColorSidebarCss = s.tagDefinitions.map((td) => `.novels-note-sidebar .novel-hl-${td.tag} { color: ${td.color}; }`).join("\n");
+    const termHoverCursorCss = s.termHoverPreviewEnabled ? `.cm-editor[data-novel-mode="true"] .cm-content [class*="novel-hl-"] { cursor: help; }` : "";
     const fwColor = s.fullWidthSpaceColor;
     const fwspCss = s.showFullWidthSpace && s.fullWidthSpaceStyle !== "none" ? `
       .cm-editor[data-novel-mode="true"] .cm-content .novel-fwsp {
@@ -3885,6 +3973,7 @@ var NovelsNoteJP = class extends import_obsidian10.Plugin {
       ${bracketColorCss}
       ${tagColorCss}
       ${tagColorSidebarCss}
+      ${termHoverCursorCss}
       ${cursorHighlightCss}
     `;
     if (!this.adoptedSheet) {

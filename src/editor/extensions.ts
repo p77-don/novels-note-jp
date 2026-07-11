@@ -14,7 +14,7 @@ import {
 // ルビ表示 Extension（別ファイルで定義）
 export { buildRubyExtension } from "./rubyWidget";
 import { RangeSetBuilder, Prec } from "@codemirror/state";
-import { App, MarkdownView, TFile } from "obsidian";
+import { App, MarkdownView, TFile, HoverParent, HoverPopover } from "obsidian";
 import { NovelsNoteSettings } from "../settings";
 import { CursorSyncStore } from "./cursorSyncStore";
 import {
@@ -99,11 +99,34 @@ export function buildBracketExtension(getSettings: () => NovelsNoteSettings) {
 }
 
 // ─────────────────────────────────────────
+// 用語ホバープレビューの hover-link source id
+// main.ts の registerHoverLinkSource() と一致させる必要がある
+// ─────────────────────────────────────────
+export const TERM_HOVER_SOURCE_ID = "novels-note-jp-term-hover";
+
+// ─────────────────────────────────────────
 // Extension 2: 用語ハイライト（最高優先度）
 // mode:novel のエディタのみ動作する
 // settingsEffect で確実に再描画される
+//
+// あわせて、ハイライトされた用語にマウスをホバーすると、対応する
+// 用語ノートを Obsidian 標準の Hover Preview（Page Preview）で
+// 表示する機能を提供する。
+//
+// 【設計方針】
+// WikiLink を書かなくても、既存の用語ハイライト（インデックス上の
+// 用語名・エイリアスと本文の一致）だけをトリガーにする。これは
+// 「Markdownは純粋な文章のまま保ち、知識管理はプラグインが
+// 肩代わりする」という本プラグインの思想に基づく。
+//
+// 【Obsidian 標準 Hover Preview の流用】
+// 独自の Popover を実装せず、`app.workspace.trigger("hover-link", …)`
+// で core の Page Preview プラグインに委譲する。これにより
+// ユーザーの「Page Preview」設定（表示遅延など）や、ピン留め・
+// Esc で閉じる等の挙動がそのまま反映される。
 // ─────────────────────────────────────────
 export function buildTermExtension(
+  app: App,
   getTerms: () => TermEntry[],
   getSettings: () => NovelsNoteSettings
 ) {
@@ -111,6 +134,18 @@ export function buildTermExtension(
     ViewPlugin.fromClass(
       class {
         decorations: DecorationSet;
+        // build() のたびに再計算する、ホバー判定用の生データ。
+        // Decoration（CM6内部表現）から逆引きするより、開始・終了
+        // 位置と用語ノートのファイルパスを直接保持する方が単純。
+        matches: { start: number; end: number; filePath: string }[] = [];
+        // 直前にホバー通知を送った対象要素（同一要素への
+        // mousemove の連続発火で何度も trigger しないようにする）
+        hoverTarget: HTMLElement | null = null;
+        // Page Preview 側が Popover の表示状態を追跡するための
+        // 入れ物。HoverParent インターフェースを満たすだけの
+        // 単純なオブジェクトで、Component のライフサイクルには
+        // 依存しない。
+        hoverParent: HoverParent = { hoverPopover: null as HoverPopover | null };
 
         constructor(view: EditorView) { this.decorations = this.build(view); }
 
@@ -129,6 +164,7 @@ export function buildTermExtension(
 
         build(view: EditorView): DecorationSet {
           const builder = new RangeSetBuilder<Decoration>();
+          this.matches = [];
 
           // mode:novel でないエディタでは何もしない
           if (!view.state.field(novelModeField, false)) return builder.finish();
@@ -143,13 +179,13 @@ export function buildTermExtension(
             settings.tagDefinitions.filter(td => td.enabled).map(td => td.tag)
           );
 
-          const searchList: { word: string; cssClass: string }[] = [];
+          const searchList: { word: string; cssClass: string; filePath: string }[] = [];
           for (const term of terms) {
             if (!enabledTags.has(term.tag)) continue;
-            searchList.push({ word: term.name, cssClass: `novel-hl-${term.tag}` });
+            searchList.push({ word: term.name, cssClass: `novel-hl-${term.tag}`, filePath: term.filePath });
             for (const alias of term.aliases) {
               if (alias.trim().length > 0) {
-                searchList.push({ word: alias.trim(), cssClass: `novel-hl-${term.tag}` });
+                searchList.push({ word: alias.trim(), cssClass: `novel-hl-${term.tag}`, filePath: term.filePath });
               }
             }
           }
@@ -158,9 +194,9 @@ export function buildTermExtension(
           const docText = view.state.doc.toString();
           const docLength = docText.length;
           const covered = new Uint8Array(docLength);
-          const matches: { start: number; end: number; cssClass: string }[] = [];
+          const matches: { start: number; end: number; cssClass: string; filePath: string }[] = [];
 
-          for (const { word, cssClass } of searchList) {
+          for (const { word, cssClass, filePath } of searchList) {
             if (word.length === 0) continue;
             let pos = 0;
             while (pos <= docLength - word.length) {
@@ -171,7 +207,7 @@ export function buildTermExtension(
                 if (covered[i]) { skip = true; break; }
               }
               if (!skip) {
-                matches.push({ start: idx, end: idx + word.length, cssClass });
+                matches.push({ start: idx, end: idx + word.length, cssClass, filePath });
                 for (let i = idx; i < idx + word.length; i++) covered[i] = 1;
               }
               pos = idx + word.length;
@@ -184,11 +220,72 @@ export function buildTermExtension(
               class: m.cssClass,
               inclusive: false,
             }));
+            this.matches.push({ start: m.start, end: m.end, filePath: m.filePath });
           }
           return builder.finish();
         }
       },
-      { decorations: v => v.decorations }
+      {
+        decorations: v => v.decorations,
+        eventHandlers: {
+          mouseover(event, view) {
+            if (!getSettings().termHoverPreviewEnabled) return false;
+            if (!view.state.field(novelModeField, false)) return false;
+
+            const targetEl = (event.target as HTMLElement | null)?.closest?.(
+              '[class*="novel-hl-"]'
+            ) as HTMLElement | null;
+            if (!targetEl) return false;
+            // 同じ要素上でのマウス移動では再通知しない
+            if (targetEl === this.hoverTarget) return false;
+            this.hoverTarget = targetEl;
+
+            let pos: number;
+            try {
+              pos = view.posAtDOM(targetEl);
+            } catch {
+              return false;
+            }
+
+            const match = this.matches.find(m => pos >= m.start && pos < m.end);
+            if (!match) return false;
+
+            const file = app.vault.getAbstractFileByPath(match.filePath);
+            if (!(file instanceof TFile)) return false;
+
+            // ホバー中のエディタが表示しているファイルパスを
+            // sourcePath として渡す（相対リンク解決等に使われる）
+            const sourceRef: { file: TFile | null } = { file: null };
+            app.workspace.iterateAllLeaves(leaf => {
+              if (sourceRef.file) return;
+              if (leaf.view instanceof MarkdownView) {
+                const cm = (leaf.view.editor as unknown as { cm: EditorView | undefined }).cm;
+                if (cm === view) sourceRef.file = leaf.view.file;
+              }
+            });
+
+            app.workspace.trigger("hover-link", {
+              event,
+              source: TERM_HOVER_SOURCE_ID,
+              hoverParent: this.hoverParent,
+              targetEl,
+              linktext: match.filePath,
+              sourcePath: sourceRef.file?.path ?? "",
+            });
+            return false;
+          },
+          mouseout(event) {
+            // ホバー対象要素（およびその子孫、= Popover 自身への
+            // 移動ではない）から完全に離れた場合だけ記録をクリアする。
+            // Popover の表示・非表示自体は Page Preview 側が管理する。
+            const related = (event as MouseEvent).relatedTarget as Node | null;
+            if (this.hoverTarget && (!related || !this.hoverTarget.contains(related))) {
+              this.hoverTarget = null;
+            }
+            return false;
+          },
+        },
+      }
     )
   );
 }

@@ -31,21 +31,39 @@ import { CursorSyncStore, CursorSyncSnapshot } from "../editor/cursorSyncStore";
 
 // ─────────────────────────────────────────
 // 縦中横（ruby タグ外のみ）
+//
+// 対象は2種類：
+//   1. 半角英数字・記号の連続（例: "12", "2024", "URL" など）
+//      → 2文字以下は tcy（1文字分に収めて縦組みのまま表示）
+//      → 3文字以上は latin（横倒しにして読みやすくする）
+//   2. 感嘆符・疑問符の連続（半角 !? と全角 ！？ の両方に対応）
+//      例: "!", "?", "!?", "?!", "!!", "??", "！？" など
+//      → こちらは常に tcy（1文字分に収めて縦組みのまま表示）。
+//        半角の "!" "?" は何もしないと横倒しの向きで表示され
+//        読みにくくなるため、単独でも tcy 対象に含める。
+//        3文字以上の連続（例: "!!!"）はまれで、収めると潰れて
+//        読みにくくなるため対象外とし、素通りさせる。
 // ─────────────────────────────────────────
 function applyTcy(text: string): string {
   const parts = text.split(/(<ruby>[\s\S]*?<\/ruby>|<rt>[\s\S]*?<\/rt>)/g);
   return parts.map((part, i) => {
     if (i % 2 === 1) return part;
 
-    return part.replace(
-      /([A-Za-z0-9._:/+-]+)/g,
-      (m) => {
-        if (m.length <= 2) {
-          return `<span class="tcy">${m}</span>`;
+    return part
+      .replace(
+        /([A-Za-z0-9._:/+-]+)/g,
+        (m) => {
+          if (m.length <= 2) {
+            return `<span class="tcy">${m}</span>`;
+          }
+          return `<span class="latin">${m}</span>`;
         }
-        return `<span class="latin">${m}</span>`;
-      }
-    );}).join("");
+      )
+      .replace(
+        /([!?！？]{1,2})/g,
+        (m) => `<span class="tcy">${m}</span>`
+      );
+  }).join("");
 }
 
 // ─────────────────────────────────────────

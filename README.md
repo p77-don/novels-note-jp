@@ -1,5 +1,7 @@
 # Novels Note JP
 
+[日本語説明](README.md#日本語説明)
+
 An Obsidian plugin for Japanese fiction writers. It provides a writing environment optimized for Japanese novel composition, with `.txt` file support, vertical writing preview, term highlighting, ruby annotation, and manuscript export.
 
 ---

@@ -32,6 +32,7 @@ import {
   buildTermDropExtension,
   buildRubyExtension,
   buildCursorSyncExtension,
+  TERM_HOVER_SOURCE_ID,
 } from "./editor/extensions";
 import { CursorSyncStore } from "./editor/cursorSyncStore";
 import { NovelsNoteSidebarView } from "./views/sidebarView";
@@ -176,6 +177,21 @@ export default class NovelsNoteJP extends Plugin {
     this.registerWritingStatsCommand();
 
     // ─────────────────────────────────────────
+    // 用語ハイライトのホバープレビュー（hover-link）を
+    // Page Preview（コアプラグイン）に登録する。
+    // これを行わないと、未登録の source からの hover-link は
+    // 既定で「Modキー（Ctrl/Cmd）押下時のみプレビュー表示」扱いに
+    // なり、通常のホバーだけでは何も表示されない。
+    // defaultMod: false により、Modキー不要の通常ホバーで
+    // プレビューが開くようにする（ユーザーは
+    // 「設定 → ページプレビュー」で個別に上書き可能）。
+    // ─────────────────────────────────────────
+    this.registerHoverLinkSource(TERM_HOVER_SOURCE_ID, {
+      display: "Novels Note JP（用語ハイライト）",
+      defaultMod: false,
+    });
+
+    // ─────────────────────────────────────────
     // novelModeField を全エディタに登録
     // mode:novel かどうかを CM6 State として保持する
     // ─────────────────────────────────────────
@@ -196,6 +212,7 @@ export default class NovelsNoteJP extends Plugin {
     );
     this.registerEditorExtension(
       buildTermExtension(
+        this.app,
         () => this.terms,
         () => this.settings
       )
@@ -439,6 +456,13 @@ export default class NovelsNoteJP extends Plugin {
       .map(td => `.novels-note-sidebar .novel-hl-${td.tag} { color: ${td.color}; }`)
       .join("\n");
 
+    // 用語ハイライトのホバープレビューが有効な場合のみ、
+    // ホバー可能であることを示すカーソルを付ける
+    // （無効時に「ホバーできそうに見えるのに反応しない」状態を避ける）
+    const termHoverCursorCss = s.termHoverPreviewEnabled
+      ? `.cm-editor[data-novel-mode="true"] .cm-content [class*="novel-hl-"] { cursor: help; }`
+      : "";
+
     // 全角スペース可視化
     const fwColor = s.fullWidthSpaceColor;
     const fwspCss = s.showFullWidthSpace && s.fullWidthSpaceStyle !== "none"
@@ -525,6 +549,7 @@ export default class NovelsNoteJP extends Plugin {
       ${bracketColorCss}
       ${tagColorCss}
       ${tagColorSidebarCss}
+      ${termHoverCursorCss}
       ${cursorHighlightCss}
     `;
 
