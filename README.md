@@ -17,6 +17,8 @@ mode: novel
 ---
 ```
 
+> **Note:** Novel Mode detection is based on YAML frontmatter, which Obsidian only parses for `.md` files. Frontmatter in `.txt` files is **not** recognized by Obsidian, so `mode: novel` has no effect there—novel mode features (fonts, term/bracket highlighting, ruby rendering, word count, etc.) will not activate on `.txt` files even if the frontmatter is present. `.txt` support (see below) covers opening/editing the file and using Vertical Writing Preview only. To use novel mode features, use a `.md` file.
+
 ![editor](docs/editor.png)
 
 ### Japanese Writing Environment
@@ -24,7 +26,7 @@ mode: novel
 - **Full-width space (　) visualization** to catch accidental spacing errors — choose from dot, underline, box, or none
 - **Automatic paragraph indentation**
 - **Configurable line-wrap column** with a visual ruler/guideline (color, opacity, and solid/dashed style)
-- **`.txt` file support** — open and edit plain text files directly in Obsidian
+- **`.txt` file support** — open and edit plain text files directly in Obsidian, and preview them with Vertical Writing Preview. Note: this does **not** include novel mode itself—see the note under [Novel Mode](#novel-mode) above.
 
 ### Ruby Annotation (Furigana)
 Add furigana to selected text from the editor's right-click context menu.
@@ -244,6 +246,8 @@ mode: novel
 ---
 ```
 
+> **注意：** ノベルモードの判定は YAML フロントマターに基づいていますが、Obsidian はフロントマターを **`.md` ファイルに対してのみ**解析します。`.txt` ファイルではフロントマターがそもそも認識されないため、`mode: novel` を記載していてもノベルモードは有効になりません（フォント・用語ハイライト・括弧ハイライト・ルビ表示・文字数カウントなどの機能は一切動作しません）。後述する「`.txt` ファイル対応」は、あくまでファイルの開閉・編集と縦書きプレビューのみを対象としています。ノベルモードの機能を利用したい場合は `.md` ファイルを使用してください。
+
 ![editor](docs/editor.png)
 
 ### 日本語執筆環境
@@ -251,7 +255,7 @@ mode: novel
 - **全角スペースの可視化**（誤入力を防止）。表示スタイルはドット・下線・ボーダーから選択可能
 - **段落自動字下げ**
 - **折り返し桁数の設定**とビジュアル定規（色・不透明度・実線/破線を設定可能）
-- **`.txt` ファイル対応** — プレーンテキストファイルを直接編集可能
+- **`.txt` ファイル対応** — プレーンテキストファイルを直接開いて編集でき、縦書きプレビューも利用可能です。ただし、ノベルモード自体は含まれません（詳細は上記[ノベルモード](#ノベルモード)の注意書きを参照）
 
 ### ルビ・傍点の入力
 エディター上でテキストを選択して右クリックするとコンテキストメニューに項目が表示されます。
