@@ -11,7 +11,7 @@
 //   - ファイル名クリックでそのノートを開く（Wikilink 的な導線）。
 // ─────────────────────────────────────────
 
-import { ItemView, WorkspaceLeaf, TFile } from "obsidian";
+import { ItemView, WorkspaceLeaf, TFile, Platform } from "obsidian";
 import { WRITING_STATS_VIEW_TYPE, WritingStatsEntry } from "../types";
 
 type SortKey = "name" | "created" | "modified";
@@ -149,8 +149,14 @@ export class WritingStatsView extends ItemView {
   // 固定ヘッダー：並び替えツールバー＋再集計ボタン
   // ─────────────────────────────────────────
   private renderToolbar(container: HTMLElement): void {
-    const toolbar = container.createEl("div", { cls: "nn-stats-toolbar" });
-    toolbar.createEl("span", { text: "並び替え:", cls: "nn-stats-toolbar-label" });
+    const toolbar = container.createEl("div", {
+      cls: "nn-stats-toolbar" + (Platform.isMobile ? " nn-stats-toolbar-mobile" : ""),
+    });
+    // モバイルは表示領域が限られるため、「並び替え：」のコロンを省略する
+    toolbar.createEl("span", {
+      text: Platform.isMobile ? "並び替え" : "並び替え:",
+      cls: "nn-stats-toolbar-label",
+    });
 
     const addSortButton = (key: SortKey, label: string): void => {
       const isActive = this.sortKey === key;
@@ -174,6 +180,11 @@ export class WritingStatsView extends ItemView {
     addSortButton("modified", "最終更新日時");
 
     // 再集計ボタン（ソートボタン群の右側に配置）
+    // モバイルは表示スペースが限られるため非表示にする。
+    // タブを開き直した際は自動的に再集計されるため、
+    // 手動での再集計手段がなくても実用上は困らない。
+    if (Platform.isMobile) return;
+
     const refreshBtn = toolbar.createEl("button", {
       text: "再集計",
       cls: "nn-stats-refresh-btn",

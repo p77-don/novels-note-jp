@@ -2,7 +2,7 @@
 
 [日本語説明](#日本語説明)
 
-An Obsidian plugin for Japanese fiction writers. It provides a writing environment optimized for Japanese novel composition, with `.txt` file support, vertical writing preview, term highlighting, ruby annotation, and manuscript export.
+An Obsidian plugin for Japanese fiction writers. It provides a writing environment optimized for Japanese novel composition, with `.txt` file support, vertical writing preview, term highlighting, ruby annotation, and manuscript export. Works on both desktop and mobile (iOS / Android).
 
 ---
 
@@ -17,7 +17,7 @@ mode: novel
 ---
 ```
 
-> **Note:** Novel Mode detection is based on YAML frontmatter, which Obsidian only parses for `.md` files. Frontmatter in `.txt` files is **not** recognized by Obsidian, so `mode: novel` has no effect there—novel mode features (fonts, term/bracket highlighting, ruby rendering, word count, etc.) will not activate on `.txt` files even if the frontmatter is present. `.txt` support (see below) covers opening/editing the file and using Vertical Writing Preview only. To use novel mode features, use a `.md` file.
+> **Note:** Novel Mode detection is based on YAML frontmatter, which Obsidian only parses for `.md` files. Frontmatter in `.txt` files is **not** recognized by Obsidian, so `mode: novel` has no effect there—novel mode features (fonts, term/bracket highlighting, ruby rendering, word count, etc.) will not activate on `.txt` files even if the frontmatter is present. `.txt` support (see below) covers opening/editing the file and using Vertical Writing Preview only.
 
 ![editor](docs/editor.png)
 
@@ -34,6 +34,10 @@ Add furigana to selected text from the editor's right-click context menu.
 - **ルビを振る** — Select text, right-click, choose "ルビを振る", enter the reading in a popup dialog. A live HTML preview updates as you type, and the annotation is inserted in the configured ruby style.
 - **傍点を振る** — Select text, right-click, choose "傍点を振る" to apply emphasis dots (·) to each character instantly.
 
+Ruby notation is also rendered inline in the editor as an HTML `<ruby>` element so you can read the text naturally while writing.
+
+> **On mobile:** There is no way to open a right-click context menu on mobile, so the same actions are also available as commands. Select text, then run **選択した文字列にルビを振る** / **選択した文字列に傍点を振る** from the command palette (or from a mobile toolbar button, if you've added these commands via **Customize Toolbar**).
+
 Four ruby notation styles are supported (configured globally in Settings):
 
 | Style | Format |
@@ -42,8 +46,6 @@ Four ruby notation styles are supported (configured globally in Settings):
 | 青空文庫式 | `｜漢字《ルビ》` (full-width pipe) |
 | でんでん式 | `{漢字\|ルビ}` |
 | HTML | `<ruby>漢字<rt>ルビ</rt></ruby>` |
-
-Ruby notation is also rendered inline in the editor as an HTML `<ruby>` element so you can read the text naturally while writing.
 
 ### Term Highlighting
 Notes tagged with a category (`character`, `location`, `glossary`, `organization`, `item`) register their filename as a term, which is then highlighted wherever it appears in novel-mode editors. Colors and on/off toggles are configurable per category. Additional names for the same term can be registered via `aliases`.
@@ -55,6 +57,10 @@ aliases: (register alternative names here)
 ---
 ```
 
+Hovering over a highlighted term in the editor shows the corresponding term note via Obsidian's standard Page Preview (Hover Preview).
+
+> **On mobile:** Hovering isn't possible on a touch device, so this feature is disabled on mobile. Instead, select a string of text and run the **選択した文字列の用語ノートを開く** command — this shows the term note's content in a preview modal, with a button to open the note directly if needed.
+
 ### Bracket Highlighting
 Highlight Japanese brackets (`「」『』（）【】〈〉《》`) with individually configurable colors and toggles.
 
@@ -65,7 +71,7 @@ A right-sidebar panel displays all defined terms, organized in a folder-tree vie
 - Search/filter box with a clear button
 - Click-to-open any term note
 - **Right-click on a category or folder** → create a new term note in that location
-- **Right-click on a term** → open, rename-by-edit, or delete (moves to system trash with confirmation)
+- **Right-click on a term** → open the note, insert it into the manuscript, copy its link to the clipboard, or delete it (moves to system trash with confirmation)
 - Drag-and-drop to move terms between folders
 - Drag-and-drop a term into the main pane to insert it as a WikiLink
 - Tags collapsed by default on startup
@@ -73,8 +79,10 @@ A right-sidebar panel displays all defined terms, organized in a folder-tree vie
 
 When creating a new term note, you can specify a folder path. If the folder does not exist, a confirmation dialog appears before creating it.
 
+> **On mobile:** Long-press a category or folder to open the same "create new term note" menu that right-click opens on desktop. Drag-and-drop still works for moving terms between folders, but dragging a term into the main pane to insert it doesn't work, due to how drag-and-drop behaves on mobile browsers. Instead, **tap a term** to open a menu with "ノートを開く" (open note), "原稿に挿入" (insert into manuscript), and "リンクをクリップボードへコピー" (copy link to clipboard). "原稿に挿入" inserts into whichever manuscript note you were last editing; if none is open, the link is copied to the clipboard automatically instead.
+
 ### Word Count
-Three counting modes are available, shown in the status bar:
+Three counting modes are available, shown in the status bar (desktop only — Obsidian's mobile apps don't support status bar items, so this display isn't available there):
 
 - **Raw** — total character count
 - **Novel-weighted** — counts only manuscript text (excluding frontmatter, tags, WikiLinks, etc.)
@@ -91,6 +99,8 @@ Preview the current note in vertical writing (`tate-gumi`) layout. Features:
 - Export button in the toolbar
 
 ![verticalPreview](docs/verticalPreview.png)
+
+> **On mobile:** On desktop, this opens in the right sidebar so you can keep it visible alongside the editor while you write. Mobile screens can't show both at once, so it opens as an independent tab instead. As a result, cursor position sync and cursor-line highlighting don't work on mobile (the Settings screen shows "モバイル版では使用できません。" for the highlight option). The line-wrap column setting may also not display the exact character count you've configured, depending on the available screen height.
 
 ### Novel Reading View
 A clean reading view that strips WikiLinks, tags, and non-manuscript content. Displays a notice for non-novel-mode files. Includes an export button alongside the standard edit button.
@@ -118,7 +128,7 @@ Open a manuscript overview in the main pane, aggregating every `mode: novel` not
 - Dialogue is detected using whichever bracket types are enabled in Bracket Highlighting settings (`「」`, `『』`, etc.)
 - Sort the note list by filename, creation date, or last-modified date; only the note list scrolls, so the summary and sort controls stay visible
 - Click a filename to jump straight to that note
-- A **再集計** (recalculate) button refreshes the list on demand
+- A **再集計** (recalculate) button refreshes the list on demand (This button is not displayed on mobile.)
 - Folders can be excluded from the scan via a dedicated exclude-folder list in Settings, independent of the term index's exclude list
 
 ![writingStats](docs/writingStats.png)
@@ -131,6 +141,8 @@ Open a manuscript overview in the main pane, aggregating every `mode: novel` not
 1. Open **Settings** → **Community plugins** → **Browse**
 2. Search for `Novels Note JP`
 3. Click **Install**, then **Enable**
+
+The same steps work in the mobile app.
 
 ### Manual Installation
 1. Download `main.js`, `manifest.json`, and `styles.css` from the [latest release](https://github.com/p77-don/novels-note-jp/releases)
@@ -147,6 +159,17 @@ Open a manuscript overview in the main pane, aggregating every `mode: novel` not
 2. Add `mode: novel` to the frontmatter of any note you want to use as a novel manuscript
 3. Open **Settings** → **Novels Note JP** to configure fonts, colors, ruby style, and other options
 
+### Adding Ruby Annotation
+**Desktop:**
+1. Select the text you want to annotate in the editor
+2. Right-click to open the context menu
+3. Choose **ルビを振る** to open the ruby input dialog, enter the reading, and click **挿入**
+4. Or choose **傍点を振る** to apply emphasis dots immediately
+
+**Mobile:**
+1. Select the text you want to annotate in the editor
+2. Run **選択した文字列にルビを振る** / **選択した文字列に傍点を振る** from the command palette or a customized mobile toolbar button
+
 ### Defining Terms
 Create notes for characters, locations, and other story elements, and add the matching category tag to the note's frontmatter `tags`:
 
@@ -160,14 +183,8 @@ Create notes for characters, locations, and other story elements, and add the ma
 
 The note's filename (or its `name` frontmatter field, if set) becomes the term, and is automatically highlighted in novel-mode editors.
 
-### Adding Ruby Annotation
-1. Select the text you want to annotate in the editor
-2. Right-click to open the context menu
-3. Choose **ルビを振る** to open the ruby input dialog, enter the reading, and click **挿入**
-4. Or choose **傍点を振る** to apply emphasis dots immediately
-
 ### Vertical Preview
-Use the command palette (`Ctrl/Cmd + P`) and run **Novels Note JP: 縦書きプレビューを開く** to open the tate-gumi preview panel.
+Use the command palette (`Ctrl/Cmd + P`) and run **Novels Note JP: 縦書きプレビューを開く** to open the tate-gumi preview panel. It opens in the right sidebar on desktop, and as a new tab on mobile.
 
 ### Novel Reading View
 Run **Novels Note JP: 小説閲覧ビューを開く** from the command palette to switch the current note to the clean reading view.
@@ -193,18 +210,28 @@ Run **Novels Note JP: 執筆情報一覧を開く** from the command palette to 
 | Category colors / toggles | Color and enable/disable per term category |
 | Bracket colors / toggles | Color and enable/disable per bracket type |
 | Ruby notation style | Format used when inserting and rendering ruby annotations (narou / aozora / denden / HTML) |
-| Word count mode | Raw / Novel-weighted / Manuscript pages |
+| Word count mode | Raw / Novel-weighted / Manuscript pages (desktop only) |
 | Word count options | Whether to include full-width spaces, blank lines, and hashtags in the count |
-| Vertical preview cursor highlight | Enable/disable and color for the cursor-line highlight in vertical preview |
+| Vertical preview cursor highlight | Enable/disable and color for the cursor-line highlight in vertical preview (disabled on mobile) |
 | Exclude folders | Folders excluded from the term index |
 | Writing Stats exclude folders | Folders excluded from the Writing Stats scan (managed separately from the term index's exclude list) |
 
 ---
 
+## Mobile Support
+
+As of version 0.9.0, Novels Note JP runs on the iOS and Android Obsidian apps. Core writing, highlighting, ruby annotation, export, and term-management features all work the same as on desktop, but a few features are adapted or unavailable due to mobile-specific constraints. See the "On mobile:" notes under each feature above for details.
+
+- Features that rely on right-click or mouse hover are replaced with commands or tap menus
+- A few things aren't available on mobile at all because of how Obsidian's mobile UI is built — the status bar word count, and vertical preview's cursor sync / cursor-line highlight
+- So far this has only been tested on a physical iOS device. Android, tablets, and foldable phones haven't been verified yet. If you run into issues, please report them on [Issues](https://github.com/p77-don/novels-note-jp/issues)
+
+---
+
 ## Requirements
 
-- Obsidian v1.4.0 or later
-- Desktop only (uses Node.js file system APIs)
+- Obsidian v1.8.7 or later
+- Works on desktop (Windows / macOS / Linux) and mobile (iOS / Android)
 
 ---
 
@@ -231,14 +258,14 @@ Copy `main.js`, `manifest.json`, and `styles.css` to your vault's plugin folder 
 
 # Novels Note JP
 
-日本語小説の執筆に特化した Obsidian プラグインです。`.txt` ファイルのサポート、縦書きプレビュー、用語ハイライト、ルビ入力、原稿エクスポートなど、小説執筆ワークフローに必要な機能を提供します。
+日本語小説の執筆に特化した Obsidian プラグインです。`.txt` ファイルのサポート、縦書きプレビュー、用語ハイライト、ルビ入力、原稿エクスポートなど、小説執筆ワークフローに必要な機能を提供します。デスクトップ・モバイル（iOS / Android）の両方に対応しています。
 
 ---
 
 ## 主な機能
 
 ### ノベルモード
-フロントマターに `mode: novel` を記載したノートのみにプラグインの機能が適用されます。通常のノートには一切影響を与えません。
+フロントマターに `mode: novel` を記載したノートのみにプラグインの機能が適用されます。通常のノートには影響を与えません。
 
 ```yaml
 ---
@@ -246,24 +273,27 @@ mode: novel
 ---
 ```
 
-> **注意：** ノベルモードの判定は YAML フロントマターに基づいていますが、Obsidian はフロントマターを **`.md` ファイルに対してのみ**解析します。`.txt` ファイルではフロントマターがそもそも認識されないため、`mode: novel` を記載していてもノベルモードは有効になりません（フォント・用語ハイライト・括弧ハイライト・ルビ表示・文字数カウントなどの機能は一切動作しません）。後述する「`.txt` ファイル対応」は、あくまでファイルの開閉・編集と縦書きプレビューのみを対象としています。ノベルモードの機能を利用したい場合は `.md` ファイルを使用してください。
+> **注意**
+> ノベルモードの判定は YAML フロントマターに基づいていますが、Obsidian はフロントマターを **`.md` ファイルに対してのみ**解析します。`.txt` ファイルではフロントマターがそもそも認識されないため、`mode: novel` を記載してもノベルモードは有効になりません（フォント・用語ハイライト・括弧ハイライト・ルビ表示・文字数カウントなどの機能は動作しません）。後述する「`.txt` ファイル対応」は、あくまでファイルの開閉・編集と縦書きプレビューのみを対象としています。
 
 ![editor](docs/editor.png)
 
 ### 日本語執筆環境
-- **日本語向けに最適化された等幅フォント**（BIZ UDゴシック、Noto Sans Mono CJK JP など）。フォントサイズ・行間は設定で調整可能
+- **日本語向けに最適化された等幅フォント**（BIZ UDゴシック、Noto Sans Mono CJK JP など）。フォントサイズと行間は設定で調整可能
 - **全角スペースの可視化**（誤入力を防止）。表示スタイルはドット・下線・ボーダーから選択可能
 - **段落自動字下げ**
 - **折り返し桁数の設定**とビジュアル定規（色・不透明度・実線/破線を設定可能）
 - **`.txt` ファイル対応** — プレーンテキストファイルを直接開いて編集でき、縦書きプレビューも利用可能です。ただし、ノベルモード自体は含まれません（詳細は上記[ノベルモード](#ノベルモード)の注意書きを参照）
 
 ### ルビ・傍点の入力
-エディター上でテキストを選択して右クリックするとコンテキストメニューに項目が表示されます。
+エディター上でテキストを選択して右クリックすると、コンテキストメニューに項目が表示されます。
 
 - **ルビを振る** — 選択テキストに対してルビ入力ダイアログが開きます。読み仮名を入力するとリアルタイムで HTML プレビューが更新され、「挿入」ボタンで設定のルビ方式に従った記法で挿入されます。
 - **傍点を振る** — 選択した文字列の各文字に「・」を傍点として即座に挿入します。
 
 ルビ記法はエディター上でも HTML の `<ruby>` 要素としてインラインレンダリングされるため、執筆中も読みやすい表示で確認できます。
+
+> **モバイルでは：** モバイル環境には右クリックメニューを開く手段がないため、同じ機能をコマンドとして提供しています。文字列を選択したうえで、コマンドパレット（または「ツールバーをカスタマイズ」に登録したモバイルツールバー）から **選択した文字列にルビを振る** / **選択した文字列に傍点を振る** を実行してください。
 
 対応しているルビ記法は以下の4種類です（設定で統一的に切り替え可能）：
 
@@ -284,6 +314,10 @@ aliases: （別名を登録）
 ---
 ```
 
+エディター上でハイライトされた用語にマウスを合わせると、対応する用語ノートを Obsidian 標準のページプレビュー（Hover Preview）で確認できます。
+
+> **モバイルでは：** ホバー（マウスを合わせる操作）自体が存在しないため、この機能はモバイルでは無効になります。代わりに、文字列を選択して **選択した文字列の用語ノートを開く** コマンドを実行すると、用語ノートの内容（本文プレビュー）をモーダル表示で確認できます。モーダルの「用語ページを開く」からノートを直接開くことも可能です。
+
 ### 括弧ハイライト
 日本語括弧（`「」『』（）【】〈〉《》`）を種類ごとに色設定・個別トグルでハイライト表示します。
 
@@ -294,7 +328,7 @@ aliases: （別名を登録）
 - 検索・フィルタリング（クリアボタン付き）
 - クリックでノートを開く
 - **カテゴリ・フォルダを右クリック** → そのフォルダに用語ノートを新規作成
-- **用語を右クリック** → ノートを開く・削除（確認ダイアログ付き、ゴミ箱へ移動）
+- **用語を右クリック** → ノートを開く・原稿に挿入・リンクをクリップボードへコピー・削除（確認ダイアログ付き、ゴミ箱へ移動）
 - ドラッグ＆ドロップでフォルダ階層を移動
 - ドラッグ＆ドロップでメインペインに用語を挿入（WikiLink 形式）
 - 起動時はタグを折りたたんだ状態で表示
@@ -302,8 +336,10 @@ aliases: （別名を登録）
 
 用語ノートの新規作成時にフォルダパスを指定できます。指定したフォルダが存在しない場合、作成前に確認ダイアログが表示されます。
 
+> **モバイルでは：** カテゴリ・フォルダの長押しで新規作成メニューが開きます（右クリックの代わり）。用語のドラッグ＆ドロップは、フォルダ間の移動には対応していますが、メインペインへの挿入（原稿へのWikiLink挿入）はモバイル環境のドラッグ＆ドロップの制約により動作しません。代わりに、**用語をタップ**するとメニューが開き、「ノートを開く」「原稿に挿入」「リンクをクリップボードへコピー」を選択できます。「原稿に挿入」は、直前まで編集していた原稿ノートに挿入されます（原稿を開いていない場合は自動的にクリップボードへコピーされます）。
+
 ### 文字数カウント
-3つのカウントモードをステータスバーに表示します：
+3つのカウントモードをステータスバーに表示します（デスクトップのみ。モバイルでは Obsidian 側の仕様によりステータスバーが利用できないため、この表示はありません）：
 
 - **生文字数** — 総文字数
 - **小説用重み付き** — 本文のみをカウント（フロントマター・タグ・WikiLink 等を除外）
@@ -320,6 +356,8 @@ aliases: （別名を登録）
 - ツールバーにエクスポートボタン配置
 
 ![verticalPreview](docs/verticalPreview.png)
+
+> **モバイルでは：** デスクトップでは右サイドバーに開き、エディターと並べて確認しながら執筆できますが、モバイルでは画面の制約上エディターと同時に表示できないため、独立したタブとして開きます。これに伴い、カーソル位置同期・カーソル行ハイライトはモバイルでは動作しません（設定画面にも「モバイル版では使用できません。」と表示されます）。折り返し桁数の設定も、画面の高さによっては指定した文字数どおりに収まらない場合があります。
 
 ### 小説閲覧ビュー
 WikiLink・タグ・本文以外のコンテンツを除去したクリーンな閲覧ビューです。ノベルモードでないファイルにはポップアップで通知します。編集ボタンの隣にエクスポートボタンも配置されています。
@@ -347,7 +385,7 @@ Vault 全体の `mode: novel` ノートを集計し、メインペインに一�
 - 会話文の判定は、括弧ハイライト設定で有効になっている括弧の種類（「」『』など）に基づきます
 - ファイル名・作成日時・最終更新日時で並び替え可能。並び替え時にスクロールするのは原稿の一覧部分のみで、合計サマリーと並び替えボタンは常に表示され続けます
 - ファイル名をクリックすると、そのノートを直接開けます
-- **再集計** ボタンでいつでも最新の状態に更新できます
+- **再集計** ボタンでいつでも最新の状態に更新できます（モバイルではこのボタンは表示されません）
 - 設定にて、集計対象から除外するフォルダを指定可能（用語インデックスの除外フォルダとは別に管理されます）
 
 ![writingStats](docs/writingStats.png)
@@ -360,6 +398,8 @@ Vault 全体の `mode: novel` ノートを集計し、メインペインに一�
 1. **設定** → **コミュニティプラグイン** → **閲覧** を開く
 2. **Novels Note JP** を検索
 3. **インストール** → **有効化**
+
+モバイル版アプリでも同じ手順でインストールできます。
 
 ### 手動インストール
 1. [最新リリース](https://github.com/p77-don/novels-note-jp/releases)から `main.js`、`manifest.json`、`styles.css` をダウンロード
@@ -375,10 +415,15 @@ Vault 全体の `mode: novel` ノートを集計し、メインペインに一�
 3. **設定** → **Novels Note JP** でハイライト色・ルビ方式・用語カテゴリなどを設定する
 
 ### ルビ・傍点の入力
+**デスクトップ：**
 1. エディターでルビを付けたい文字列を選択する
 2. 右クリックしてコンテキストメニューを開く
 3. **ルビを振る** を選択してダイアログで読み仮名を入力し、「挿入」をクリック
 4. または **傍点を振る** を選択して即座に傍点を適用する
+
+**モバイル：**
+1. エディターでルビを付けたい文字列を選択する
+2. コマンドパレット、またはカスタマイズしたモバイルツールバーから **選択した文字列にルビを振る** / **選択した文字列に傍点を振る** を実行する
 
 ### 用語の定義
 登場人物・場所・用語などのノートを作成し、対応するカテゴリタグを付与します：
@@ -394,7 +439,7 @@ Vault 全体の `mode: novel` ノートを集計し、メインペインに一�
 ノートのファイル名（または `name` プロパティを設定している場合はその値）が用語として登録され、ノベルモードのエディターで自動的にハイライトされます。
 
 ### 縦書きプレビュー
-コマンドパレット（`Ctrl/Cmd + P`）から **Novels Note JP: 縦書きプレビューを開く** を実行します。
+コマンドパレット（`Ctrl/Cmd + P`）から **Novels Note JP: 縦書きプレビューを開く** を実行します。デスクトップでは右サイドバー、モバイルでは新規タブとして開きます。
 
 ### 小説閲覧ビュー
 コマンドパレットから **Novels Note JP: 小説閲覧ビューを開く** を実行すると、現在のノートを小説閲覧ビューに切り替えます。
@@ -420,15 +465,25 @@ Vault 全体の `mode: novel` ノートを集計し、メインペインに一�
 | カテゴリカラー・トグル | 用語カテゴリごとの色とオン/オフ |
 | 括弧カラー・トグル | 括弧の種類ごとの色とオン/オフ |
 | ルビ記法 | ルビ入力・インラインレンダリング・エクスポートに使用する記法（なろう式 / 青空文庫式 / でんでん式 / HTML） |
-| 文字数カウントモード | 生文字数 / 小説用重み付き / 原稿用紙換算 |
+| 文字数カウントモード | 生文字数 / 小説用重み付き / 原稿用紙換算（デスクトップのみ表示） |
 | 文字数カウントオプション | 全角スペース・空行・ハッシュタグをカウントに含めるか |
-| 縦書きプレビューのカーソルハイライト | カーソル行の背景色とオン/オフ |
+| 縦書きプレビューのカーソルハイライト | カーソル行の背景色とオン/オフ（モバイルでは操作不可） |
 | 除外フォルダ | 用語インデックスから除外するフォルダ |
 | 執筆情報一覧 除外フォルダ | 執筆情報一覧の集計対象から除外するフォルダ（用語インデックスの除外フォルダとは別に管理） |
 
 ---
 
+## モバイル対応について
+
+バージョン 0.9.0 より、iOS / Android のモバイル版 Obsidian に対応しました。基本的な執筆・ハイライト・ルビ・エクスポート・用語管理機能はデスクトップと同様に利用できますが、モバイル特有の制約により、一部の機能は操作方法が異なる、または利用できません。詳細は各機能セクション内の「モバイルでは：」の記載を参照してください。
+
+- 右クリック・マウスホバーに依存する機能は、コマンドまたはタップメニューに置き換えられています
+- ステータスバーの文字数表示、縦書きプレビューのカーソル同期・カーソルハイライトなど、Obsidianモバイルの画面構成上実現できない機能は非対応です
+- 現時点では iOS 実機での動作確認のみ行っており、Android・タブレット・折りたたみスマートフォンでの動作は未検証です。不具合を発見された場合は [Issues](https://github.com/p77-don/novels-note-jp/issues) からご報告いただけると助かります
+
+---
+
 ## 動作環境
 
-- Obsidian v1.4.0 以降
-- デスクトップ版のみ（Node.js API を使用）
+- Obsidian v1.8.7 以降
+- デスクトップ（Windows / macOS / Linux）およびモバイル（iOS / Android）に対応

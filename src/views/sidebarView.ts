@@ -3,7 +3,7 @@
 // フォルダツリー展開式・検索対応
 // ─────────────────────────────────────────
 
-import { ItemView, WorkspaceLeaf, TFile, Plugin, Notice, Modal, Menu, App, setIcon } from "obsidian";
+import { ItemView, WorkspaceLeaf, TFile, Plugin, Notice, Modal, Menu, App, setIcon, Platform, Editor } from "obsidian";
 import { SIDEBAR_VIEW_TYPE, TermEntry, TERM_DRAG_MIME_TYPE } from "../types";
 import { TagDefinition } from "../settings";
 
@@ -320,14 +320,26 @@ export class NovelsNoteSidebarView extends ItemView {
   /**
    * プラグイン本体への参照
    */
-  private plugin: (Plugin & { getTerms(): TermEntry[]; getTagDefs(): TagDefinition[] }) | null = null;
+  private plugin:
+    | (Plugin & {
+        getTerms(): TermEntry[];
+        getTagDefs(): TagDefinition[];
+        getLastActiveMarkdownEditor(): { editor: Editor; file: TFile | null } | null;
+      })
+    | null = null;
 
   constructor(leaf: WorkspaceLeaf) {
     super(leaf);
   }
 
   /** main.ts の registerView コールバックから呼ぶ */
-  setPlugin(plugin: Plugin & { getTerms(): TermEntry[]; getTagDefs(): TagDefinition[] }): void {
+  setPlugin(
+    plugin: Plugin & {
+      getTerms(): TermEntry[];
+      getTagDefs(): TagDefinition[];
+      getLastActiveMarkdownEditor(): { editor: Editor; file: TFile | null } | null;
+    }
+  ): void {
     this.plugin = plugin;
   }
 
@@ -499,8 +511,11 @@ export class NovelsNoteSidebarView extends ItemView {
         this.renderFolderNode(sectionBody, tree, td, query !== "");
       } else {
         // 用語 0 件のカテゴリには案内テキストを表示
+        // モバイルには右クリックが存在しないため、案内文を出し分ける
         sectionBody.createEl("p", {
-          text: "用語ノートがありません。右クリックで新規作成できます。",
+          text: Platform.isMobile
+            ? "用語ノートがありません。カテゴリを長押しすると新規作成できます。"
+            : "用語ノートがありません。右クリックで新規作成できます。",
           cls: "nn-empty nn-empty-hint",
         });
       }
@@ -641,9 +656,22 @@ export class NovelsNoteSidebarView extends ItemView {
       });
     }
 
-    // クリックで該当ノートを開く
+    // クリック（モバイルではタップ）の挙動
+    //
+    // デスクトップ：即座に該当ノートを開く（従来通り）。
+    // 複数の操作は右クリックメニュー（showTermContextMenu）で提供する。
+    //
+    // モバイル：モバイルのツールバーはエディタにフォーカスがある時
+    // にしか使えず、サイドバーからは呼び出せない。かといって長押しは
+    // 既にフォルダ間移動のドラッグ操作に使われているため、モバイルでは
+    // タップ時に showTermContextMenu を開き、「ノートを開く」
+    // 「原稿に挿入」を選ばせる。
     nameEl.addEventListener("click", (e: MouseEvent) => {
       e.stopPropagation();
+      if (Platform.isMobile) {
+        this.showTermContextMenu(e, term);
+        return;
+      }
       const file = this.app.vault.getAbstractFileByPath(term.filePath);
       if (file instanceof TFile) {
         void this.app.workspace.getLeaf(false).openFile(file);
@@ -747,6 +775,64 @@ export class NovelsNoteSidebarView extends ItemView {
           if (file instanceof TFile) {
             void this.app.workspace.getLeaf(false).openFile(file);
           }
+        });
+    });
+
+    // 原稿に挿入：直前までアクティブだったエディタのカーソル位置に
+    // この用語への Wikilink を挿入する。
+    // デスクトップではドラッグ&ドロップの代替として、
+    // モバイルではドラッグ&ドロップができない代わりの主要導線として機能する。
+    //
+    // モバイルでは、サイドバーを開いた時点でエディタがフォーカス・
+    // カーソルを失うため、直接挿入できないケースがある
+    // （Obsidian側の仕様上、ここは回避できない）。
+    // その場合は Wikilink をクリップボードにコピーし、
+    // 手動で原稿に貼り付けてもらう。
+    menu.addItem(item => {
+      item
+        .setTitle("原稿に挿入")
+        .setIcon("pen-line")
+        .onClick(() => {
+          const file = this.app.vault.getAbstractFileByPath(term.filePath);
+          if (!(file instanceof TFile)) return;
+
+          const target = this.plugin?.getLastActiveMarkdownEditor() ?? null;
+          const sourcePath = target?.file?.path ?? "";
+          const linkText = this.app.fileManager.generateMarkdownLink(file, sourcePath);
+
+          if (target?.editor) {
+            target.editor.replaceSelection(linkText);
+            return;
+          }
+
+          // 挿入先のエディタが見つからない場合はクリップボードにコピー
+          void navigator.clipboard.writeText(linkText).then(
+            () => new Notice(`「${term.name}」のリンクをコピーしました。原稿に貼り付けてください。`),
+            () => new Notice("挿入先のエディタが見つからず、コピーにも失敗しました。")
+          );
+        });
+    });
+
+    // クリップボードへコピー：原稿を開いていない、あるいは
+    // 挿入先を自分で選びたい場合のための明示的な選択肢。
+    // 「原稿に挿入」が自動フォールバックする挙動と同じ結果を、
+    // ユーザーが意図して選べるようにする。
+    menu.addItem(item => {
+      item
+        .setTitle("リンクをクリップボードへコピー")
+        .setIcon("copy")
+        .onClick(() => {
+          const file = this.app.vault.getAbstractFileByPath(term.filePath);
+          if (!(file instanceof TFile)) return;
+
+          const target = this.plugin?.getLastActiveMarkdownEditor() ?? null;
+          const sourcePath = target?.file?.path ?? "";
+          const linkText = this.app.fileManager.generateMarkdownLink(file, sourcePath);
+
+          void navigator.clipboard.writeText(linkText).then(
+            () => new Notice(`「${term.name}」のリンクをコピーしました。`),
+            () => new Notice("コピーに失敗しました。")
+          );
         });
     });
 

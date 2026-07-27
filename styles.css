@@ -300,11 +300,31 @@
    用語ノート作成・削除モーダル
    ───────────────────────────────────────── */
 .nn-create-term-modal .nn-modal-title,
-.nn-confirm-modal .nn-modal-title {
+.nn-confirm-modal .nn-modal-title,
+.nn-term-preview-modal .nn-modal-title {
   margin: 0 0 12px;
   font-size: 16px;
   font-weight: 600;
   color: var(--text-normal);
+}
+
+/* 用語プレビューモーダル：本文プレビュー */
+.nn-term-preview-modal .nn-term-preview-body {
+  max-height: 45vh;
+  overflow-y: auto;
+  padding: 10px 12px;
+  margin-bottom: 14px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background: var(--background-secondary);
+  font-size: 14px;
+  line-height: 1.7;
+}
+.nn-term-preview-modal .nn-term-preview-body :first-child {
+  margin-top: 0;
+}
+.nn-term-preview-modal .nn-term-preview-body :last-child {
+  margin-bottom: 0;
 }
 
 .nn-modal-info {
@@ -559,6 +579,18 @@
   min-height: 0;
 }
 
+/* モバイルでは Obsidian のツールバー（検索・タブ一覧・メニュー等）が
+   ウェブビューの上に重なるオーバーレイとして表示され、
+   通常のレイアウト高さには算入されない。そのため
+   .nn-vertical-scroller が「実際には隠れて見えない」領域まで
+   使える高さとして扱ってしまい、列の下端がツールバーの裏に
+   隠れて読めなくなる。ここで十分な下部余白を確保することで、
+   wrapColumn の折り返し計算（min(wrapColumn em, 実際の高さ)）に
+   反映させ、ツールバーの手前で自然に折り返すようにする。 */
+.nn-vertical-root-mobile .nn-vertical-scroller {
+  padding-bottom: max(env(safe-area-inset-bottom, 0px), 72px);
+}
+
 /* ─────────────────────────────────────────
    縦書き本文コンテナ
    ───────────────────────────────────────── */
@@ -725,10 +757,14 @@
    カテゴリ定義 ドラッグ & ドロップ
    ══════════════════════════════════════════ */
 
-/* ドラッグ可能な行 */
+/* ドラッグ可能な行
+   モバイル（狭い画面幅）では横一列に収まりきらないため、
+   flex-wrap: wrap で折り返す。align-items は折り返した際に
+   先頭（ドラッグハンドル側）に揃うよう flex-start にする。 */
 .nn-drag-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
+  flex-wrap: wrap;
   gap: 4px;
   border-radius: 6px;
   border: 1px solid transparent;
@@ -769,10 +805,39 @@
   border-style: dashed;
 }
 
-/* Setting 要素が行内に入るので幅を伸ばす */
+/* Setting 要素が行内に入るので幅を伸ばす。
+   flex-basis を 260px 程度に確保しておくことで、
+   ドラッグハンドルと横並びに収まらない狭い画面幅では
+   nn-drag-row の flex-wrap によってこの要素ごと次の行に
+   折り返される（＝中身が0幅まで潰れて消えるのを防ぐ）。 */
 .nn-drag-row .setting-item {
-  flex: 1;
+  flex: 1 1 260px;
   min-width: 0;
+}
+
+/* カテゴリ定義行のコントロール群（タグ名・表示名・カラー・
+   トグル・上下移動・削除）は数が多いため、狭い画面では
+   setting-item-control 自体も折り返し、テキスト入力には
+   最低限の幅を確保する。 */
+.nn-tag-setting-row .setting-item-control {
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+.nn-tag-setting-row .setting-item-control input[type="text"] {
+  flex: 1 1 88px;
+  min-width: 88px;
+}
+
+/* カラーピッカーは Obsidian 側のモバイル用ベーススタイルで
+   横幅いっぱいに引き伸ばされることがある。それ自体が単独で
+   1行を占有し、トグル・上下移動・削除ボタンがさらにもう1行
+   下に追いやられて3段になってしまうため、幅を明示的に固定して
+   トグル等と同じ行に収まるようにする。 */
+.nn-tag-setting-row .setting-item-control input[type="color"],
+.novels-note-bracket-row .setting-item-control input[type="color"] {
+  flex: 0 0 auto !important;
+  width: 44px !important;
+  min-width: 44px !important;
 }
 
 /* ═══════════════════════════════════════════
@@ -949,6 +1014,20 @@
   color: var(--text-muted);
 }
 
+/* モバイルでは画面中央だとキーボードの裏にプレビューが隠れるため、
+   画面上部に固定表示する。position: fixed で
+   .modal-container の flex 中央寄せの影響を受けないようにする。
+   高さが画面に収まりきらない場合は内部でスクロールさせる。 */
+.nn-modal-top-aligned {
+  position: fixed !important;
+  top: max(env(safe-area-inset-top, 0px), 12px) !important;
+  left: 50% !important;
+  transform: translateX(-50%) !important;
+  margin: 0 !important;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
 
 /* ─────────────────────────────────────────
    設定タブ — 追加ユーティリティクラス
@@ -1000,6 +1079,59 @@
 .nn-bracket-char-input {
   width: 3em;
   text-align: center;
+}
+
+/* カッコハイライト行：狭い画面ではコントロール群を折り返す。 */
+.novels-note-bracket-row .setting-item-control {
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+
+/* 狭い画面幅でのみ、1行目（表示名・開始カッコ・終了カッコ）を
+   表示名50%・開始カッコ25%・終了カッコ25%の比率で並べる。
+   flex-basis: 0% + grow比率（2:1:1）を使うことで、gap分の幅は
+   自動的に差し引かれた「使える幅」に対して正確に比率配分される。
+   Obsidian側のモバイル用ベーススタイル（input幅を100%にする等）に
+   打ち勝つため !important で明示的に上書きする。
+   デスクトップ（このメディアクエリの対象外）は、
+   従来通りの固定幅（表示名は流動、開始・終了カッコは3em）のまま。 */
+@media (max-width: 500px) {
+  .novels-note-bracket-row .setting-item-control input[type="text"].nn-bracket-label-input {
+    flex: 2 1 0% !important;
+    width: auto !important;
+    min-width: 0 !important;
+  }
+  .novels-note-bracket-row .setting-item-control input[type="text"].nn-bracket-char-input {
+    flex: 1 1 0% !important;
+    width: auto !important;
+    min-width: 0 !important;
+  }
+}
+
+/* デスクトップ・横向きなど広い画面では表示名に最低限の幅を確保する */
+.novels-note-bracket-row .setting-item-control input[type="text"].nn-bracket-label-input {
+  flex: 1 1 88px;
+  min-width: 88px;
+}
+
+/* カテゴリ定義・カッコハイライト行の「強制改行」スペーサー。
+   通常幅（デスクトップ／横向き）では flex-basis: 0 で何もしないが、
+   画面幅が狭い場合のみ flex-basis: 100% にして、常にここで
+   改行させる（＝「名前系の入力」と「カラー以降の操作群」を
+   2行にきっちり分ける）。ブラウザ任せの自然な折り返しに任せると、
+   カラーピッカー単体だけが横長の1行になってしまうことがあるため。 */
+.nn-row-break {
+  flex-basis: 0;
+  width: 0;
+  height: 0;
+  padding: 0;
+  margin: 0;
+  overflow: hidden;
+}
+@media (max-width: 500px) {
+  .nn-row-break {
+    flex-basis: 100%;
+  }
 }
 
 /* エクスポートモーダル — ファイル名入力 */
@@ -1081,12 +1213,33 @@
   font-weight: 600;
 }
 
-/* 並び替えツールバー＋再集計ボタン */
+/* 並び替えツールバー＋再集計ボタン
+   狭い画面では並び替えボタン3つ＋再集計ボタンが1行に収まりきらず、
+   再集計ボタンだけが画面外にはみ出してしまうため、
+   flex-wrap: wrap で折り返す。 */
 .nn-stats-toolbar {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  row-gap: 6px;
   gap: 8px;
   margin-bottom: 12px;
+}
+
+/* モバイルでは「ファイル名」「作成日時」「最終更新日時」の3つが
+   横並びで収まりきらず、最後の1つだけ2行目に折り返ってしまう。
+   これ以上文言を削れないため、フォントサイズと余白を縮小して
+   1行に収める。 */
+.nn-stats-toolbar-mobile {
+  gap: 6px;
+  font-size: 0.85em;
+}
+.nn-stats-toolbar-mobile .nn-stats-toolbar-label {
+  font-size: 0.85em;
+}
+.nn-stats-toolbar-mobile .nn-stats-sort-btn {
+  font-size: 0.75em;
+  padding: 4px 8px;
 }
 
 .nn-stats-toolbar-label {

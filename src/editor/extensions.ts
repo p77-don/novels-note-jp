@@ -14,7 +14,7 @@ import {
 // ルビ表示 Extension（別ファイルで定義）
 export { buildRubyExtension } from "./rubyWidget";
 import { RangeSetBuilder, Prec } from "@codemirror/state";
-import { App, MarkdownView, TFile, HoverParent, HoverPopover } from "obsidian";
+import { App, MarkdownView, TFile, HoverParent, HoverPopover, Platform } from "obsidian";
 import { NovelsNoteSettings } from "../settings";
 import { CursorSyncStore } from "./cursorSyncStore";
 import {
@@ -229,6 +229,11 @@ export function buildTermExtension(
         decorations: v => v.decorations,
         eventHandlers: {
           mouseover(event, view) {
+            // モバイルには物理マウスのホバーという概念がなく、
+            // タッチ環境でこのイベントが意図せず発火すると
+            // ポップオーバーが誤表示される可能性があるため無効化する。
+            // 代替として「選択した文字列の用語ノートを開く」コマンドがある。
+            if (Platform.isMobile) return false;
             if (!getSettings().termHoverPreviewEnabled) return false;
             if (!view.state.field(novelModeField, false)) return false;
 

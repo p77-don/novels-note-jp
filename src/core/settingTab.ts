@@ -2,7 +2,7 @@
 // Novels Note JP — 設定タブ
 // ─────────────────────────────────────────
 
-import { App, PluginSettingTab, Setting } from "obsidian";
+import { App, PluginSettingTab, Setting, Platform } from "obsidian";
 import NovelsNoteJP from "../main";
 
 // ─────────────────────────────────────────
@@ -168,29 +168,54 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
   private renderVerticalPreviewSection(containerEl: HTMLElement): void {
     new Setting(containerEl).setName("縦書きプレビュー").setHeading();
 
+    // カーソル行ハイライトは「エディタと縦書きプレビューを同時に見ながら
+    // 執筆する」ことが前提の機能。モバイルではエディタと縦書きプレビュー
+    // （独立タブ）を同時に表示できず機能自体が意味を持たないため、
+    // verticalPreview.ts 側で強制的に無効化している。
+    //
+    // ここでは項目自体を非表示にはしない。設定を非表示にすると、
+    // PC版との見た目の不整合（この設定が存在すること自体が
+    // 分からなくなる）が生じるため、項目は表示したまま
+    // トグル・カラーピッカーを無効化し、理由を明記する。
+    const isMobile = Platform.isMobile;
+
     new Setting(containerEl)
       .setName("カーソル行のハイライトを有効にする")
-      .setDesc("縦書きプレビューでエディタのカーソル行を背景色で強調します。")
-      .addToggle(toggle =>
-        toggle.setValue(this.plugin.settings.verticalCursorHighlightEnabled)
-          .onChange(async value => {
+      .setDesc(
+        isMobile
+          ? "モバイルでは使用できません。"
+          : "縦書きプレビューでエディタのカーソル行を背景色で強調します。"
+      )
+      .addToggle(toggle => {
+        toggle.setValue(isMobile ? false : this.plugin.settings.verticalCursorHighlightEnabled);
+        toggle.setDisabled(isMobile);
+        if (!isMobile) {
+          toggle.onChange(async value => {
             this.plugin.settings.verticalCursorHighlightEnabled = value;
             await this.plugin.saveSettings();
             this.plugin.applyEditorStyles();
-          })
-      );
+          });
+        }
+      });
 
     new Setting(containerEl)
       .setName("カーソル行の背景色")
-      .setDesc("縦書きプレビューでカーソル位置の行に付ける背景色。")
-      .addColorPicker(picker =>
-        picker.setValue(this.plugin.settings.verticalCursorHighlightColor)
-          .onChange(async value => {
+      .setDesc(
+        isMobile
+          ? "モバイルでは使用できません。"
+          : "縦書きプレビューでカーソル位置の行に付ける背景色。"
+      )
+      .addColorPicker(picker => {
+        picker.setValue(this.plugin.settings.verticalCursorHighlightColor);
+        picker.setDisabled(isMobile);
+        if (!isMobile) {
+          picker.onChange(async value => {
             this.plugin.settings.verticalCursorHighlightColor = value;
             await this.plugin.saveSettings();
             this.plugin.applyEditorStyles();
-          })
-      );
+          });
+        }
+      });
   }
 
   // ─────────────────────────────────────────
@@ -588,6 +613,13 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
             this.plugin.updateSidebar();
           })
       );
+
+      // 狭い画面では「カテゴリ名・表示名」を1行目、
+      // 「カラー・トグル・上下移動・削除」を2行目にまとめて
+      // 折り返したいので、ここに強制改行用のスペーサーを挟む。
+      // 通常幅では flex-basis: 0 で何も影響しない（styles.css参照）。
+      setting.controlEl.createEl("div", { cls: "nn-row-break" });
+
       setting.addColorPicker(picker =>
         picker.setValue(td.color)
           .onChange(async value => {
@@ -715,13 +747,14 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
       const bd = defs[i];
       const setting = new Setting(containerEl);
       setting.settingEl.addClass("novels-note-bracket-row");
-      setting.addText(text =>
+      setting.addText(text => {
+        text.inputEl.addClass("nn-bracket-label-input");
         text.setPlaceholder("表示名").setValue(bd.label)
           .onChange(async value => {
             defs[i].label = value;
             await this.plugin.saveSettings();
-          })
-      );
+          });
+      });
       setting.addText(text => {
         text.inputEl.addClass("nn-bracket-char-input");
         text.setPlaceholder("開").setValue(bd.open)
@@ -740,6 +773,12 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
             this.plugin.refreshEditors();
           });
       });
+
+      // カテゴリ定義行と同様、狭い画面では「表示名・開始カッコ・
+      // 終了カッコ」を1行目、「カラー・トグル・削除」を2行目に
+      // まとめて折り返したいので、強制改行用のスペーサーを挟む。
+      setting.controlEl.createEl("div", { cls: "nn-row-break" });
+
       setting.addColorPicker(picker =>
         picker.setValue(bd.color)
           .onChange(async value => {

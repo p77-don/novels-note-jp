@@ -26,7 +26,7 @@ __export(main_exports, {
   default: () => NovelsNoteJP
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian10 = require("obsidian");
+var import_obsidian11 = require("obsidian");
 var import_view3 = require("@codemirror/view");
 
 // src/settings.ts
@@ -471,6 +471,7 @@ function buildTermExtension(app, getTerms, getSettings) {
         eventHandlers: {
           mouseover(event, view) {
             var _a, _b, _c, _d;
+            if (import_obsidian2.Platform.isMobile) return false;
             if (!getSettings().termHoverPreviewEnabled) return false;
             if (!view.state.field(novelModeField, false)) return false;
             const targetEl = (_b = (_a = event.target) == null ? void 0 : _a.closest) == null ? void 0 : _b.call(
@@ -1155,7 +1156,7 @@ var NovelsNoteSidebarView = class extends import_obsidian3.ItemView {
         this.renderFolderNode(sectionBody, tree, td, query !== "");
       } else {
         sectionBody.createEl("p", {
-          text: "\u7528\u8A9E\u30CE\u30FC\u30C8\u304C\u3042\u308A\u307E\u305B\u3093\u3002\u53F3\u30AF\u30EA\u30C3\u30AF\u3067\u65B0\u898F\u4F5C\u6210\u3067\u304D\u307E\u3059\u3002",
+          text: import_obsidian3.Platform.isMobile ? "\u7528\u8A9E\u30CE\u30FC\u30C8\u304C\u3042\u308A\u307E\u305B\u3093\u3002\u30AB\u30C6\u30B4\u30EA\u3092\u9577\u62BC\u3057\u3059\u308B\u3068\u65B0\u898F\u4F5C\u6210\u3067\u304D\u307E\u3059\u3002" : "\u7528\u8A9E\u30CE\u30FC\u30C8\u304C\u3042\u308A\u307E\u305B\u3093\u3002\u53F3\u30AF\u30EA\u30C3\u30AF\u3067\u65B0\u898F\u4F5C\u6210\u3067\u304D\u307E\u3059\u3002",
           cls: "nn-empty nn-empty-hint"
         });
       }
@@ -1261,6 +1262,10 @@ var NovelsNoteSidebarView = class extends import_obsidian3.ItemView {
     }
     nameEl.addEventListener("click", (e) => {
       e.stopPropagation();
+      if (import_obsidian3.Platform.isMobile) {
+        this.showTermContextMenu(e, term);
+        return;
+      }
       const file = this.app.vault.getAbstractFileByPath(term.filePath);
       if (file instanceof import_obsidian3.TFile) {
         void this.app.workspace.getLeaf(false).openFile(file);
@@ -1339,6 +1344,38 @@ var NovelsNoteSidebarView = class extends import_obsidian3.ItemView {
         if (file instanceof import_obsidian3.TFile) {
           void this.app.workspace.getLeaf(false).openFile(file);
         }
+      });
+    });
+    menu.addItem((item) => {
+      item.setTitle("\u539F\u7A3F\u306B\u633F\u5165").setIcon("pen-line").onClick(() => {
+        var _a, _b, _c, _d;
+        const file = this.app.vault.getAbstractFileByPath(term.filePath);
+        if (!(file instanceof import_obsidian3.TFile)) return;
+        const target = (_b = (_a = this.plugin) == null ? void 0 : _a.getLastActiveMarkdownEditor()) != null ? _b : null;
+        const sourcePath = (_d = (_c = target == null ? void 0 : target.file) == null ? void 0 : _c.path) != null ? _d : "";
+        const linkText = this.app.fileManager.generateMarkdownLink(file, sourcePath);
+        if (target == null ? void 0 : target.editor) {
+          target.editor.replaceSelection(linkText);
+          return;
+        }
+        void navigator.clipboard.writeText(linkText).then(
+          () => new import_obsidian3.Notice(`\u300C${term.name}\u300D\u306E\u30EA\u30F3\u30AF\u3092\u30B3\u30D4\u30FC\u3057\u307E\u3057\u305F\u3002\u539F\u7A3F\u306B\u8CBC\u308A\u4ED8\u3051\u3066\u304F\u3060\u3055\u3044\u3002`),
+          () => new import_obsidian3.Notice("\u633F\u5165\u5148\u306E\u30A8\u30C7\u30A3\u30BF\u304C\u898B\u3064\u304B\u3089\u305A\u3001\u30B3\u30D4\u30FC\u306B\u3082\u5931\u6557\u3057\u307E\u3057\u305F\u3002")
+        );
+      });
+    });
+    menu.addItem((item) => {
+      item.setTitle("\u30EA\u30F3\u30AF\u3092\u30AF\u30EA\u30C3\u30D7\u30DC\u30FC\u30C9\u3078\u30B3\u30D4\u30FC").setIcon("copy").onClick(() => {
+        var _a, _b, _c, _d;
+        const file = this.app.vault.getAbstractFileByPath(term.filePath);
+        if (!(file instanceof import_obsidian3.TFile)) return;
+        const target = (_b = (_a = this.plugin) == null ? void 0 : _a.getLastActiveMarkdownEditor()) != null ? _b : null;
+        const sourcePath = (_d = (_c = target == null ? void 0 : target.file) == null ? void 0 : _c.path) != null ? _d : "";
+        const linkText = this.app.fileManager.generateMarkdownLink(file, sourcePath);
+        void navigator.clipboard.writeText(linkText).then(
+          () => new import_obsidian3.Notice(`\u300C${term.name}\u300D\u306E\u30EA\u30F3\u30AF\u3092\u30B3\u30D4\u30FC\u3057\u307E\u3057\u305F\u3002`),
+          () => new import_obsidian3.Notice("\u30B3\u30D4\u30FC\u306B\u5931\u6557\u3057\u307E\u3057\u305F\u3002")
+        );
       });
     });
     menu.addSeparator();
@@ -1551,20 +1588,33 @@ var NovelsNoteSettingTab = class extends import_obsidian4.PluginSettingTab {
   // ─────────────────────────────────────────
   renderVerticalPreviewSection(containerEl) {
     new import_obsidian4.Setting(containerEl).setName("\u7E26\u66F8\u304D\u30D7\u30EC\u30D3\u30E5\u30FC").setHeading();
-    new import_obsidian4.Setting(containerEl).setName("\u30AB\u30FC\u30BD\u30EB\u884C\u306E\u30CF\u30A4\u30E9\u30A4\u30C8\u3092\u6709\u52B9\u306B\u3059\u308B").setDesc("\u7E26\u66F8\u304D\u30D7\u30EC\u30D3\u30E5\u30FC\u3067\u30A8\u30C7\u30A3\u30BF\u306E\u30AB\u30FC\u30BD\u30EB\u884C\u3092\u80CC\u666F\u8272\u3067\u5F37\u8ABF\u3057\u307E\u3059\u3002").addToggle(
-      (toggle) => toggle.setValue(this.plugin.settings.verticalCursorHighlightEnabled).onChange(async (value) => {
-        this.plugin.settings.verticalCursorHighlightEnabled = value;
-        await this.plugin.saveSettings();
-        this.plugin.applyEditorStyles();
-      })
-    );
-    new import_obsidian4.Setting(containerEl).setName("\u30AB\u30FC\u30BD\u30EB\u884C\u306E\u80CC\u666F\u8272").setDesc("\u7E26\u66F8\u304D\u30D7\u30EC\u30D3\u30E5\u30FC\u3067\u30AB\u30FC\u30BD\u30EB\u4F4D\u7F6E\u306E\u884C\u306B\u4ED8\u3051\u308B\u80CC\u666F\u8272\u3002").addColorPicker(
-      (picker) => picker.setValue(this.plugin.settings.verticalCursorHighlightColor).onChange(async (value) => {
-        this.plugin.settings.verticalCursorHighlightColor = value;
-        await this.plugin.saveSettings();
-        this.plugin.applyEditorStyles();
-      })
-    );
+    const isMobile = import_obsidian4.Platform.isMobile;
+    new import_obsidian4.Setting(containerEl).setName("\u30AB\u30FC\u30BD\u30EB\u884C\u306E\u30CF\u30A4\u30E9\u30A4\u30C8\u3092\u6709\u52B9\u306B\u3059\u308B").setDesc(
+      isMobile ? "\u30E2\u30D0\u30A4\u30EB\u3067\u306F\u4F7F\u7528\u3067\u304D\u307E\u305B\u3093\u3002" : "\u7E26\u66F8\u304D\u30D7\u30EC\u30D3\u30E5\u30FC\u3067\u30A8\u30C7\u30A3\u30BF\u306E\u30AB\u30FC\u30BD\u30EB\u884C\u3092\u80CC\u666F\u8272\u3067\u5F37\u8ABF\u3057\u307E\u3059\u3002"
+    ).addToggle((toggle) => {
+      toggle.setValue(isMobile ? false : this.plugin.settings.verticalCursorHighlightEnabled);
+      toggle.setDisabled(isMobile);
+      if (!isMobile) {
+        toggle.onChange(async (value) => {
+          this.plugin.settings.verticalCursorHighlightEnabled = value;
+          await this.plugin.saveSettings();
+          this.plugin.applyEditorStyles();
+        });
+      }
+    });
+    new import_obsidian4.Setting(containerEl).setName("\u30AB\u30FC\u30BD\u30EB\u884C\u306E\u80CC\u666F\u8272").setDesc(
+      isMobile ? "\u30E2\u30D0\u30A4\u30EB\u3067\u306F\u4F7F\u7528\u3067\u304D\u307E\u305B\u3093\u3002" : "\u7E26\u66F8\u304D\u30D7\u30EC\u30D3\u30E5\u30FC\u3067\u30AB\u30FC\u30BD\u30EB\u4F4D\u7F6E\u306E\u884C\u306B\u4ED8\u3051\u308B\u80CC\u666F\u8272\u3002"
+    ).addColorPicker((picker) => {
+      picker.setValue(this.plugin.settings.verticalCursorHighlightColor);
+      picker.setDisabled(isMobile);
+      if (!isMobile) {
+        picker.onChange(async (value) => {
+          this.plugin.settings.verticalCursorHighlightColor = value;
+          await this.plugin.saveSettings();
+          this.plugin.applyEditorStyles();
+        });
+      }
+    });
   }
   // ─────────────────────────────────────────
   // 全角スペース可視化セクション
@@ -1864,6 +1914,7 @@ var NovelsNoteSettingTab = class extends import_obsidian4.PluginSettingTab {
           this.plugin.updateSidebar();
         })
       );
+      setting.controlEl.createEl("div", { cls: "nn-row-break" });
       setting.addColorPicker(
         (picker) => picker.setValue(td.color).onChange(async (value) => {
           defs[capturedI].color = value;
@@ -1973,12 +2024,13 @@ var NovelsNoteSettingTab = class extends import_obsidian4.PluginSettingTab {
       const bd = defs[i];
       const setting = new import_obsidian4.Setting(containerEl);
       setting.settingEl.addClass("novels-note-bracket-row");
-      setting.addText(
-        (text) => text.setPlaceholder("\u8868\u793A\u540D").setValue(bd.label).onChange(async (value) => {
+      setting.addText((text) => {
+        text.inputEl.addClass("nn-bracket-label-input");
+        text.setPlaceholder("\u8868\u793A\u540D").setValue(bd.label).onChange(async (value) => {
           defs[i].label = value;
           await this.plugin.saveSettings();
-        })
-      );
+        });
+      });
       setting.addText((text) => {
         text.inputEl.addClass("nn-bracket-char-input");
         text.setPlaceholder("\u958B").setValue(bd.open).onChange(async (value) => {
@@ -1995,6 +2047,7 @@ var NovelsNoteSettingTab = class extends import_obsidian4.PluginSettingTab {
           this.plugin.refreshEditors();
         });
       });
+      setting.controlEl.createEl("div", { cls: "nn-row-break" });
       setting.addColorPicker(
         (picker) => picker.setValue(bd.color).onChange(async (value) => {
           defs[i].color = value;
@@ -2742,6 +2795,13 @@ var _VerticalPreviewView = class _VerticalPreviewView extends import_obsidian6.I
      */
     this.cursorSyncStore = null;
     this.unsubscribeCursorSync = null;
+    // フォールバック用：workspace.getActiveViewOfType(MarkdownView) は
+    // 「今アクティブなリーフ」に依存するため、このビュー自身が
+    // メインエリアのタブとしてアクティブになった瞬間（モバイルでの
+    // 独立タブオープン時など）は編集中のノートを見つけられなくなる。
+    // main.ts 側で追跡している「直近アクティブだった原稿ノート」を
+    // 注入してもらい、フォールバックとして使う。
+    this.getLastActiveMarkdown = () => null;
     this.getRubyStyle = () => "narou";
     this.getFontSize = () => 16;
     this.getWrapColumn = () => 40;
@@ -2758,6 +2818,9 @@ var _VerticalPreviewView = class _VerticalPreviewView extends import_obsidian6.I
   setCursorSyncStore(store) {
     this.cursorSyncStore = store;
   }
+  setLastActiveMarkdownProvider(fn) {
+    this.getLastActiveMarkdown = fn;
+  }
   getViewType() {
     return VERTICAL_VIEW_TYPE;
   }
@@ -2771,8 +2834,13 @@ var _VerticalPreviewView = class _VerticalPreviewView extends import_obsidian6.I
     const root = this.containerEl.children[1];
     root.empty();
     root.addClass("nn-vertical-root");
-    const toolbar = root.createEl("div", { cls: "nn-vertical-toolbar" });
-    toolbar.createEl("span", { text: "\u7E26\u66F8\u304D\u30D7\u30EC\u30D3\u30E5\u30FC", cls: "nn-vertical-title" });
+    if (import_obsidian6.Platform.isMobile) {
+      root.addClass("nn-vertical-root-mobile");
+    }
+    if (!import_obsidian6.Platform.isMobile) {
+      const toolbar = root.createEl("div", { cls: "nn-vertical-toolbar" });
+      toolbar.createEl("span", { text: "\u7E26\u66F8\u304D\u30D7\u30EC\u30D3\u30E5\u30FC", cls: "nn-vertical-title" });
+    }
     this.scrollerEl = root.createEl("div", { cls: "nn-vertical-scroller" });
     this.bodyEl = this.scrollerEl.createEl("div", { cls: "nn-vertical-body" });
     await this.loadFromActiveEditor();
@@ -2782,7 +2850,7 @@ var _VerticalPreviewView = class _VerticalPreviewView extends import_obsidian6.I
         if (mdView == null ? void 0 : mdView.file) void this.loadFromActiveEditor();
       })
     );
-    if (this.cursorSyncStore) {
+    if (!import_obsidian6.Platform.isMobile && this.cursorSyncStore) {
       this.unsubscribeCursorSync = this.cursorSyncStore.subscribe(
         (snapshot) => this.onCursorSync(snapshot)
       );
@@ -2802,19 +2870,30 @@ var _VerticalPreviewView = class _VerticalPreviewView extends import_obsidian6.I
   // 読み込み・レンダリング
   // ─────────────────────────────────────────
   async loadFromActiveEditor() {
-    var _a;
+    var _a, _b, _c;
     const mdView = this.app.workspace.getActiveViewOfType(import_obsidian6.MarkdownView);
-    if (!(mdView == null ? void 0 : mdView.file)) return;
-    const ext = mdView.file.extension;
+    let file = (_a = mdView == null ? void 0 : mdView.file) != null ? _a : null;
+    let editorValue = mdView ? mdView.editor.getValue() : null;
+    let selection = mdView ? (_b = mdView.editor.getSelection()) != null ? _b : "" : "";
+    if (!file) {
+      const fallback = this.getLastActiveMarkdown();
+      if (fallback == null ? void 0 : fallback.file) {
+        file = fallback.file;
+        editorValue = fallback.editor.getValue();
+        selection = (_c = fallback.editor.getSelection()) != null ? _c : "";
+      }
+    }
+    if (!file) return;
+    const ext = file.extension;
     if (ext !== "txt" && ext !== "md") {
       this.renderEmpty("\u5BFE\u8C61\u5916\u306E\u30D5\u30A1\u30A4\u30EB\u3067\u3059\uFF08.txt / .md \u306E\u307F\uFF09\u3002");
       return;
     }
-    const text = mdView.editor.getValue();
-    if (mdView.file === this.lastFile && text === this.lastText) return;
-    this.lastFile = mdView.file;
+    const text = editorValue != null ? editorValue : "";
+    if (file === this.lastFile && text === this.lastText) return;
+    this.lastFile = file;
     this.lastText = text;
-    this.lastSelection = (_a = mdView.editor.getSelection()) != null ? _a : "";
+    this.lastSelection = selection;
     this.renderBody(text, this.lastSelection);
     if (this.scrollerEl) {
       this.scrollerEl.scrollLeft = this.scrollerEl.scrollWidth;
@@ -3413,8 +3492,13 @@ var WritingStatsView = class extends import_obsidian8.ItemView {
   // 固定ヘッダー：並び替えツールバー＋再集計ボタン
   // ─────────────────────────────────────────
   renderToolbar(container) {
-    const toolbar = container.createEl("div", { cls: "nn-stats-toolbar" });
-    toolbar.createEl("span", { text: "\u4E26\u3073\u66FF\u3048:", cls: "nn-stats-toolbar-label" });
+    const toolbar = container.createEl("div", {
+      cls: "nn-stats-toolbar" + (import_obsidian8.Platform.isMobile ? " nn-stats-toolbar-mobile" : "")
+    });
+    toolbar.createEl("span", {
+      text: import_obsidian8.Platform.isMobile ? "\u4E26\u3073\u66FF\u3048" : "\u4E26\u3073\u66FF\u3048:",
+      cls: "nn-stats-toolbar-label"
+    });
     const addSortButton = (key, label) => {
       const isActive = this.sortKey === key;
       const btn = toolbar.createEl("button", {
@@ -3434,6 +3518,7 @@ var WritingStatsView = class extends import_obsidian8.ItemView {
     addSortButton("name", "\u30D5\u30A1\u30A4\u30EB\u540D");
     addSortButton("created", "\u4F5C\u6210\u65E5\u6642");
     addSortButton("modified", "\u6700\u7D42\u66F4\u65B0\u65E5\u6642");
+    if (import_obsidian8.Platform.isMobile) return;
     const refreshBtn = toolbar.createEl("button", {
       text: "\u518D\u96C6\u8A08",
       cls: "nn-stats-refresh-btn"
@@ -3533,6 +3618,9 @@ var RubyInputModal = class extends import_obsidian9.Modal {
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass("nn-ruby-modal");
+    if (import_obsidian9.Platform.isMobile) {
+      this.modalEl.addClass("nn-modal-top-aligned");
+    }
     contentEl.createEl("h3", { text: "\u30EB\u30D3\u3092\u632F\u308B", cls: "nn-modal-title" });
     const infoEl = contentEl.createEl("div", { cls: "nn-modal-info" });
     infoEl.createEl("span", { text: "\u89AA\u6587\u5B57\uFF1A", cls: "nn-modal-label" });
@@ -3592,6 +3680,39 @@ var RubyInputModal = class extends import_obsidian9.Modal {
     this.contentEl.empty();
   }
 };
+function registerRubyCommands(plugin, app, getSettings) {
+  plugin.addCommand({
+    id: "insert-ruby-on-selection",
+    name: "\u9078\u629E\u3057\u305F\u6587\u5B57\u5217\u306B\u30EB\u30D3\u3092\u632F\u308B",
+    editorCallback: (editor) => {
+      const selected = editor.getSelection();
+      if (!selected || selected.length === 0) {
+        new import_obsidian9.Notice("\u30EB\u30D3\u3092\u632F\u308B\u6587\u5B57\u5217\u3092\u9078\u629E\u3057\u3066\u304F\u3060\u3055\u3044\u3002");
+        return;
+      }
+      const settings = getSettings();
+      new RubyInputModal(app, selected, settings.rubyStyle, (rubyText) => {
+        editor.replaceSelection(rubyText);
+        new import_obsidian9.Notice(`\u30EB\u30D3\u3092\u633F\u5165\u3057\u307E\u3057\u305F\u3002`);
+      }).open();
+    }
+  });
+  plugin.addCommand({
+    id: "insert-bouten-on-selection",
+    name: "\u9078\u629E\u3057\u305F\u6587\u5B57\u5217\u306B\u508D\u70B9\u3092\u632F\u308B",
+    editorCallback: (editor) => {
+      const selected = editor.getSelection();
+      if (!selected || selected.length === 0) {
+        new import_obsidian9.Notice("\u508D\u70B9\u3092\u632F\u308B\u6587\u5B57\u5217\u3092\u9078\u629E\u3057\u3066\u304F\u3060\u3055\u3044\u3002");
+        return;
+      }
+      const settings = getSettings();
+      const boutenText = buildBoutenText(selected, settings.rubyStyle);
+      editor.replaceSelection(boutenText);
+      new import_obsidian9.Notice(`\u508D\u70B9\u3092\u633F\u5165\u3057\u307E\u3057\u305F\u3002`);
+    }
+  });
+}
 function onEditorMenuForRuby(app, getSettings, menu, editor, _info) {
   const selected = editor.getSelection();
   if (!selected || selected.length === 0) return;
@@ -3614,6 +3735,89 @@ function onEditorMenuForRuby(app, getSettings, menu, editor, _info) {
     });
   });
 }
+
+// src/core/termPreviewModal.ts
+var import_obsidian10 = require("obsidian");
+var TermPreviewModal = class extends import_obsidian10.Modal {
+  constructor(app, term, onOpenNote) {
+    super(app);
+    // MarkdownRenderer.render() はライフサイクル管理用に Component を
+    // 要求する。Modal 自体は Component ではないため、専用に用意し、
+    // モーダルを閉じるタイミングで unload してレンダリングを破棄する。
+    this.renderComponent = new import_obsidian10.Component();
+    this.term = term;
+    this.onOpenNote = onOpenNote;
+  }
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.addClass("nn-term-preview-modal");
+    this.renderComponent.load();
+    contentEl.createEl("h3", { text: this.term.name, cls: "nn-modal-title" });
+    if (this.term.aliases.length > 0) {
+      const aliasEl = contentEl.createEl("div", { cls: "nn-modal-info" });
+      aliasEl.createEl("span", { text: "\u5225\u540D\uFF1A", cls: "nn-modal-label" });
+      aliasEl.createEl("span", {
+        text: this.term.aliases.join("\u3001"),
+        cls: "nn-modal-value"
+      });
+    }
+    const previewEl = contentEl.createEl("div", { cls: "nn-term-preview-body" });
+    void this.renderNoteContent(previewEl);
+    const btnRow = contentEl.createEl("div", { cls: "nn-modal-btn-row" });
+    const closeBtn = btnRow.createEl("button", {
+      text: "\u9589\u3058\u308B",
+      cls: "nn-modal-btn nn-modal-btn-cancel"
+    });
+    const openBtn = btnRow.createEl("button", {
+      text: "\u7528\u8A9E\u30DA\u30FC\u30B8\u3092\u958B\u304F",
+      cls: "nn-modal-btn nn-modal-btn-create"
+    });
+    closeBtn.addEventListener("click", () => this.close());
+    openBtn.addEventListener("click", () => {
+      this.close();
+      this.onOpenNote();
+    });
+  }
+  async renderNoteContent(previewEl) {
+    const file = this.app.vault.getAbstractFileByPath(this.term.filePath);
+    if (!(file instanceof import_obsidian10.TFile)) {
+      previewEl.createEl("p", {
+        text: "\u30CE\u30FC\u30C8\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3067\u3057\u305F\u3002",
+        cls: "nn-empty nn-empty-hint"
+      });
+      return;
+    }
+    try {
+      const raw = await this.app.vault.cachedRead(file);
+      const body = raw.replace(/^---\n[\s\S]*?\n---\n?/, "").trim();
+      if (!body) {
+        previewEl.createEl("p", {
+          text: "\uFF08\u672C\u6587\u304C\u3042\u308A\u307E\u305B\u3093\uFF09",
+          cls: "nn-empty nn-empty-hint"
+        });
+        return;
+      }
+      await import_obsidian10.MarkdownRenderer.render(
+        this.app,
+        body,
+        previewEl,
+        file.path,
+        this.renderComponent
+      );
+    } catch (e) {
+      new import_obsidian10.Notice("\u7528\u8A9E\u30CE\u30FC\u30C8\u306E\u8AAD\u307F\u8FBC\u307F\u306B\u5931\u6557\u3057\u307E\u3057\u305F\u3002");
+      previewEl.createEl("p", {
+        text: "\u672C\u6587\u306E\u8AAD\u307F\u8FBC\u307F\u306B\u5931\u6557\u3057\u307E\u3057\u305F\u3002",
+        cls: "nn-empty nn-empty-hint"
+      });
+    }
+  }
+  onClose() {
+    this.renderComponent.unload();
+    this.contentEl.empty();
+  }
+};
 
 // src/main.ts
 function hexToRgba(hex, alpha) {
@@ -3640,7 +3844,7 @@ function areTermListsEqual(a, b) {
   }
   return true;
 }
-var NovelsNoteJP = class extends import_obsidian10.Plugin {
+var NovelsNoteJP = class extends import_obsidian11.Plugin {
   constructor() {
     super(...arguments);
     this.terms = [];
@@ -3648,6 +3852,11 @@ var NovelsNoteJP = class extends import_obsidian10.Plugin {
     this.statusBarEl = null;
     this.rebuildTimer = null;
     this.adoptedSheet = null;
+    // 「原稿に挿入」用。サイドバー（用語一覧）を開くと、モバイルでは
+    // エディタがフォーカス・カーソルを失い app.workspace.activeEditor が
+    // 使えなくなるため、直近でアクティブだった原稿ノートのリーフを
+    // 別途保持しておく。
+    this.lastActiveMarkdownLeaf = null;
     /**
      * カーソル位置・選択範囲の「確定した」変化を、エディタ拡張
      * （buildCursorSyncExtension）から縦書きプレビュー（VerticalPreviewView）
@@ -3677,6 +3886,7 @@ var NovelsNoteJP = class extends import_obsidian10.Plugin {
         view.setFontSizeGetter(() => this.settings.fontSize);
         view.setWrapColumnGetter(() => this.settings.wrapColumn);
         view.setCursorSyncStore(this.cursorSyncStore);
+        view.setLastActiveMarkdownProvider(() => this.getLastActiveMarkdownEditor());
         return view;
       }
     );
@@ -3719,6 +3929,7 @@ var NovelsNoteJP = class extends import_obsidian10.Plugin {
     this.registerVerticalPreviewCommand();
     this.registerNovelReadingViewCommand();
     this.registerWritingStatsCommand();
+    this.registerTermLookupCommand();
     this.registerHoverLinkSource(TERM_HOVER_SOURCE_ID, {
       display: "Novels Note JP\uFF08\u7528\u8A9E\u30CF\u30A4\u30E9\u30A4\u30C8\uFF09",
       defaultMod: false
@@ -3755,10 +3966,11 @@ var NovelsNoteJP = class extends import_obsidian10.Plugin {
     );
     this.registerEvent(
       this.app.workspace.on("editor-menu", (menu, editor, info) => {
-        if (!(info instanceof import_obsidian10.MarkdownView)) return;
+        if (!(info instanceof import_obsidian11.MarkdownView)) return;
         onEditorMenuForRuby(this.app, () => this.settings, menu, editor, info);
       })
     );
+    registerRubyCommands(this, this.app, () => this.settings);
     this.applyEditorStyles();
     this.app.workspace.onLayoutReady(async () => {
       await this.buildTermIndex();
@@ -3807,7 +4019,7 @@ var NovelsNoteJP = class extends import_obsidian10.Plugin {
   registerVaultEvents() {
     this.registerEvent(
       this.app.vault.on("modify", async (file) => {
-        if (file instanceof import_obsidian10.TFile && file.extension === "md") {
+        if (file instanceof import_obsidian11.TFile && file.extension === "md") {
           await this.waitForMetadata(file);
           this.scheduleRebuild();
         }
@@ -3815,7 +4027,7 @@ var NovelsNoteJP = class extends import_obsidian10.Plugin {
     );
     this.registerEvent(
       this.app.vault.on("create", async (file) => {
-        if (file instanceof import_obsidian10.TFile && file.extension === "md") {
+        if (file instanceof import_obsidian11.TFile && file.extension === "md") {
           await this.waitForMetadata(file);
           this.scheduleRebuild();
         }
@@ -3828,7 +4040,7 @@ var NovelsNoteJP = class extends import_obsidian10.Plugin {
     );
     this.registerEvent(
       this.app.vault.on("rename", async (file) => {
-        if (file instanceof import_obsidian10.TFile && file.extension === "md") {
+        if (file instanceof import_obsidian11.TFile && file.extension === "md") {
           await this.waitForMetadata(file);
         }
         this.scheduleRebuild();
@@ -3853,8 +4065,11 @@ var NovelsNoteJP = class extends import_obsidian10.Plugin {
       })
     );
     this.registerEvent(
-      this.app.workspace.on("active-leaf-change", () => {
+      this.app.workspace.on("active-leaf-change", (leaf) => {
         this.refreshEditors();
+        if (leaf && leaf.view instanceof import_obsidian11.MarkdownView) {
+          this.lastActiveMarkdownLeaf = leaf;
+        }
       })
     );
     this.registerEvent(
@@ -3945,7 +4160,7 @@ var NovelsNoteJP = class extends import_obsidian10.Plugin {
       .cm-editor[data-novel-mode="true"] .novel-ruler-line { position: relative; }
       .cm-editor[data-novel-mode="true"] .novel-ruler-line::after {
         content: ""; position: absolute;
-        top: 0; left: ${wrapWidth};
+        top: 0; left: min(${wrapWidth}, 100%);
         transform: translateX(-1px);
         width: 0; height: 100%;
         border-left: 1px ${s.rulerStyle} ${s.rulerColor};
@@ -4045,7 +4260,7 @@ var NovelsNoteJP = class extends import_obsidian10.Plugin {
     this.app.workspace.iterateAllLeaves((leaf) => {
       var _a;
       const view = leaf.view;
-      if (view instanceof import_obsidian10.MarkdownView) {
+      if (view instanceof import_obsidian11.MarkdownView) {
         const file = (_a = view.file) != null ? _a : null;
         const isNovel = this.isNovelModeFile(file);
         const cm = view.editor.cm;
@@ -4099,7 +4314,7 @@ var NovelsNoteJP = class extends import_obsidian10.Plugin {
    */
   updateWordCount() {
     if (!this.statusBarEl) return;
-    const view = this.app.workspace.getActiveViewOfType(import_obsidian10.MarkdownView);
+    const view = this.app.workspace.getActiveViewOfType(import_obsidian11.MarkdownView);
     if (!view) {
       this.statusBarEl.setText("\u2014");
       return;
@@ -4182,7 +4397,7 @@ var NovelsNoteJP = class extends import_obsidian10.Plugin {
       name: "\u73FE\u5728\u306E\u30D5\u30A1\u30A4\u30EB\u3092\u539F\u7A3F Export \u3059\u308B",
       callback: () => {
         let file = null;
-        const mdView = this.app.workspace.getActiveViewOfType(import_obsidian10.MarkdownView);
+        const mdView = this.app.workspace.getActiveViewOfType(import_obsidian11.MarkdownView);
         if (mdView == null ? void 0 : mdView.file) {
           file = mdView.file;
         }
@@ -4193,7 +4408,7 @@ var NovelsNoteJP = class extends import_obsidian10.Plugin {
           }
         }
         if (!file) {
-          new import_obsidian10.Notice("\u30A8\u30AF\u30B9\u30DD\u30FC\u30C8\u5BFE\u8C61\u306E\u30D5\u30A1\u30A4\u30EB\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3002");
+          new import_obsidian11.Notice("\u30A8\u30AF\u30B9\u30DD\u30FC\u30C8\u5BFE\u8C61\u306E\u30D5\u30A1\u30A4\u30EB\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3002");
           return;
         }
         new ExportModal(this.app, file, this.settings.rubyStyle).open();
@@ -4213,6 +4428,15 @@ var NovelsNoteJP = class extends import_obsidian10.Plugin {
   async activateVerticalPreview() {
     const { workspace } = this.app;
     const existing = workspace.getLeavesOfType(VERTICAL_VIEW_TYPE);
+    if (import_obsidian11.Platform.isMobile) {
+      for (const leaf3 of existing) {
+        leaf3.detach();
+      }
+      const leaf2 = workspace.getLeaf("tab");
+      await leaf2.setViewState({ type: VERTICAL_VIEW_TYPE, active: true });
+      void workspace.revealLeaf(leaf2);
+      return;
+    }
     if (existing.length > 0) {
       void workspace.revealLeaf(existing[0]);
       return;
@@ -4238,7 +4462,7 @@ var NovelsNoteJP = class extends import_obsidian10.Plugin {
     const activeLeaf = workspace.getMostRecentLeaf();
     let targetLeaf = activeLeaf;
     let targetFile = null;
-    if (activeLeaf && activeLeaf.view.getViewType() === "markdown" && activeLeaf.view.file instanceof import_obsidian10.TFile) {
+    if (activeLeaf && activeLeaf.view.getViewType() === "markdown" && activeLeaf.view.file instanceof import_obsidian11.TFile) {
       targetFile = activeLeaf.view.file;
     }
     if (!targetFile) {
@@ -4247,7 +4471,7 @@ var NovelsNoteJP = class extends import_obsidian10.Plugin {
         if (targetFile) return;
         if (leaf.view.getViewType() !== "markdown") return;
         const f = leaf.view.file;
-        if (!(f instanceof import_obsidian10.TFile)) return;
+        if (!(f instanceof import_obsidian11.TFile)) return;
         const cache2 = this.app.metadataCache.getFileCache(f);
         if (((_a2 = cache2 == null ? void 0 : cache2.frontmatter) == null ? void 0 : _a2.mode) === "novel") {
           targetFile = f;
@@ -4256,12 +4480,12 @@ var NovelsNoteJP = class extends import_obsidian10.Plugin {
       });
     }
     if (!targetFile) {
-      new import_obsidian10.Notice("\u5C0F\u8AAC\u7528\u30D3\u30E5\u30FC\u306E\u5BFE\u8C61\u5916\u3067\u3059\u3002Frontmatter \u306B mode: novel \u306E\u30D7\u30ED\u30D1\u30C6\u30A3\u3092\u8A2D\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044\u3002");
+      new import_obsidian11.Notice("\u5C0F\u8AAC\u7528\u30D3\u30E5\u30FC\u306E\u5BFE\u8C61\u5916\u3067\u3059\u3002Frontmatter \u306B mode: novel \u306E\u30D7\u30ED\u30D1\u30C6\u30A3\u3092\u8A2D\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044\u3002");
       return;
     }
     const cache = this.app.metadataCache.getFileCache(targetFile);
     if (((_a = cache == null ? void 0 : cache.frontmatter) == null ? void 0 : _a.mode) !== "novel") {
-      new import_obsidian10.Notice("\u5C0F\u8AAC\u7528\u30D3\u30E5\u30FC\u306E\u5BFE\u8C61\u5916\u3067\u3059\u3002Frontmatter \u306B mode: novel \u306E\u30D7\u30ED\u30D1\u30C6\u30A3\u3092\u8A2D\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044\u3002");
+      new import_obsidian11.Notice("\u5C0F\u8AAC\u7528\u30D3\u30E5\u30FC\u306E\u5BFE\u8C61\u5916\u3067\u3059\u3002Frontmatter \u306B mode: novel \u306E\u30D7\u30ED\u30D1\u30C6\u30A3\u3092\u8A2D\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044\u3002");
       const existing2 = workspace.getLeavesOfType(NOVEL_READING_VIEW_TYPE);
       if (existing2.length > 0) {
         void workspace.revealLeaf(existing2[0]);
@@ -4322,9 +4546,70 @@ var NovelsNoteJP = class extends import_obsidian10.Plugin {
       }
       return;
     }
-    const leaf = workspace.getLeaf("tab");
-    await leaf.setViewState({ type: WRITING_STATS_VIEW_TYPE, active: true });
-    void workspace.revealLeaf(leaf);
+    const leafForStats = workspace.getLeaf("tab");
+    await leafForStats.setViewState({ type: WRITING_STATS_VIEW_TYPE, active: true });
+    void workspace.revealLeaf(leafForStats);
+  }
+  // ─────────────────────────────────────────
+  // 「原稿に挿入」用：最後にアクティブだった原稿ノートの
+  // エディタとファイルを取得する。
+  // workspace.activeEditor はフォーカスに依存するため、
+  // サイドバーを開いた時点（特にモバイル）で失われることがある。
+  // active-leaf-change で記録しておいたリーフを使い、
+  // そのリーフがまだ有効（閉じられていない）か確認してから返す。
+  // ─────────────────────────────────────────
+  getLastActiveMarkdownEditor() {
+    var _a, _b;
+    const active = this.app.workspace.activeEditor;
+    if (active == null ? void 0 : active.editor) {
+      return { editor: active.editor, file: (_a = active.file) != null ? _a : null };
+    }
+    const leaf = this.lastActiveMarkdownLeaf;
+    if (!leaf) return null;
+    const stillOpen = this.app.workspace.getLeavesOfType("markdown").includes(leaf);
+    if (!stillOpen) return null;
+    const view = leaf.view;
+    if (view instanceof import_obsidian11.MarkdownView) {
+      return { editor: view.editor, file: (_b = view.file) != null ? _b : null };
+    }
+    return null;
+  }
+  // ─────────────────────────────────────────
+  // 「選択した文字列の用語ノートを開く」コマンド
+  //
+  // ホバープレビューはモバイルでは無効化している（物理マウス前提の
+  // 機能のため）。その代替として、選択した文字列が用語名・別名と
+  // 完全一致すれば該当ノートを開くコマンドを用意する。
+  // モバイルの「ツールバーをカスタマイズ」に登録すれば、
+  // 選択→タップで実行できる。
+  // ─────────────────────────────────────────
+  registerTermLookupCommand() {
+    this.addCommand({
+      id: "open-term-note-from-selection",
+      name: "\u9078\u629E\u3057\u305F\u6587\u5B57\u5217\u306E\u7528\u8A9E\u30CE\u30FC\u30C8\u3092\u958B\u304F",
+      editorCallback: (editor) => {
+        const selected = editor.getSelection();
+        if (!selected || selected.length === 0) {
+          new import_obsidian11.Notice("\u7528\u8A9E\u3068\u3057\u3066\u958B\u304D\u305F\u3044\u6587\u5B57\u5217\u3092\u9078\u629E\u3057\u3066\u304F\u3060\u3055\u3044\u3002");
+          return;
+        }
+        const term = this.terms.find(
+          (t) => t.name === selected || t.aliases.includes(selected)
+        );
+        if (!term) {
+          new import_obsidian11.Notice(`\u300C${selected}\u300D\u306B\u4E00\u81F4\u3059\u308B\u7528\u8A9E\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3002`);
+          return;
+        }
+        new TermPreviewModal(this.app, term, () => {
+          const file = this.app.vault.getAbstractFileByPath(term.filePath);
+          if (!(file instanceof import_obsidian11.TFile)) {
+            new import_obsidian11.Notice("\u7528\u8A9E\u30CE\u30FC\u30C8\u306E\u8AAD\u307F\u8FBC\u307F\u306B\u5931\u6557\u3057\u307E\u3057\u305F\u3002");
+            return;
+          }
+          void this.app.workspace.getLeaf(false).openFile(file);
+        }).open();
+      }
+    });
   }
   // ─────────────────────────────────────────
   // 執筆情報一覧 データ構築

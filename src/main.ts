@@ -2,7 +2,7 @@
 // Novels Note JP — メインプラグイン
 // ─────────────────────────────────────────
 
-import { Plugin, WorkspaceLeaf, TFile, MarkdownView, Notice } from "obsidian";
+import { Plugin, WorkspaceLeaf, TFile, MarkdownView, Notice, Platform, Editor } from "obsidian";
 import { EditorView } from "@codemirror/view";
 
 import {
@@ -42,7 +42,8 @@ import { ExportModal } from "./export/exportModal";
 import { VerticalPreviewView } from "./views/verticalPreview";
 import { NovelReadingView } from "./views/novelReadingView";
 import { WritingStatsView } from "./views/writingStatsView";
-import { onEditorMenuForRuby } from "./editor/rubyInserter";
+import { onEditorMenuForRuby, registerRubyCommands } from "./editor/rubyInserter";
+import { TermPreviewModal } from "./core/termPreviewModal";
 
 // ─────────────────────────────────────────
 // HEXカラー → rgba() 文字列変換
@@ -105,6 +106,11 @@ export default class NovelsNoteJP extends Plugin {
   private statusBarEl: HTMLElement | null = null;
   private rebuildTimer: ReturnType<typeof setTimeout> | null = null;
   private adoptedSheet: CSSStyleSheet | null = null;
+  // 「原稿に挿入」用。サイドバー（用語一覧）を開くと、モバイルでは
+  // エディタがフォーカス・カーソルを失い app.workspace.activeEditor が
+  // 使えなくなるため、直近でアクティブだった原稿ノートのリーフを
+  // 別途保持しておく。
+  private lastActiveMarkdownLeaf: WorkspaceLeaf | null = null;
   /**
    * カーソル位置・選択範囲の「確定した」変化を、エディタ拡張
    * （buildCursorSyncExtension）から縦書きプレビュー（VerticalPreviewView）
@@ -137,6 +143,7 @@ export default class NovelsNoteJP extends Plugin {
         view.setFontSizeGetter(()  => this.settings.fontSize);
         view.setWrapColumnGetter(() => this.settings.wrapColumn);
         view.setCursorSyncStore(this.cursorSyncStore);
+        view.setLastActiveMarkdownProvider(() => this.getLastActiveMarkdownEditor());
         return view;
       }
     );
@@ -175,6 +182,7 @@ export default class NovelsNoteJP extends Plugin {
     this.registerVerticalPreviewCommand();
     this.registerNovelReadingViewCommand();
     this.registerWritingStatsCommand();
+    this.registerTermLookupCommand();
 
     // ─────────────────────────────────────────
     // 用語ハイライトのホバープレビュー（hover-link）を
@@ -255,7 +263,7 @@ export default class NovelsNoteJP extends Plugin {
     );
 
     // ─────────────────────────────────────────
-    // 右クリック「ルビを振る」メニュー
+    // 右クリック「ルビを振る」メニュー（デスクトップ）
     // ─────────────────────────────────────────
     this.registerEvent(
       this.app.workspace.on("editor-menu", (menu, editor, info) => {
@@ -263,6 +271,13 @@ export default class NovelsNoteJP extends Plugin {
         onEditorMenuForRuby(this.app, () => this.settings, menu, editor, info);
       })
     );
+
+    // ─────────────────────────────────────────
+    // 「ルビを振る」「傍点を振る」コマンド
+    // editor-menu に加えてコマンドとしても登録する。
+    // モバイルには editor-menu を開く導線がないため必須。
+    // ─────────────────────────────────────────
+    registerRubyCommands(this, this.app, () => this.settings);
 
     this.applyEditorStyles();
 
@@ -375,11 +390,16 @@ export default class NovelsNoteJP extends Plugin {
 
     // ─────────────────────────────────────────
     // active-leaf-change：タブ切り替え時に
-    // 新しいリーフの novelMode 状態を更新する
+    // 新しいリーフの novelMode 状態を更新する。
+    // あわせて「原稿に挿入」用に最後にアクティブだった
+    // 原稿ノートのリーフを記録しておく。
     // ─────────────────────────────────────────
     this.registerEvent(
-      this.app.workspace.on("active-leaf-change", () => {
+      this.app.workspace.on("active-leaf-change", (leaf) => {
         this.refreshEditors();
+        if (leaf && leaf.view instanceof MarkdownView) {
+          this.lastActiveMarkdownLeaf = leaf;
+        }
       })
     );
 
@@ -501,11 +521,18 @@ export default class NovelsNoteJP extends Plugin {
       : "";
 
     // ルーラー
+    //
+    // .cm-content の実際の折り返し幅は
+    // `max-width: ${wrapWidth}` によって「wrapWidth と実際に使える
+    // 幅のうち小さい方」に決まる（画面が狭ければ wrapWidth より
+    // 先に折り返される）。ルーラーの位置も同じ基準（100% = 行の実幅）
+    // でクランプしないと、狭い画面では実際の折り返し位置より
+    // 右側にガイドラインだけが表示されてズレて見える。
     const rulerCss = `
       .cm-editor[data-novel-mode="true"] .novel-ruler-line { position: relative; }
       .cm-editor[data-novel-mode="true"] .novel-ruler-line::after {
         content: ""; position: absolute;
-        top: 0; left: ${wrapWidth};
+        top: 0; left: min(${wrapWidth}, 100%);
         transform: translateX(-1px);
         width: 0; height: 100%;
         border-left: 1px ${s.rulerStyle} ${s.rulerColor};
@@ -837,11 +864,31 @@ export default class NovelsNoteJP extends Plugin {
   async activateVerticalPreview(): Promise<void> {
     const { workspace } = this.app;
     const existing = workspace.getLeavesOfType(VERTICAL_VIEW_TYPE);
+
+    // モバイルでは右サイドバーとエディタを同時に表示できず、
+    // カーソル同期・自動スクロール追従の意味が失われるため、
+    // 小説閲覧ビューと同様にメインエリアの独立タブとして開く。
+    //
+    // 注意：Obsidianは以前のワークスペースレイアウトを保存・復元する
+    // ため、過去に右サイドバーで開かれていたリーフが existing に
+    // 残っていることがある。その場合にそのまま revealLeaf すると
+    // 右サイドバー表示のままになってしまうため、モバイルでは
+    // 既存リーフを一旦すべて閉じてから、必ずタブとして開き直す。
+    if (Platform.isMobile) {
+      for (const leaf of existing) {
+        leaf.detach();
+      }
+      const leaf = workspace.getLeaf("tab");
+      await leaf.setViewState({ type: VERTICAL_VIEW_TYPE, active: true });
+      void workspace.revealLeaf(leaf);
+      return;
+    }
+
+    // デスクトップは従来通り右サイドバー（エディタと並べて確認できる）
     if (existing.length > 0) {
       void workspace.revealLeaf(existing[0]);
       return;
     }
-    // 右サイドバーに開く。なければ新しいリーフを作る
     const leaf = workspace.getRightLeaf(false);
     if (!leaf) return;
     await leaf.setViewState({ type: VERTICAL_VIEW_TYPE, active: true });
@@ -976,9 +1023,84 @@ export default class NovelsNoteJP extends Plugin {
     }
 
     // メインエリアに新規タブとして開く
-    const leaf = workspace.getLeaf("tab");
-    await leaf.setViewState({ type: WRITING_STATS_VIEW_TYPE, active: true });
-    void workspace.revealLeaf(leaf);
+    const leafForStats = workspace.getLeaf("tab");
+    await leafForStats.setViewState({ type: WRITING_STATS_VIEW_TYPE, active: true });
+    void workspace.revealLeaf(leafForStats);
+  }
+
+  // ─────────────────────────────────────────
+  // 「原稿に挿入」用：最後にアクティブだった原稿ノートの
+  // エディタとファイルを取得する。
+  // workspace.activeEditor はフォーカスに依存するため、
+  // サイドバーを開いた時点（特にモバイル）で失われることがある。
+  // active-leaf-change で記録しておいたリーフを使い、
+  // そのリーフがまだ有効（閉じられていない）か確認してから返す。
+  // ─────────────────────────────────────────
+  getLastActiveMarkdownEditor(): { editor: Editor; file: TFile | null } | null {
+    // まずは現在フォーカスのあるエディタを優先する（デスクトップ、
+    // またはモバイルでもエディタにフォーカスがあるケース）
+    const active = this.app.workspace.activeEditor;
+    if (active?.editor) {
+      return { editor: active.editor, file: active.file ?? null };
+    }
+
+    // フォーカスが外れている場合は、記録しておいた直近のリーフを使う。
+    // リーフが既に閉じられている可能性があるため、
+    // 現在開いている全リーフに含まれているかを確認してから使う。
+    const leaf = this.lastActiveMarkdownLeaf;
+    if (!leaf) return null;
+    const stillOpen = this.app.workspace
+      .getLeavesOfType("markdown")
+      .includes(leaf);
+    if (!stillOpen) return null;
+
+    const view = leaf.view;
+    if (view instanceof MarkdownView) {
+      return { editor: view.editor, file: view.file ?? null };
+    }
+    return null;
+  }
+
+  // ─────────────────────────────────────────
+  // 「選択した文字列の用語ノートを開く」コマンド
+  //
+  // ホバープレビューはモバイルでは無効化している（物理マウス前提の
+  // 機能のため）。その代替として、選択した文字列が用語名・別名と
+  // 完全一致すれば該当ノートを開くコマンドを用意する。
+  // モバイルの「ツールバーをカスタマイズ」に登録すれば、
+  // 選択→タップで実行できる。
+  // ─────────────────────────────────────────
+  private registerTermLookupCommand(): void {
+    this.addCommand({
+      id: "open-term-note-from-selection",
+      name: "選択した文字列の用語ノートを開く",
+      editorCallback: (editor: Editor) => {
+        const selected = editor.getSelection();
+        if (!selected || selected.length === 0) {
+          new Notice("用語として開きたい文字列を選択してください。");
+          return;
+        }
+        const term = this.terms.find(
+          t => t.name === selected || t.aliases.includes(selected)
+        );
+        if (!term) {
+          new Notice(`「${selected}」に一致する用語が見つかりません。`);
+          return;
+        }
+        // ホバープレビューは「見るだけ」で原稿から離れないのに対し、
+        // コマンドでいきなりノートを開くと画面遷移してしまい、
+        // ホバーの代替としては体験が異なる。まずモーダルで
+        // 用語情報を見せ、必要なら明示的に開いてもらう。
+        new TermPreviewModal(this.app, term, () => {
+          const file = this.app.vault.getAbstractFileByPath(term.filePath);
+          if (!(file instanceof TFile)) {
+            new Notice("用語ノートの読み込みに失敗しました。");
+            return;
+          }
+          void this.app.workspace.getLeaf(false).openFile(file);
+        }).open();
+      },
+    });
   }
 
   // ─────────────────────────────────────────

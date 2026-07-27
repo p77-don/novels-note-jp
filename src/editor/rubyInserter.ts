@@ -8,7 +8,7 @@
 // 「傍点を振る」→ 1文字ずつ「・」をルビとして即挿入する。
 // ─────────────────────────────────────────
 
-import { App, Editor, MarkdownView, Menu, Modal, Notice } from "obsidian";
+import { App, Editor, MarkdownView, Menu, Modal, Notice, Platform } from "obsidian";
 import { NovelsNoteSettings, RubyStyle } from "../settings";
 
 // ─────────────────────────────────────────
@@ -69,6 +69,14 @@ class RubyInputModal extends Modal {
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass("nn-ruby-modal");
+
+    // モバイルではモーダルが画面中央に表示されると、下半分
+    // （プレビュー部分）が入力用キーボードの裏に隠れてしまう。
+    // モーダル自体を画面上部に寄せて、キーボードと重ならない
+    // 領域を確保する。
+    if (Platform.isMobile) {
+      this.modalEl.addClass("nn-modal-top-aligned");
+    }
 
     contentEl.createEl("h3", { text: "ルビを振る", cls: "nn-modal-title" });
 
@@ -142,6 +150,62 @@ class RubyInputModal extends Modal {
     if (this.focusTimer !== undefined) window.clearTimeout(this.focusTimer);
     this.contentEl.empty();
   }
+}
+
+// ─────────────────────────────────────────
+// コマンド登録（ルビ・傍点）
+//
+// editor-menu（右クリックメニュー）はモバイルでは呼び出す手段が
+// 存在しない（長押しは contextmenu を発火せず、Obsidian 側にも
+// editor-menu 相当を開く標準UIがない）ため、同じ挿入ロジックを
+// コマンドとしても公開する。モバイルでは選択テキストを作った上で
+// 「ツールバーをカスタマイズ」に登録すれば実行できる。
+// デスクトップでも右クリックメニューと併用でき、ホットキーを
+// 割り当てて使うことも可能。
+// ─────────────────────────────────────────
+export function registerRubyCommands(
+  plugin: {
+    addCommand: (command: {
+      id: string;
+      name: string;
+      editorCallback: (editor: Editor) => void;
+    }) => void;
+  },
+  app: App,
+  getSettings: () => NovelsNoteSettings
+): void {
+  plugin.addCommand({
+    id: "insert-ruby-on-selection",
+    name: "選択した文字列にルビを振る",
+    editorCallback: (editor: Editor) => {
+      const selected = editor.getSelection();
+      if (!selected || selected.length === 0) {
+        new Notice("ルビを振る文字列を選択してください。");
+        return;
+      }
+      const settings = getSettings();
+      new RubyInputModal(app, selected, settings.rubyStyle, (rubyText: string) => {
+        editor.replaceSelection(rubyText);
+        new Notice(`ルビを挿入しました。`);
+      }).open();
+    },
+  });
+
+  plugin.addCommand({
+    id: "insert-bouten-on-selection",
+    name: "選択した文字列に傍点を振る",
+    editorCallback: (editor: Editor) => {
+      const selected = editor.getSelection();
+      if (!selected || selected.length === 0) {
+        new Notice("傍点を振る文字列を選択してください。");
+        return;
+      }
+      const settings = getSettings();
+      const boutenText = buildBoutenText(selected, settings.rubyStyle);
+      editor.replaceSelection(boutenText);
+      new Notice(`傍点を挿入しました。`);
+    },
+  });
 }
 
 // ─────────────────────────────────────────

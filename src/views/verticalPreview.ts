@@ -2,7 +2,7 @@
 // Novels Note JP — 縦書きプレビュー View
 // ─────────────────────────────────────────
 
-import { ItemView, WorkspaceLeaf, MarkdownView, TFile } from "obsidian";
+import { ItemView, WorkspaceLeaf, MarkdownView, TFile, Platform, Editor } from "obsidian";
 import { VERTICAL_VIEW_TYPE } from "../types";
 import { RubyStyle } from "../settings";
 import { convertRubyAndEscape } from "../core/rubyPatterns";
@@ -820,6 +820,15 @@ export class VerticalPreviewView extends ItemView {
   private cursorSyncStore: CursorSyncStore | null = null;
   private unsubscribeCursorSync: (() => void) | null = null;
 
+  // フォールバック用：workspace.getActiveViewOfType(MarkdownView) は
+  // 「今アクティブなリーフ」に依存するため、このビュー自身が
+  // メインエリアのタブとしてアクティブになった瞬間（モバイルでの
+  // 独立タブオープン時など）は編集中のノートを見つけられなくなる。
+  // main.ts 側で追跡している「直近アクティブだった原稿ノート」を
+  // 注入してもらい、フォールバックとして使う。
+  private getLastActiveMarkdown: () => { editor: Editor; file: TFile | null } | null =
+    () => null;
+
   private getRubyStyle: () => RubyStyle = () => "narou";
   private getFontSize:   () => number    = () => 16;
   private getWrapColumn: () => number    = () => 40;
@@ -830,6 +839,11 @@ export class VerticalPreviewView extends ItemView {
   setFontSizeGetter(fn: () => number): void     { this.getFontSize   = fn; }
   setWrapColumnGetter(fn: () => number): void   { this.getWrapColumn = fn; }
   setCursorSyncStore(store: CursorSyncStore): void { this.cursorSyncStore = store; }
+  setLastActiveMarkdownProvider(
+    fn: () => { editor: Editor; file: TFile | null } | null
+  ): void {
+    this.getLastActiveMarkdown = fn;
+  }
 
   getViewType(): string    { return VERTICAL_VIEW_TYPE; }
   getDisplayText(): string { return "縦書きプレビュー"; }
@@ -839,10 +853,20 @@ export class VerticalPreviewView extends ItemView {
     const root = this.containerEl.children[1] as HTMLElement;
     root.empty();
     root.addClass("nn-vertical-root");
+    if (Platform.isMobile) {
+      root.addClass("nn-vertical-root-mobile");
+    }
 
-    // ツールバー
-    const toolbar = root.createEl("div", { cls: "nn-vertical-toolbar" });
-    toolbar.createEl("span", { text: "縦書きプレビュー", cls: "nn-vertical-title" });
+    // ツールバー（タイトル表示）
+    // モバイルでは Obsidian 自体のタブヘッダーに既に
+    // 「縦書きプレビュー」というタイトルが表示されており、
+    // ここで重ねて表示すると縦書き本文の表示領域を圧迫し、
+    // 下部が画面外・ツールバーの裏に隠れる原因になる。
+    // そのためモバイルではこのタイトル行自体を省略する。
+    if (!Platform.isMobile) {
+      const toolbar = root.createEl("div", { cls: "nn-vertical-toolbar" });
+      toolbar.createEl("span", { text: "縦書きプレビュー", cls: "nn-vertical-title" });
+    }
 
     // 縦書きコンテナ
     this.scrollerEl = root.createEl("div", { cls: "nn-vertical-scroller" });
@@ -877,7 +901,11 @@ export class VerticalPreviewView extends ItemView {
     // カーソル位置・選択範囲の変化を CursorSyncStore から購読する。
     // 外部ポーリングは行わない（IME変換状態の判定はエディタ側の
     // buildCursorSyncExtension が担う）。
-    if (this.cursorSyncStore) {
+    //
+    // モバイルでは縦書きプレビューを独立タブとして開いており、
+    // エディタと同時に表示されることがないため、
+    // リアルタイムのカーソル追従は購読しない（意味を持たないため）。
+    if (!Platform.isMobile && this.cursorSyncStore) {
       this.unsubscribeCursorSync = this.cursorSyncStore.subscribe(
         snapshot => this.onCursorSync(snapshot)
       );
@@ -899,18 +927,36 @@ export class VerticalPreviewView extends ItemView {
   // 読み込み・レンダリング
   // ─────────────────────────────────────────
   async loadFromActiveEditor(): Promise<void> {
+    // 通常はこちらで見つかる（デスクトップ、または
+    // まだエディタがアクティブなケース）
     const mdView = this.app.workspace.getActiveViewOfType(MarkdownView);
-    if (!mdView?.file) return;
-    const ext = mdView.file.extension;
+    let file = mdView?.file ?? null;
+    let editorValue: string | null = mdView ? mdView.editor.getValue() : null;
+    let selection: string = mdView ? (mdView.editor.getSelection() ?? "") : "";
+
+    // 見つからない場合（モバイルで縦書きプレビュー自身が
+    // アクティブなタブになっているケースなど）は、
+    // 直近アクティブだった原稿ノートにフォールバックする。
+    if (!file) {
+      const fallback = this.getLastActiveMarkdown();
+      if (fallback?.file) {
+        file = fallback.file;
+        editorValue = fallback.editor.getValue();
+        selection = fallback.editor.getSelection() ?? "";
+      }
+    }
+
+    if (!file) return;
+    const ext = file.extension;
     if (ext !== "txt" && ext !== "md") {
       this.renderEmpty("対象外のファイルです（.txt / .md のみ）。");
       return;
     }
-    const text = mdView.editor.getValue();
-    if (mdView.file === this.lastFile && text === this.lastText) return;
-    this.lastFile = mdView.file;
+    const text = editorValue ?? "";
+    if (file === this.lastFile && text === this.lastText) return;
+    this.lastFile = file;
     this.lastText = text;
-    this.lastSelection = mdView.editor.getSelection() ?? "";
+    this.lastSelection = selection;
     this.renderBody(text, this.lastSelection);
     // ファイル切り替え・初回読み込み時のみ、基準となるスクロール
     // 位置を右端（縦書きの開始位置）にリセットしてから、
