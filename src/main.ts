@@ -643,7 +643,6 @@ export default class NovelsNoteJP extends Plugin {
     }
 
     this.terms.sort((a, b) => b.name.length - a.name.length);
-    console.log(`Novels Note JP: ${this.terms.length} 件の用語を読み込みました。`);
 
     return !areTermListsEqual(previousTerms, this.terms);
   }

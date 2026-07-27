@@ -201,11 +201,11 @@ export class NovelReadingView extends ItemView {
     container.addClass("nn-reading-container");
 
     // ─── ツールバー ───
-    const toolbar = container.createEl("div", { cls: "nn-reading-toolbar" });
-    this.titleEl = toolbar.createEl("span", { cls: "nn-reading-toolbar-title" });
+    const toolbar = container.createDiv({ cls: "nn-reading-toolbar" });
+    this.titleEl = toolbar.createSpan({ cls: "nn-reading-toolbar-title" });
     this.titleEl.textContent = this._file?.basename ?? "小説閲覧";
 
-    const btnWrap = toolbar.createEl("div", { cls: "nn-reading-toolbar-buttons" });
+    const btnWrap = toolbar.createDiv({ cls: "nn-reading-toolbar-buttons" });
 
     // エクスポートボタン（file-output アイコン）
     const exportBtn = btnWrap.createEl("button", {
@@ -227,7 +227,7 @@ export class NovelReadingView extends ItemView {
     editBtn.addEventListener("click", () => { void this.switchToEdit(); });
 
     // ─── 本文領域 ───
-    this.rootEl = container.createEl("div", { cls: "nn-reading-root" });
+    this.rootEl = container.createDiv({ cls: "nn-reading-root" });
 
     await this.loadCurrentFile();
 
@@ -332,7 +332,7 @@ export class NovelReadingView extends ItemView {
 
     const html = toReadingHtml(source, this.getRubyStyle());
     this.rootEl.empty();
-    const contentEl = this.rootEl.createEl("div", { cls: "nn-reading-content" });
+    const contentEl = this.rootEl.createDiv({ cls: "nn-reading-content" });
     // DOMParser でパースしてノードを直接追加（innerHTML 不使用）
     const parsed = new DOMParser().parseFromString(html, "text/html");
     for (const node of Array.from(parsed.body.childNodes)) {

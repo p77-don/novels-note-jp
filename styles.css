@@ -833,11 +833,11 @@
    1行を占有し、トグル・上下移動・削除ボタンがさらにもう1行
    下に追いやられて3段になってしまうため、幅を明示的に固定して
    トグル等と同じ行に収まるようにする。 */
-.nn-tag-setting-row .setting-item-control input[type="color"],
-.novels-note-bracket-row .setting-item-control input[type="color"] {
-  flex: 0 0 auto !important;
-  width: 44px !important;
-  min-width: 44px !important;
+.nn-tag-setting-row.nn-tag-setting-row .setting-item-control input[type="color"],
+.novels-note-bracket-row.novels-note-bracket-row .setting-item-control input[type="color"] {
+  flex: 0 0 auto;
+  width: 44px;
+  min-width: 44px;
 }
 
 /* ═══════════════════════════════════════════
@@ -1018,12 +1018,12 @@
    画面上部に固定表示する。position: fixed で
    .modal-container の flex 中央寄せの影響を受けないようにする。
    高さが画面に収まりきらない場合は内部でスクロールさせる。 */
-.nn-modal-top-aligned {
-  position: fixed !important;
-  top: max(env(safe-area-inset-top, 0px), 12px) !important;
-  left: 50% !important;
-  transform: translateX(-50%) !important;
-  margin: 0 !important;
+.modal.nn-modal-top-aligned.nn-modal-top-aligned {
+  position: fixed;
+  top: max(env(safe-area-inset-top, 0px), 12px);
+  left: 50%;
+  transform: translateX(-50%);
+  margin: 0;
   max-height: 40vh;
   overflow-y: auto;
 }
@@ -1096,15 +1096,15 @@
    デスクトップ（このメディアクエリの対象外）は、
    従来通りの固定幅（表示名は流動、開始・終了カッコは3em）のまま。 */
 @media (max-width: 500px) {
-  .novels-note-bracket-row .setting-item-control input[type="text"].nn-bracket-label-input {
-    flex: 2 1 0% !important;
-    width: auto !important;
-    min-width: 0 !important;
+  .novels-note-bracket-row.novels-note-bracket-row .setting-item-control input[type="text"].nn-bracket-label-input {
+    flex: 2 1 0%;
+    width: auto;
+    min-width: 0;
   }
-  .novels-note-bracket-row .setting-item-control input[type="text"].nn-bracket-char-input {
-    flex: 1 1 0% !important;
-    width: auto !important;
-    min-width: 0 !important;
+  .novels-note-bracket-row.novels-note-bracket-row .setting-item-control input[type="text"].nn-bracket-char-input {
+    flex: 1 1 0%;
+    width: auto;
+    min-width: 0;
   }
 }
 

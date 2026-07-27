@@ -80,11 +80,11 @@ class RubyInputModal extends Modal {
 
     contentEl.createEl("h3", { text: "ルビを振る", cls: "nn-modal-title" });
 
-    const infoEl = contentEl.createEl("div", { cls: "nn-modal-info" });
-    infoEl.createEl("span", { text: "親文字：", cls: "nn-modal-label" });
-    infoEl.createEl("span", { text: this.baseText, cls: "nn-modal-value nn-ruby-base-preview" });
+    const infoEl = contentEl.createDiv({ cls: "nn-modal-info" });
+    infoEl.createSpan({ text: "親文字：", cls: "nn-modal-label" });
+    infoEl.createSpan({ text: this.baseText, cls: "nn-modal-value nn-ruby-base-preview" });
 
-    const inputWrap = contentEl.createEl("div", { cls: "nn-modal-input-wrap" });
+    const inputWrap = contentEl.createDiv({ cls: "nn-modal-input-wrap" });
     inputWrap.createEl("label", { text: "ルビ（読み仮名）", cls: "nn-modal-field-label" });
     const input = inputWrap.createEl("input", {
       type: "text",
@@ -93,8 +93,8 @@ class RubyInputModal extends Modal {
     });
 
     // プレビュー
-    const previewWrap = contentEl.createEl("div", { cls: "nn-ruby-preview-wrap" });
-    previewWrap.createEl("span", { text: "プレビュー：", cls: "nn-modal-label" });
+    const previewWrap = contentEl.createDiv({ cls: "nn-ruby-preview-wrap" });
+    previewWrap.createSpan({ text: "プレビュー：", cls: "nn-modal-label" });
     const preview = previewWrap.createEl("ruby", { cls: "nn-ruby-preview" });
     preview.appendChild(window.document.createTextNode(this.baseText));
     const rt = preview.createEl("rt");
@@ -104,7 +104,7 @@ class RubyInputModal extends Modal {
       rt.textContent = input.value;
     });
 
-    const btnRow = contentEl.createEl("div", { cls: "nn-modal-btn-row" });
+    const btnRow = contentEl.createDiv({ cls: "nn-modal-btn-row" });
     const cancelBtn = btnRow.createEl("button", {
       text: "キャンセル",
       cls: "nn-modal-btn nn-modal-btn-cancel",

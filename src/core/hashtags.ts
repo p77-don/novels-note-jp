@@ -27,7 +27,13 @@ export function stripHashtags(text: string): string {
 
   // ② タグ本体＋直後スペースを除去（行頭・行中どちらでも対応）
   //    連続タグも1パスですべて除去できる。
-  text = text.replace(/(?<=^|\s)#\S+[ \t\u3000]?/gm, "");
+  //    iOS 16.4未満はlookbehind非対応のため、offsetから直前の文字を
+  //    参照して同等の判定を行う（マッチ自体には境界文字を含めない）。
+  text = text.replace(/#\S+[ \t\u3000]?/gm, (match, offset: number, str: string) => {
+    const prevChar = offset === 0 ? "" : str[offset - 1];
+    const isBoundary = offset === 0 || /\s/.test(prevChar);
+    return isBoundary ? "" : match;
+  });
 
   return text;
 }

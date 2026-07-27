@@ -35,11 +35,8 @@ class RubyWidget extends WidgetType {
   }
 
   toDOM(): HTMLElement {
-    const rubyEl = window.document.createElement("ruby");
-    rubyEl.className = "nn-editor-ruby";
-    rubyEl.appendChild(window.document.createTextNode(this.base));
-    const rt = window.document.createElement("rt");
-    rt.textContent = this.ruby;
+    const rubyEl = createEl("ruby", { cls: "nn-editor-ruby", text: this.base });
+    const rt = rubyEl.createEl("rt", { text: this.ruby });
     // ルビ文字数が親文字数に対して極端に多い場合のみ、
     // font-size を縮小して折り返しズレを防ぐ
     // （詳細は core/rubyPatterns.ts の computeRtFontSizeEm() を参照）
@@ -47,7 +44,6 @@ class RubyWidget extends WidgetType {
     if (fontSizeEm !== DEFAULT_RT_FONT_SIZE_EM) {
       rt.setCssStyles({ fontSize: `${fontSizeEm}em` });
     }
-    rubyEl.appendChild(rt);
     return rubyEl;
   }
 

@@ -201,16 +201,12 @@ var RubyWidget = class extends import_view.WidgetType {
     return this.base === other.base && this.ruby === other.ruby;
   }
   toDOM() {
-    const rubyEl = window.document.createElement("ruby");
-    rubyEl.className = "nn-editor-ruby";
-    rubyEl.appendChild(window.document.createTextNode(this.base));
-    const rt = window.document.createElement("rt");
-    rt.textContent = this.ruby;
+    const rubyEl = createEl("ruby", { cls: "nn-editor-ruby", text: this.base });
+    const rt = rubyEl.createEl("rt", { text: this.ruby });
     const fontSizeEm = computeRtFontSizeEm(this.base, this.ruby);
     if (fontSizeEm !== DEFAULT_RT_FONT_SIZE_EM) {
       rt.setCssStyles({ fontSize: `${fontSizeEm}em` });
     }
-    rubyEl.appendChild(rt);
     return rubyEl;
   }
   ignoreEvent() {
@@ -602,13 +598,8 @@ var EolWidget = class extends import_view2.WidgetType {
     return true;
   }
   toDOM() {
-    const wrap = window.document.createElement("span");
-    wrap.className = "novel-eol";
-    wrap.setAttribute("aria-hidden", "true");
-    const mark = window.document.createElement("span");
-    mark.className = "novel-eol-mark";
-    mark.textContent = "\u21B5";
-    wrap.appendChild(mark);
+    const wrap = createSpan({ cls: "novel-eol", attr: { "aria-hidden": "true" } });
+    wrap.createSpan({ cls: "novel-eol-mark", text: "\u21B5" });
     return wrap;
   }
   ignoreEvent() {
@@ -812,10 +803,10 @@ var CreateTermModal = class extends import_obsidian3.Modal {
     contentEl.empty();
     contentEl.addClass("nn-create-term-modal");
     contentEl.createEl("h3", { text: "\u7528\u8A9E\u30CE\u30FC\u30C8\u3092\u65B0\u898F\u4F5C\u6210", cls: "nn-modal-title" });
-    const infoEl = contentEl.createEl("div", { cls: "nn-modal-info" });
-    infoEl.createEl("span", { text: "\u30AB\u30C6\u30B4\u30EA\uFF1A", cls: "nn-modal-label" });
-    infoEl.createEl("span", { text: this.tagLabel, cls: "nn-modal-value" });
-    const folderWrap = contentEl.createEl("div", { cls: "nn-modal-input-wrap" });
+    const infoEl = contentEl.createDiv({ cls: "nn-modal-info" });
+    infoEl.createSpan({ text: "\u30AB\u30C6\u30B4\u30EA\uFF1A", cls: "nn-modal-label" });
+    infoEl.createSpan({ text: this.tagLabel, cls: "nn-modal-value" });
+    const folderWrap = contentEl.createDiv({ cls: "nn-modal-input-wrap" });
     folderWrap.createEl("label", { text: "\u30D5\u30A9\u30EB\u30C0\uFF08\u4EFB\u610F\uFF09", cls: "nn-modal-field-label" });
     const folderInput = folderWrap.createEl("input", {
       type: "text",
@@ -823,14 +814,14 @@ var CreateTermModal = class extends import_obsidian3.Modal {
       cls: "nn-modal-input nn-modal-input-folder"
     });
     folderInput.value = this.folderPath;
-    const inputWrap = contentEl.createEl("div", { cls: "nn-modal-input-wrap" });
+    const inputWrap = contentEl.createDiv({ cls: "nn-modal-input-wrap" });
     inputWrap.createEl("label", { text: "\u7528\u8A9E\u540D", cls: "nn-modal-field-label" });
     const input = inputWrap.createEl("input", {
       type: "text",
       placeholder: "\u7528\u8A9E\u540D\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044",
       cls: "nn-modal-input"
     });
-    const btnRow = contentEl.createEl("div", { cls: "nn-modal-btn-row" });
+    const btnRow = contentEl.createDiv({ cls: "nn-modal-btn-row" });
     const cancelBtn = btnRow.createEl("button", { text: "\u30AD\u30E3\u30F3\u30BB\u30EB", cls: "nn-modal-btn nn-modal-btn-cancel" });
     const createBtn = btnRow.createEl("button", { text: "\u4F5C\u6210", cls: "nn-modal-btn nn-modal-btn-create" });
     const submit = () => {
@@ -889,7 +880,7 @@ var ConfirmFolderCreateModal = class extends import_obsidian3.Modal {
       text: this.folderPath,
       cls: "nn-modal-path"
     });
-    const btnRow = contentEl.createEl("div", { cls: "nn-modal-btn-row" });
+    const btnRow = contentEl.createDiv({ cls: "nn-modal-btn-row" });
     const cancelBtn = btnRow.createEl("button", { text: "\u30AD\u30E3\u30F3\u30BB\u30EB", cls: "nn-modal-btn nn-modal-btn-cancel" });
     const confirmBtn = btnRow.createEl("button", { text: "\u4F5C\u6210\u3059\u308B", cls: "nn-modal-btn nn-modal-btn-create" });
     cancelBtn.addEventListener("click", () => {
@@ -925,7 +916,7 @@ var ConfirmDeleteModal = class extends import_obsidian3.Modal {
       text: this.filePath,
       cls: "nn-modal-path"
     });
-    const btnRow = contentEl.createEl("div", { cls: "nn-modal-btn-row" });
+    const btnRow = contentEl.createDiv({ cls: "nn-modal-btn-row" });
     const cancelBtn = btnRow.createEl("button", { text: "\u30AD\u30E3\u30F3\u30BB\u30EB", cls: "nn-modal-btn nn-modal-btn-cancel" });
     const deleteBtn = btnRow.createEl("button", { text: "\u524A\u9664", cls: "nn-modal-btn nn-modal-btn-delete" });
     cancelBtn.addEventListener("click", () => {
@@ -1045,9 +1036,9 @@ var NovelsNoteSidebarView = class extends import_obsidian3.ItemView {
     const root = this.containerEl.children[1];
     root.empty();
     root.addClass("novels-note-sidebar");
-    const header = root.createEl("div", { cls: "nn-header" });
-    header.createEl("span", { text: "\u7528\u8A9E\u30A4\u30F3\u30C7\u30C3\u30AF\u30B9", cls: "nn-header-title" });
-    const btnBar = header.createEl("div", { cls: "nn-header-buttons" });
+    const header = root.createDiv({ cls: "nn-header" });
+    header.createSpan({ text: "\u7528\u8A9E\u30A4\u30F3\u30C7\u30C3\u30AF\u30B9", cls: "nn-header-title" });
+    const btnBar = header.createDiv({ cls: "nn-header-buttons" });
     const btnExpand = btnBar.createEl("button", { cls: "nn-btn", title: "\u3059\u3079\u3066\u5C55\u958B" });
     (0, import_obsidian3.setIcon)(btnExpand, "chevron-down");
     const btnCollapse = btnBar.createEl("button", { cls: "nn-btn", title: "\u3059\u3079\u3066\u6298\u308A\u305F\u305F\u3080" });
@@ -1066,7 +1057,7 @@ var NovelsNoteSidebarView = class extends import_obsidian3.ItemView {
       }
       this.renderBody(body);
     });
-    const searchWrap = root.createEl("div", { cls: "nn-search-wrap" });
+    const searchWrap = root.createDiv({ cls: "nn-search-wrap" });
     const searchInput = searchWrap.createEl("input", {
       type: "text",
       placeholder: "\u691C\u7D22\u2026",
@@ -1091,7 +1082,7 @@ var NovelsNoteSidebarView = class extends import_obsidian3.ItemView {
       searchInput.focus();
       this.renderBody(body);
     });
-    const body = root.createEl("div", { cls: "nn-body" });
+    const body = root.createDiv({ cls: "nn-body" });
     this.renderBody(body);
   }
   // ─────────────────────────────────────────
@@ -1120,23 +1111,23 @@ var NovelsNoteSidebarView = class extends import_obsidian3.ItemView {
         this.openState.set(sectionKey, false);
       }
       const isTagOpen = (_a = this.openState.get(sectionKey)) != null ? _a : false;
-      const section = body.createEl("div", { cls: "nn-section" });
-      const sectionHeader = section.createEl("div", { cls: "nn-section-header" });
-      const arrow = sectionHeader.createEl("span", {
+      const section = body.createDiv({ cls: "nn-section" });
+      const sectionHeader = section.createDiv({ cls: "nn-section-header" });
+      const arrow = sectionHeader.createSpan({
         cls: `nn-arrow ${isTagOpen ? "nn-arrow-open" : ""}`,
         text: "\u25B6"
       });
-      sectionHeader.createEl("span", {
+      sectionHeader.createSpan({
         text: td.label,
         cls: `nn-section-label novel-hl-${td.tag}`
       });
       if (visible > 0) {
-        sectionHeader.createEl("span", {
+        sectionHeader.createSpan({
           text: String(visible),
           cls: "nn-count"
         });
       }
-      const sectionBody = section.createEl("div", {
+      const sectionBody = section.createDiv({
         cls: "nn-section-body"
       });
       sectionBody.toggleClass("nn-hidden", !isTagOpen);
@@ -1187,28 +1178,28 @@ var NovelsNoteSidebarView = class extends import_obsidian3.ItemView {
     if (!this.openState.has(stateKey)) {
       this.openState.set(stateKey, false);
     }
-    const wrap = container.createEl("div", { cls: "nn-folder-wrap" });
-    const folderRow = wrap.createEl("div", {
+    const wrap = container.createDiv({ cls: "nn-folder-wrap" });
+    const folderRow = wrap.createDiv({
       cls: "nn-folder-row",
       attr: { "data-folder-path": node.fullPath, "data-tag": td.tag }
     });
-    const arrow = folderRow.createEl("span", {
+    const arrow = folderRow.createSpan({
       cls: `nn-arrow ${isOpen ? "nn-arrow-open" : ""}`,
       text: "\u25B6"
     });
-    folderRow.createEl("span", {
+    folderRow.createSpan({
       cls: "nn-folder-icon",
       text: isOpen ? "\u{1F4C2}" : "\u{1F4C1}"
     });
-    folderRow.createEl("span", {
+    folderRow.createSpan({
       text: node.name,
       cls: "nn-folder-name"
     });
-    folderRow.createEl("span", {
+    folderRow.createSpan({
       text: String(countTerms(node)),
       cls: "nn-count"
     });
-    const children = wrap.createEl("div", { cls: "nn-folder-children" });
+    const children = wrap.createDiv({ cls: "nn-folder-children" });
     children.toggleClass("nn-hidden", !isOpen);
     folderRow.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -1245,17 +1236,17 @@ var NovelsNoteSidebarView = class extends import_obsidian3.ItemView {
   }
   /** 用語 1 件の行 */
   renderTermItem(container, term, tag) {
-    const row = container.createEl("div", {
+    const row = container.createDiv({
       cls: "nn-term-row",
       attr: { draggable: "true" }
     });
-    const nameEl = row.createEl("span", {
+    const nameEl = row.createSpan({
       text: term.name,
       cls: `nn-term-name novel-hl-${tag}`,
       title: term.filePath
     });
     if (term.aliases.length > 0) {
-      row.createEl("span", {
+      row.createSpan({
         text: `\uFF08${term.aliases.join("\u30FB")}\uFF09`,
         cls: "nn-aliases"
       });
@@ -1479,12 +1470,12 @@ tags:
 // src/core/settingTab.ts
 var import_obsidian4 = require("obsidian");
 function descLines(...lines) {
-  const frag = activeDocument.createDocumentFragment();
-  lines.forEach((line, i) => {
-    if (i > 0) frag.appendChild(activeDocument.createElement("br"));
-    frag.appendChild(activeDocument.createTextNode(line));
+  return createFragment((frag) => {
+    lines.forEach((line, i) => {
+      if (i > 0) frag.createEl("br");
+      frag.appendText(line);
+    });
   });
-  return frag;
 }
 var NovelsNoteSettingTab = class extends import_obsidian4.PluginSettingTab {
   constructor(app, plugin) {
@@ -1716,12 +1707,12 @@ var NovelsNoteSettingTab = class extends import_obsidian4.PluginSettingTab {
       return;
     }
     for (let i = 0; i < folders.length; i++) {
-      const row = containerEl.createEl("div", {
+      const row = containerEl.createDiv({
         cls: "setting-item nn-exclude-folder-row"
       });
       row.addClass("nn-exclude-folder-item-row");
-      const label = row.createEl("span", { cls: "setting-item-name nn-folder-label" });
-      label.createEl("span", { cls: "nn-folder-icon", text: "\u{1F4C1}" });
+      const label = row.createSpan({ cls: "setting-item-name nn-folder-label" });
+      label.createSpan({ cls: "nn-folder-icon", text: "\u{1F4C1}" });
       label.createEl("code", { text: folders[i] });
       const delBtn = row.createEl("button", { text: "\u524A\u9664", cls: "mod-warning nn-folder-del-btn" });
       delBtn.addEventListener("click", () => {
@@ -1801,12 +1792,12 @@ var NovelsNoteSettingTab = class extends import_obsidian4.PluginSettingTab {
       return;
     }
     for (let i = 0; i < folders.length; i++) {
-      const row = containerEl.createEl("div", {
+      const row = containerEl.createDiv({
         cls: "setting-item nn-stats-exclude-folder-row"
       });
       row.addClass("nn-exclude-folder-item-row");
-      const label = row.createEl("span", { cls: "setting-item-name nn-folder-label" });
-      label.createEl("span", { cls: "nn-folder-icon", text: "\u{1F4C1}" });
+      const label = row.createSpan({ cls: "setting-item-name nn-folder-label" });
+      label.createSpan({ cls: "nn-folder-icon", text: "\u{1F4C1}" });
       label.createEl("code", { text: folders[i] });
       const delBtn = row.createEl("button", { text: "\u524A\u9664", cls: "mod-warning nn-folder-del-btn" });
       delBtn.addEventListener("click", () => {
@@ -1890,10 +1881,10 @@ var NovelsNoteSettingTab = class extends import_obsidian4.PluginSettingTab {
     };
     for (let i = 0; i < defs.length; i++) {
       const td = defs[i];
-      const rowEl = containerEl.createEl("div", { cls: "novels-note-tag-row nn-drag-row" });
+      const rowEl = containerEl.createDiv({ cls: "novels-note-tag-row nn-drag-row" });
       rowEl.setAttribute("draggable", "true");
       rowEl.dataset.idx = String(i);
-      const handle = rowEl.createEl("span", { cls: "nn-drag-handle", title: "\u30C9\u30E9\u30C3\u30B0\u3057\u3066\u4E26\u3079\u66FF\u3048" });
+      const handle = rowEl.createSpan({ cls: "nn-drag-handle", title: "\u30C9\u30E9\u30C3\u30B0\u3057\u3066\u4E26\u3079\u66FF\u3048" });
       const svg = handle.createSvg("svg", { attr: { viewBox: "0 0 16 16", width: "16", height: "16" } });
       for (const [cx, cy] of [[5, 4], [11, 4], [5, 8], [11, 8], [5, 12], [11, 12]]) {
         svg.createSvg("circle", { attr: { cx, cy, r: "1.2", fill: "currentColor" } });
@@ -1914,7 +1905,7 @@ var NovelsNoteSettingTab = class extends import_obsidian4.PluginSettingTab {
           this.plugin.updateSidebar();
         })
       );
-      setting.controlEl.createEl("div", { cls: "nn-row-break" });
+      setting.controlEl.createDiv({ cls: "nn-row-break" });
       setting.addColorPicker(
         (picker) => picker.setValue(td.color).onChange(async (value) => {
           defs[capturedI].color = value;
@@ -2047,7 +2038,7 @@ var NovelsNoteSettingTab = class extends import_obsidian4.PluginSettingTab {
           this.plugin.refreshEditors();
         });
       });
-      setting.controlEl.createEl("div", { cls: "nn-row-break" });
+      setting.controlEl.createDiv({ cls: "nn-row-break" });
       setting.addColorPicker(
         (picker) => picker.setValue(bd.color).onChange(async (value) => {
           defs[i].color = value;
@@ -2152,7 +2143,11 @@ var NovelsNoteSettingTab = class extends import_obsidian4.PluginSettingTab {
 // src/core/hashtags.ts
 function stripHashtags(text) {
   text = text.replace(/^[ \t\u3000]*#\S+[ \t\u3000]*$/gm, "");
-  text = text.replace(/(?<=^|\s)#\S+[ \t\u3000]?/gm, "");
+  text = text.replace(/#\S+[ \t\u3000]?/gm, (match, offset, str) => {
+    const prevChar = offset === 0 ? "" : str[offset - 1];
+    const isBoundary = offset === 0 || /\s/.test(prevChar);
+    return isBoundary ? "" : match;
+  });
   return text;
 }
 
@@ -2363,7 +2358,7 @@ var ExportModal = class extends import_obsidian5.Modal {
       });
       return;
     }
-    const settingsEl = contentEl.createEl("div", { cls: "nn-export-settings" });
+    const settingsEl = contentEl.createDiv({ cls: "nn-export-settings" });
     new import_obsidian5.Setting(settingsEl).setName("\u51FA\u529B\u5F62\u5F0F").addDropdown(
       (drop) => drop.addOption("txt", ".txt\uFF08\u30D7\u30EC\u30FC\u30F3\u30C6\u30AD\u30B9\u30C8\uFF09").addOption("md", ".md\uFF08Markdown\uFF09").setValue(this.opts.format).onChange((value) => {
         this.opts.format = value;
@@ -2400,14 +2395,14 @@ var ExportModal = class extends import_obsidian5.Modal {
       text.inputEl.addClass("nn-export-filename-input");
       text.setValue(makeExportFilename(this.sourceFile.name, this.opts.format));
     });
-    const previewWrap = contentEl.createEl("div", { cls: "nn-export-preview-wrap" });
+    const previewWrap = contentEl.createDiv({ cls: "nn-export-preview-wrap" });
     previewWrap.createEl("p", {
       text: "\u30D7\u30EC\u30D3\u30E5\u30FC\uFF08\u5909\u63DB\u5F8C\u306E\u672C\u6587\u30FB\u5148\u982D2000\u5B57\uFF09",
       cls: "nn-export-preview-label"
     });
     this.previewEl = previewWrap.createEl("pre", { cls: "nn-export-preview" });
     this.updatePreview();
-    const btnArea = contentEl.createEl("div", { cls: "nn-export-buttons" });
+    const btnArea = contentEl.createDiv({ cls: "nn-export-buttons" });
     const exportBtn = btnArea.createEl("button", { text: "Export \u3059\u308B", cls: "mod-cta" });
     exportBtn.addEventListener("click", () => {
       void this.doExport();
@@ -2635,7 +2630,8 @@ function toVerticalHtml(source, rubyStyle, selectedText = "") {
   }
   let codeLineCount = 0;
   const toFullWidthDigits = (n) => String(n).replace(/[0-9]/g, (d) => String.fromCharCode(d.charCodeAt(0) + 65248));
-  const protectCodeBlock = (whole) => whole.split("\n").map(() => `\0${toFullWidthDigits(codeLineCount++)}\0`).join("\n");
+  const CODE_PLACEHOLDER_MARK = "\uE000";
+  const protectCodeBlock = (whole) => whole.split("\n").map(() => `${CODE_PLACEHOLDER_MARK}${toFullWidthDigits(codeLineCount++)}${CODE_PLACEHOLDER_MARK}`).join("\n");
   cleaned = cleaned.replace(/^```[\s\S]*?^```[ \t]*$/gm, protectCodeBlock);
   cleaned = cleaned.replace(/^~~~[\s\S]*?^~~~[ \t]*$/gm, protectCodeBlock);
   const stripKeepingLines = (whole) => {
@@ -2694,7 +2690,7 @@ function toVerticalHtml(source, rubyStyle, selectedText = "") {
     cleaned = hlResult;
   }
   if (codeLineCount > 0) {
-    cleaned = cleaned.replace(/\x00[０-９]+\x00/g, "");
+    cleaned = cleaned.replace(/\uE000[０-９]+\uE000/g, "");
   }
   const sourceLines = source.split("\n");
   const cleanedLines = cleaned.split("\n");
@@ -2838,11 +2834,11 @@ var _VerticalPreviewView = class _VerticalPreviewView extends import_obsidian6.I
       root.addClass("nn-vertical-root-mobile");
     }
     if (!import_obsidian6.Platform.isMobile) {
-      const toolbar = root.createEl("div", { cls: "nn-vertical-toolbar" });
-      toolbar.createEl("span", { text: "\u7E26\u66F8\u304D\u30D7\u30EC\u30D3\u30E5\u30FC", cls: "nn-vertical-title" });
+      const toolbar = root.createDiv({ cls: "nn-vertical-toolbar" });
+      toolbar.createSpan({ text: "\u7E26\u66F8\u304D\u30D7\u30EC\u30D3\u30E5\u30FC", cls: "nn-vertical-title" });
     }
-    this.scrollerEl = root.createEl("div", { cls: "nn-vertical-scroller" });
-    this.bodyEl = this.scrollerEl.createEl("div", { cls: "nn-vertical-body" });
+    this.scrollerEl = root.createDiv({ cls: "nn-vertical-scroller" });
+    this.bodyEl = this.scrollerEl.createDiv({ cls: "nn-vertical-body" });
     await this.loadFromActiveEditor();
     this.registerEvent(
       this.app.workspace.on("active-leaf-change", () => {
@@ -2949,7 +2945,7 @@ var _VerticalPreviewView = class _VerticalPreviewView extends import_obsidian6.I
     this.lineSentPlainLengths = lineSentPlainLengths;
     let textEl = this.bodyEl.querySelector(".nn-vertical-text");
     if (!textEl) {
-      textEl = this.bodyEl.createEl("div", { cls: "nn-vertical-text" });
+      textEl = this.bodyEl.createDiv({ cls: "nn-vertical-text" });
     }
     patchVerticalBody(textEl, html);
   }
@@ -3259,10 +3255,10 @@ var _NovelReadingView = class _NovelReadingView extends import_obsidian7.ItemVie
     const container = this.containerEl.children[1];
     container.empty();
     container.addClass("nn-reading-container");
-    const toolbar = container.createEl("div", { cls: "nn-reading-toolbar" });
-    this.titleEl = toolbar.createEl("span", { cls: "nn-reading-toolbar-title" });
+    const toolbar = container.createDiv({ cls: "nn-reading-toolbar" });
+    this.titleEl = toolbar.createSpan({ cls: "nn-reading-toolbar-title" });
     this.titleEl.textContent = (_b = (_a = this._file) == null ? void 0 : _a.basename) != null ? _b : "\u5C0F\u8AAC\u95B2\u89A7";
-    const btnWrap = toolbar.createEl("div", { cls: "nn-reading-toolbar-buttons" });
+    const btnWrap = toolbar.createDiv({ cls: "nn-reading-toolbar-buttons" });
     const exportBtn = btnWrap.createEl("button", {
       cls: "nn-btn",
       title: "\u73FE\u5728\u306E\u30D5\u30A1\u30A4\u30EB\u3092\u539F\u7A3F Export \u3059\u308B"
@@ -3280,7 +3276,7 @@ var _NovelReadingView = class _NovelReadingView extends import_obsidian7.ItemVie
     editBtn.addEventListener("click", () => {
       void this.switchToEdit();
     });
-    this.rootEl = container.createEl("div", { cls: "nn-reading-root" });
+    this.rootEl = container.createDiv({ cls: "nn-reading-root" });
     await this.loadCurrentFile();
     let updateTimer = null;
     this.registerEvent(
@@ -3355,7 +3351,7 @@ var _NovelReadingView = class _NovelReadingView extends import_obsidian7.ItemVie
     this.rootEl.style.setProperty("font-size", `${fontSize}px`);
     const html = toReadingHtml(source, this.getRubyStyle());
     this.rootEl.empty();
-    const contentEl = this.rootEl.createEl("div", { cls: "nn-reading-content" });
+    const contentEl = this.rootEl.createDiv({ cls: "nn-reading-content" });
     const parsed = new DOMParser().parseFromString(html, "text/html");
     for (const node of Array.from(parsed.body.childNodes)) {
       contentEl.appendChild(contentEl.ownerDocument.adoptNode(node));
@@ -3441,8 +3437,8 @@ var WritingStatsView = class extends import_obsidian8.ItemView {
     const container = this.contentEl;
     container.empty();
     container.addClass("nn-stats-view");
-    const headerEl = container.createEl("div", { cls: "nn-stats-header" });
-    const scrollEl = container.createEl("div", { cls: "nn-stats-scroll" });
+    const headerEl = container.createDiv({ cls: "nn-stats-header" });
+    const scrollEl = container.createDiv({ cls: "nn-stats-scroll" });
     if (this.loading) {
       scrollEl.createEl("p", {
         text: "\u539F\u7A3F\u30CE\u30FC\u30C8\u3092\u96C6\u8A08\u3057\u3066\u3044\u307E\u3059\u2026",
@@ -3475,13 +3471,13 @@ var WritingStatsView = class extends import_obsidian8.ItemView {
       narrativeChars += e.narrativeChars;
       dialogueChars += e.dialogueChars;
     }
-    const summary = container.createEl("div", { cls: "nn-stats-summary" });
-    summary.createEl("div", { text: "\u5168\u539F\u7A3F\u306E\u5408\u8A08", cls: "nn-stats-summary-label" });
-    const grid = summary.createEl("div", { cls: "nn-stats-summary-grid" });
+    const summary = container.createDiv({ cls: "nn-stats-summary" });
+    summary.createDiv({ text: "\u5168\u539F\u7A3F\u306E\u5408\u8A08", cls: "nn-stats-summary-label" });
+    const grid = summary.createDiv({ cls: "nn-stats-summary-grid" });
     const addMetric = (label, value) => {
-      const metric = grid.createEl("div", { cls: "nn-stats-metric" });
-      metric.createEl("div", { text: label, cls: "nn-stats-metric-label" });
-      metric.createEl("div", { text: value, cls: "nn-stats-metric-value" });
+      const metric = grid.createDiv({ cls: "nn-stats-metric" });
+      metric.createDiv({ text: label, cls: "nn-stats-metric-label" });
+      metric.createDiv({ text: value, cls: "nn-stats-metric-value" });
     };
     addMetric("\u5BFE\u8C61\u30CE\u30FC\u30C8\u6570", `${totalNotes.toLocaleString()} \u4EF6`);
     addMetric("\u57F7\u7B46\u6587\u5B57\u6570", `${totalChars.toLocaleString()} \u5B57`);
@@ -3492,10 +3488,10 @@ var WritingStatsView = class extends import_obsidian8.ItemView {
   // 固定ヘッダー：並び替えツールバー＋再集計ボタン
   // ─────────────────────────────────────────
   renderToolbar(container) {
-    const toolbar = container.createEl("div", {
+    const toolbar = container.createDiv({
       cls: "nn-stats-toolbar" + (import_obsidian8.Platform.isMobile ? " nn-stats-toolbar-mobile" : "")
     });
-    toolbar.createEl("span", {
+    toolbar.createSpan({
       text: import_obsidian8.Platform.isMobile ? "\u4E26\u3073\u66FF\u3048" : "\u4E26\u3073\u66FF\u3048:",
       cls: "nn-stats-toolbar-label"
     });
@@ -3542,10 +3538,10 @@ var WritingStatsView = class extends import_obsidian8.ItemView {
       }
       return this.sortAsc ? cmp : -cmp;
     });
-    const list = container.createEl("div", { cls: "nn-stats-list" });
+    const list = container.createDiv({ cls: "nn-stats-list" });
     for (const entry of sorted) {
-      const card = list.createEl("div", { cls: "nn-stats-card" });
-      const row1 = card.createEl("div", { cls: "nn-stats-card-row1" });
+      const card = list.createDiv({ cls: "nn-stats-card" });
+      const row1 = card.createDiv({ cls: "nn-stats-card-row1" });
       const nameLink = row1.createEl("a", {
         text: entry.fileName,
         cls: "nn-stats-card-filename internal-link",
@@ -3555,18 +3551,18 @@ var WritingStatsView = class extends import_obsidian8.ItemView {
         e.preventDefault();
         this.openEntryFile(entry);
       });
-      row1.createEl("span", {
+      row1.createSpan({
         text: entry.folderPath ? `${entry.folderPath}/` : "(vault\u76F4\u4E0B)",
         cls: "nn-stats-card-folder"
       });
-      const row2 = card.createEl("div", { cls: "nn-stats-card-row2" });
-      row2.createEl("div", { text: `\u4F5C\u6210: ${formatDateTime(entry.createdAt)}` });
-      row2.createEl("div", { text: `\u66F4\u65B0: ${formatDateTime(entry.modifiedAt)}` });
-      const row3 = card.createEl("div", { cls: "nn-stats-card-row3" });
+      const row2 = card.createDiv({ cls: "nn-stats-card-row2" });
+      row2.createDiv({ text: `\u4F5C\u6210: ${formatDateTime(entry.createdAt)}` });
+      row2.createDiv({ text: `\u66F4\u65B0: ${formatDateTime(entry.modifiedAt)}` });
+      const row3 = card.createDiv({ cls: "nn-stats-card-row3" });
       const addStat = (label, text) => {
-        const stat = row3.createEl("div", { cls: "nn-stats-card-stat" });
-        stat.createEl("div", { text: label, cls: "nn-stats-card-stat-label" });
-        stat.createEl("div", { text, cls: "nn-stats-card-stat-value" });
+        const stat = row3.createDiv({ cls: "nn-stats-card-stat" });
+        stat.createDiv({ text: label, cls: "nn-stats-card-stat-label" });
+        stat.createDiv({ text, cls: "nn-stats-card-stat-value" });
       };
       addStat("\u57F7\u7B46\u6587\u5B57\u6570", `${entry.totalChars.toLocaleString()} \u5B57`);
       addStat(
@@ -3622,18 +3618,18 @@ var RubyInputModal = class extends import_obsidian9.Modal {
       this.modalEl.addClass("nn-modal-top-aligned");
     }
     contentEl.createEl("h3", { text: "\u30EB\u30D3\u3092\u632F\u308B", cls: "nn-modal-title" });
-    const infoEl = contentEl.createEl("div", { cls: "nn-modal-info" });
-    infoEl.createEl("span", { text: "\u89AA\u6587\u5B57\uFF1A", cls: "nn-modal-label" });
-    infoEl.createEl("span", { text: this.baseText, cls: "nn-modal-value nn-ruby-base-preview" });
-    const inputWrap = contentEl.createEl("div", { cls: "nn-modal-input-wrap" });
+    const infoEl = contentEl.createDiv({ cls: "nn-modal-info" });
+    infoEl.createSpan({ text: "\u89AA\u6587\u5B57\uFF1A", cls: "nn-modal-label" });
+    infoEl.createSpan({ text: this.baseText, cls: "nn-modal-value nn-ruby-base-preview" });
+    const inputWrap = contentEl.createDiv({ cls: "nn-modal-input-wrap" });
     inputWrap.createEl("label", { text: "\u30EB\u30D3\uFF08\u8AAD\u307F\u4EEE\u540D\uFF09", cls: "nn-modal-field-label" });
     const input = inputWrap.createEl("input", {
       type: "text",
       placeholder: "\u3075\u308A\u304C\u306A\u3092\u5165\u529B",
       cls: "nn-modal-input"
     });
-    const previewWrap = contentEl.createEl("div", { cls: "nn-ruby-preview-wrap" });
-    previewWrap.createEl("span", { text: "\u30D7\u30EC\u30D3\u30E5\u30FC\uFF1A", cls: "nn-modal-label" });
+    const previewWrap = contentEl.createDiv({ cls: "nn-ruby-preview-wrap" });
+    previewWrap.createSpan({ text: "\u30D7\u30EC\u30D3\u30E5\u30FC\uFF1A", cls: "nn-modal-label" });
     const preview = previewWrap.createEl("ruby", { cls: "nn-ruby-preview" });
     preview.appendChild(window.document.createTextNode(this.baseText));
     const rt = preview.createEl("rt");
@@ -3641,7 +3637,7 @@ var RubyInputModal = class extends import_obsidian9.Modal {
     input.addEventListener("input", () => {
       rt.textContent = input.value;
     });
-    const btnRow = contentEl.createEl("div", { cls: "nn-modal-btn-row" });
+    const btnRow = contentEl.createDiv({ cls: "nn-modal-btn-row" });
     const cancelBtn = btnRow.createEl("button", {
       text: "\u30AD\u30E3\u30F3\u30BB\u30EB",
       cls: "nn-modal-btn nn-modal-btn-cancel"
@@ -3755,16 +3751,16 @@ var TermPreviewModal = class extends import_obsidian10.Modal {
     this.renderComponent.load();
     contentEl.createEl("h3", { text: this.term.name, cls: "nn-modal-title" });
     if (this.term.aliases.length > 0) {
-      const aliasEl = contentEl.createEl("div", { cls: "nn-modal-info" });
-      aliasEl.createEl("span", { text: "\u5225\u540D\uFF1A", cls: "nn-modal-label" });
-      aliasEl.createEl("span", {
+      const aliasEl = contentEl.createDiv({ cls: "nn-modal-info" });
+      aliasEl.createSpan({ text: "\u5225\u540D\uFF1A", cls: "nn-modal-label" });
+      aliasEl.createSpan({
         text: this.term.aliases.join("\u3001"),
         cls: "nn-modal-value"
       });
     }
-    const previewEl = contentEl.createEl("div", { cls: "nn-term-preview-body" });
+    const previewEl = contentEl.createDiv({ cls: "nn-term-preview-body" });
     void this.renderNoteContent(previewEl);
-    const btnRow = contentEl.createEl("div", { cls: "nn-modal-btn-row" });
+    const btnRow = contentEl.createDiv({ cls: "nn-modal-btn-row" });
     const closeBtn = btnRow.createEl("button", {
       text: "\u9589\u3058\u308B",
       cls: "nn-modal-btn nn-modal-btn-cancel"
@@ -4236,7 +4232,6 @@ var NovelsNoteJP = class extends import_obsidian11.Plugin {
       this.terms.push({ name, aliases, tag: matchedTag, filePath: file.path });
     }
     this.terms.sort((a, b) => b.name.length - a.name.length);
-    console.log(`Novels Note JP: ${this.terms.length} \u4EF6\u306E\u7528\u8A9E\u3092\u8AAD\u307F\u8FBC\u307F\u307E\u3057\u305F\u3002`);
     return !areTermListsEqual(previousTerms, this.terms);
   }
   // ─────────────────────────────────────────

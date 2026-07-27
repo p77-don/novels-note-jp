@@ -479,8 +479,16 @@ export function toVerticalHtml(
   const toFullWidthDigits = (n: number): string =>
     String(n).replace(/[0-9]/g, d => String.fromCharCode(d.charCodeAt(0) + 0xFEE0));
 
+  // プレースホルダーの前後マーカーには制御文字（\x00）ではなく
+  // Unicode 私用領域（Private Use Area）の文字を使う。
+  // 通常のテキストには出現せず、かつ正規表現リテラル中の
+  // 制御文字警告（no-control-regex 等）も回避できる。
+  const CODE_PLACEHOLDER_MARK = "\uE000";
   const protectCodeBlock = (whole: string): string =>
-    whole.split("\n").map(() => `\x00${toFullWidthDigits(codeLineCount++)}\x00`).join("\n");
+    whole
+      .split("\n")
+      .map(() => `${CODE_PLACEHOLDER_MARK}${toFullWidthDigits(codeLineCount++)}${CODE_PLACEHOLDER_MARK}`)
+      .join("\n");
 
   cleaned = cleaned.replace(/^```[\s\S]*?^```[ \t]*$/gm, protectCodeBlock);
   cleaned = cleaned.replace(/^~~~[\s\S]*?^~~~[ \t]*$/gm, protectCodeBlock);
@@ -609,7 +617,7 @@ export function toVerticalHtml(
   // 対応（エディタとのカーソル同期・行番号の一致）だけは保たれる。
   // ─────────────────────────────────────────
   if (codeLineCount > 0) {
-    cleaned = cleaned.replace(/\x00[０-９]+\x00/g, "");
+    cleaned = cleaned.replace(/\uE000[０-９]+\uE000/g, "");
   }
 
   // Step 10: ソース行と cleaned 行を対応させながら
@@ -864,13 +872,13 @@ export class VerticalPreviewView extends ItemView {
     // 下部が画面外・ツールバーの裏に隠れる原因になる。
     // そのためモバイルではこのタイトル行自体を省略する。
     if (!Platform.isMobile) {
-      const toolbar = root.createEl("div", { cls: "nn-vertical-toolbar" });
-      toolbar.createEl("span", { text: "縦書きプレビュー", cls: "nn-vertical-title" });
+      const toolbar = root.createDiv({ cls: "nn-vertical-toolbar" });
+      toolbar.createSpan({ text: "縦書きプレビュー", cls: "nn-vertical-title" });
     }
 
     // 縦書きコンテナ
-    this.scrollerEl = root.createEl("div", { cls: "nn-vertical-scroller" });
-    this.bodyEl     = this.scrollerEl.createEl("div", { cls: "nn-vertical-body" });
+    this.scrollerEl = root.createDiv({ cls: "nn-vertical-scroller" });
+    this.bodyEl     = this.scrollerEl.createDiv({ cls: "nn-vertical-body" });
 
     await this.loadFromActiveEditor();
 
@@ -1040,7 +1048,7 @@ export class VerticalPreviewView extends ItemView {
 
     let textEl = this.bodyEl.querySelector<HTMLElement>(".nn-vertical-text");
     if (!textEl) {
-      textEl = this.bodyEl.createEl("div", { cls: "nn-vertical-text" });
+      textEl = this.bodyEl.createDiv({ cls: "nn-vertical-text" });
     }
     // 変わったチャンクだけを差し替える（詳細は patchVerticalBody() 参照）
     patchVerticalBody(textEl, html);

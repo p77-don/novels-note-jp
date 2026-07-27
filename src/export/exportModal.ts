@@ -57,7 +57,7 @@ export class ExportModal extends Modal {
     }
 
     // ── 設定エリア ────────────────────────────────
-    const settingsEl = contentEl.createEl("div", { cls: "nn-export-settings" });
+    const settingsEl = contentEl.createDiv({ cls: "nn-export-settings" });
 
     // 出力形式
     new Setting(settingsEl)
@@ -120,7 +120,7 @@ export class ExportModal extends Modal {
       });
 
     // ── プレビューエリア ──────────────────────────
-    const previewWrap = contentEl.createEl("div", { cls: "nn-export-preview-wrap" });
+    const previewWrap = contentEl.createDiv({ cls: "nn-export-preview-wrap" });
     previewWrap.createEl("p", {
       text: "プレビュー（変換後の本文・先頭2000字）",
       cls: "nn-export-preview-label",
@@ -129,7 +129,7 @@ export class ExportModal extends Modal {
     this.updatePreview();
 
     // ── ボタンエリア ──────────────────────────────
-    const btnArea = contentEl.createEl("div", { cls: "nn-export-buttons" });
+    const btnArea = contentEl.createDiv({ cls: "nn-export-buttons" });
 
     const exportBtn = btnArea.createEl("button", { text: "Export する", cls: "mod-cta" });
     exportBtn.addEventListener("click", () => { void this.doExport(); });

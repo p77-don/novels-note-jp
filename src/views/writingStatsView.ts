@@ -88,8 +88,8 @@ export class WritingStatsView extends ItemView {
     container.empty();
     container.addClass("nn-stats-view");
 
-    const headerEl = container.createEl("div", { cls: "nn-stats-header" });
-    const scrollEl = container.createEl("div", { cls: "nn-stats-scroll" });
+    const headerEl = container.createDiv({ cls: "nn-stats-header" });
+    const scrollEl = container.createDiv({ cls: "nn-stats-scroll" });
 
     if (this.loading) {
       scrollEl.createEl("p", {
@@ -128,15 +128,15 @@ export class WritingStatsView extends ItemView {
       dialogueChars += e.dialogueChars;
     }
 
-    const summary = container.createEl("div", { cls: "nn-stats-summary" });
-    summary.createEl("div", { text: "全原稿の合計", cls: "nn-stats-summary-label" });
+    const summary = container.createDiv({ cls: "nn-stats-summary" });
+    summary.createDiv({ text: "全原稿の合計", cls: "nn-stats-summary-label" });
 
-    const grid = summary.createEl("div", { cls: "nn-stats-summary-grid" });
+    const grid = summary.createDiv({ cls: "nn-stats-summary-grid" });
 
     const addMetric = (label: string, value: string): void => {
-      const metric = grid.createEl("div", { cls: "nn-stats-metric" });
-      metric.createEl("div", { text: label, cls: "nn-stats-metric-label" });
-      metric.createEl("div", { text: value, cls: "nn-stats-metric-value" });
+      const metric = grid.createDiv({ cls: "nn-stats-metric" });
+      metric.createDiv({ text: label, cls: "nn-stats-metric-label" });
+      metric.createDiv({ text: value, cls: "nn-stats-metric-value" });
     };
 
     addMetric("対象ノート数", `${totalNotes.toLocaleString()} 件`);
@@ -149,11 +149,11 @@ export class WritingStatsView extends ItemView {
   // 固定ヘッダー：並び替えツールバー＋再集計ボタン
   // ─────────────────────────────────────────
   private renderToolbar(container: HTMLElement): void {
-    const toolbar = container.createEl("div", {
+    const toolbar = container.createDiv({
       cls: "nn-stats-toolbar" + (Platform.isMobile ? " nn-stats-toolbar-mobile" : ""),
     });
     // モバイルは表示領域が限られるため、「並び替え：」のコロンを省略する
-    toolbar.createEl("span", {
+    toolbar.createSpan({
       text: Platform.isMobile ? "並び替え" : "並び替え:",
       cls: "nn-stats-toolbar-label",
     });
@@ -210,13 +210,13 @@ export class WritingStatsView extends ItemView {
       return this.sortAsc ? cmp : -cmp;
     });
 
-    const list = container.createEl("div", { cls: "nn-stats-list" });
+    const list = container.createDiv({ cls: "nn-stats-list" });
 
     for (const entry of sorted) {
-      const card = list.createEl("div", { cls: "nn-stats-card" });
+      const card = list.createDiv({ cls: "nn-stats-card" });
 
       // 1段目：ファイル名（クリックでノートを開く）＋フォルダパス
-      const row1 = card.createEl("div", { cls: "nn-stats-card-row1" });
+      const row1 = card.createDiv({ cls: "nn-stats-card-row1" });
       const nameLink = row1.createEl("a", {
         text: entry.fileName,
         cls: "nn-stats-card-filename internal-link",
@@ -226,23 +226,23 @@ export class WritingStatsView extends ItemView {
         e.preventDefault();
         this.openEntryFile(entry);
       });
-      row1.createEl("span", {
+      row1.createSpan({
         text: entry.folderPath ? `${entry.folderPath}/` : "(vault直下)",
         cls: "nn-stats-card-folder",
       });
 
       // 2段目：作成日時・最終更新日時
-      const row2 = card.createEl("div", { cls: "nn-stats-card-row2" });
-      row2.createEl("div", { text: `作成: ${formatDateTime(entry.createdAt)}` });
-      row2.createEl("div", { text: `更新: ${formatDateTime(entry.modifiedAt)}` });
+      const row2 = card.createDiv({ cls: "nn-stats-card-row2" });
+      row2.createDiv({ text: `作成: ${formatDateTime(entry.createdAt)}` });
+      row2.createDiv({ text: `更新: ${formatDateTime(entry.modifiedAt)}` });
 
       // 3段目：執筆文字数・地の文・会話文
-      const row3 = card.createEl("div", { cls: "nn-stats-card-row3" });
+      const row3 = card.createDiv({ cls: "nn-stats-card-row3" });
 
       const addStat = (label: string, text: string): void => {
-        const stat = row3.createEl("div", { cls: "nn-stats-card-stat" });
-        stat.createEl("div", { text: label, cls: "nn-stats-card-stat-label" });
-        stat.createEl("div", { text, cls: "nn-stats-card-stat-value" });
+        const stat = row3.createDiv({ cls: "nn-stats-card-stat" });
+        stat.createDiv({ text: label, cls: "nn-stats-card-stat-label" });
+        stat.createDiv({ text, cls: "nn-stats-card-stat-value" });
       };
 
       addStat("執筆文字数", `${entry.totalChars.toLocaleString()} 字`);

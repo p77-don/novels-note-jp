@@ -49,12 +49,12 @@ class CreateTermModal extends Modal {
     contentEl.createEl("h3", { text: "用語ノートを新規作成", cls: "nn-modal-title" });
 
     // カテゴリ表示（読み取り専用）
-    const infoEl = contentEl.createEl("div", { cls: "nn-modal-info" });
-    infoEl.createEl("span", { text: "カテゴリ：", cls: "nn-modal-label" });
-    infoEl.createEl("span", { text: this.tagLabel, cls: "nn-modal-value" });
+    const infoEl = contentEl.createDiv({ cls: "nn-modal-info" });
+    infoEl.createSpan({ text: "カテゴリ：", cls: "nn-modal-label" });
+    infoEl.createSpan({ text: this.tagLabel, cls: "nn-modal-value" });
 
     // フォルダパス入力（任意）
-    const folderWrap = contentEl.createEl("div", { cls: "nn-modal-input-wrap" });
+    const folderWrap = contentEl.createDiv({ cls: "nn-modal-input-wrap" });
     folderWrap.createEl("label", { text: "フォルダ（任意）", cls: "nn-modal-field-label" });
     const folderInput = folderWrap.createEl("input", {
       type: "text",
@@ -64,7 +64,7 @@ class CreateTermModal extends Modal {
     folderInput.value = this.folderPath;
 
     // 用語名入力
-    const inputWrap = contentEl.createEl("div", { cls: "nn-modal-input-wrap" });
+    const inputWrap = contentEl.createDiv({ cls: "nn-modal-input-wrap" });
     inputWrap.createEl("label", { text: "用語名", cls: "nn-modal-field-label" });
     const input = inputWrap.createEl("input", {
       type: "text",
@@ -72,7 +72,7 @@ class CreateTermModal extends Modal {
       cls: "nn-modal-input",
     });
 
-    const btnRow = contentEl.createEl("div", { cls: "nn-modal-btn-row" });
+    const btnRow = contentEl.createDiv({ cls: "nn-modal-btn-row" });
     const cancelBtn = btnRow.createEl("button", { text: "キャンセル", cls: "nn-modal-btn nn-modal-btn-cancel" });
     const createBtn = btnRow.createEl("button", { text: "作成", cls: "nn-modal-btn nn-modal-btn-create" });
 
@@ -149,7 +149,7 @@ class ConfirmFolderCreateModal extends Modal {
       cls: "nn-modal-path"
     });
 
-    const btnRow = contentEl.createEl("div", { cls: "nn-modal-btn-row" });
+    const btnRow = contentEl.createDiv({ cls: "nn-modal-btn-row" });
     const cancelBtn = btnRow.createEl("button", { text: "キャンセル", cls: "nn-modal-btn nn-modal-btn-cancel" });
     const confirmBtn = btnRow.createEl("button", { text: "作成する", cls: "nn-modal-btn nn-modal-btn-create" });
 
@@ -197,7 +197,7 @@ class ConfirmDeleteModal extends Modal {
       cls: "nn-modal-path"
     });
 
-    const btnRow = contentEl.createEl("div", { cls: "nn-modal-btn-row" });
+    const btnRow = contentEl.createDiv({ cls: "nn-modal-btn-row" });
     const cancelBtn = btnRow.createEl("button", { text: "キャンセル", cls: "nn-modal-btn nn-modal-btn-cancel" });
     const deleteBtn = btnRow.createEl("button", { text: "削除", cls: "nn-modal-btn nn-modal-btn-delete" });
 
@@ -371,11 +371,11 @@ export class NovelsNoteSidebarView extends ItemView {
     root.addClass("novels-note-sidebar");
 
     // ── ヘッダー ──
-    const header = root.createEl("div", { cls: "nn-header" });
-    header.createEl("span", { text: "用語インデックス", cls: "nn-header-title" });
+    const header = root.createDiv({ cls: "nn-header" });
+    header.createSpan({ text: "用語インデックス", cls: "nn-header-title" });
 
     // 全展開 / 全折りたたみボタン
-    const btnBar = header.createEl("div", { cls: "nn-header-buttons" });
+    const btnBar = header.createDiv({ cls: "nn-header-buttons" });
     const btnExpand = btnBar.createEl("button", { cls: "nn-btn", title: "すべて展開" });
     setIcon(btnExpand, "chevron-down");
     const btnCollapse = btnBar.createEl("button", { cls: "nn-btn", title: "すべて折りたたむ" });
@@ -397,7 +397,7 @@ export class NovelsNoteSidebarView extends ItemView {
     });
 
     // ── 検索ボックス ──
-    const searchWrap = root.createEl("div", { cls: "nn-search-wrap" });
+    const searchWrap = root.createDiv({ cls: "nn-search-wrap" });
     const searchInput = searchWrap.createEl("input", {
       type: "text",
       placeholder: "検索…",
@@ -427,7 +427,7 @@ export class NovelsNoteSidebarView extends ItemView {
     });
 
     // ── ボディ ──
-    const body = root.createEl("div", { cls: "nn-body" });
+    const body = root.createDiv({ cls: "nn-body" });
     this.renderBody(body);
   }
 
@@ -467,26 +467,26 @@ export class NovelsNoteSidebarView extends ItemView {
       }
       const isTagOpen = this.openState.get(sectionKey) ?? false;
 
-      const section = body.createEl("div", { cls: "nn-section" });
-      const sectionHeader = section.createEl("div", { cls: "nn-section-header" });
+      const section = body.createDiv({ cls: "nn-section" });
+      const sectionHeader = section.createDiv({ cls: "nn-section-header" });
 
-      const arrow = sectionHeader.createEl("span", {
+      const arrow = sectionHeader.createSpan({
         cls: `nn-arrow ${isTagOpen ? "nn-arrow-open" : ""}`,
         text: "▶",
       });
-      sectionHeader.createEl("span", {
+      sectionHeader.createSpan({
         text: td.label,
         cls: `nn-section-label novel-hl-${td.tag}`,
       });
       // 用語が 1 件以上あるときだけカウントバッジを表示
       if (visible > 0) {
-        sectionHeader.createEl("span", {
+        sectionHeader.createSpan({
           text: String(visible),
           cls: "nn-count",
         });
       }
 
-      const sectionBody = section.createEl("div", {
+      const sectionBody = section.createDiv({
         cls: "nn-section-body",
       });
       sectionBody.toggleClass("nn-hidden", !isTagOpen);
@@ -563,33 +563,33 @@ export class NovelsNoteSidebarView extends ItemView {
       this.openState.set(stateKey, false);
     }
 
-    const wrap = container.createEl("div", { cls: "nn-folder-wrap" });
+    const wrap = container.createDiv({ cls: "nn-folder-wrap" });
 
     // フォルダ行
-    const folderRow = wrap.createEl("div", {
+    const folderRow = wrap.createDiv({
       cls: "nn-folder-row",
       attr: { "data-folder-path": node.fullPath, "data-tag": td.tag }
     });
 
-    const arrow = folderRow.createEl("span", {
+    const arrow = folderRow.createSpan({
       cls: `nn-arrow ${isOpen ? "nn-arrow-open" : ""}`,
       text: "▶",
     });
-    folderRow.createEl("span", {
+    folderRow.createSpan({
       cls: "nn-folder-icon",
       text: isOpen ? "📂" : "📁",
     });
-    folderRow.createEl("span", {
+    folderRow.createSpan({
       text: node.name,
       cls: "nn-folder-name",
     });
-    folderRow.createEl("span", {
+    folderRow.createSpan({
       text: String(countTerms(node)),
       cls: "nn-count",
     });
 
     // 中身
-    const children = wrap.createEl("div", { cls: "nn-folder-children" });
+    const children = wrap.createDiv({ cls: "nn-folder-children" });
     children.toggleClass("nn-hidden", !isOpen);
 
     // クリック（開閉）
@@ -639,18 +639,18 @@ export class NovelsNoteSidebarView extends ItemView {
     term: TermEntry,
     tag: string
   ): void {
-    const row = container.createEl("div", {
+    const row = container.createDiv({
       cls: "nn-term-row",
       attr: { draggable: "true" }
     });
 
-    const nameEl = row.createEl("span", {
+    const nameEl = row.createSpan({
       text: term.name,
       cls: `nn-term-name novel-hl-${tag}`,
       title: term.filePath,
     });
     if (term.aliases.length > 0) {
-      row.createEl("span", {
+      row.createSpan({
         text: `（${term.aliases.join("・")}）`,
         cls: "nn-aliases",
       });

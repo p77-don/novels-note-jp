@@ -15,12 +15,12 @@ import NovelsNoteJP from "../main";
 // 確実に改行できる。
 // ─────────────────────────────────────────
 function descLines(...lines: string[]): DocumentFragment {
-  const frag = activeDocument.createDocumentFragment();
-  lines.forEach((line, i) => {
-    if (i > 0) frag.appendChild(activeDocument.createElement("br"));
-    frag.appendChild(activeDocument.createTextNode(line));
+  return createFragment((frag) => {
+    lines.forEach((line, i) => {
+      if (i > 0) frag.createEl("br");
+      frag.appendText(line);
+    });
   });
-  return frag;
 }
 
 export class NovelsNoteSettingTab extends PluginSettingTab {
@@ -357,14 +357,14 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
     }
 
     for (let i = 0; i < folders.length; i++) {
-      const row = containerEl.createEl("div", {
+      const row = containerEl.createDiv({
         cls: "setting-item nn-exclude-folder-row",
       });
       row.addClass("nn-exclude-folder-item-row");
 
       // フォルダアイコン＋パス
-      const label = row.createEl("span", { cls: "setting-item-name nn-folder-label" });
-      label.createEl("span", { cls: "nn-folder-icon", text: "📁" });
+      const label = row.createSpan({ cls: "setting-item-name nn-folder-label" });
+      label.createSpan({ cls: "nn-folder-icon", text: "📁" });
       label.createEl("code", { text: folders[i] });
 
       // 削除ボタン
@@ -466,14 +466,14 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
     }
 
     for (let i = 0; i < folders.length; i++) {
-      const row = containerEl.createEl("div", {
+      const row = containerEl.createDiv({
         cls: "setting-item nn-stats-exclude-folder-row",
       });
       row.addClass("nn-exclude-folder-item-row");
 
       // フォルダアイコン＋パス
-      const label = row.createEl("span", { cls: "setting-item-name nn-folder-label" });
-      label.createEl("span", { cls: "nn-folder-icon", text: "📁" });
+      const label = row.createSpan({ cls: "setting-item-name nn-folder-label" });
+      label.createSpan({ cls: "nn-folder-icon", text: "📁" });
       label.createEl("code", { text: folders[i] });
 
       // 削除ボタン
@@ -581,12 +581,12 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
       const td = defs[i];
 
       // ── 行コンテナ（draggable） ─────────────────────
-      const rowEl = containerEl.createEl("div", { cls: "novels-note-tag-row nn-drag-row" });
+      const rowEl = containerEl.createDiv({ cls: "novels-note-tag-row nn-drag-row" });
       rowEl.setAttribute("draggable", "true");
       rowEl.dataset.idx = String(i);
 
       // ── ドラッグハンドル ────────────────────────────
-      const handle = rowEl.createEl("span", { cls: "nn-drag-handle", title: "ドラッグして並べ替え" });
+      const handle = rowEl.createSpan({ cls: "nn-drag-handle", title: "ドラッグして並べ替え" });
       const svg = handle.createSvg("svg", { attr: { viewBox: "0 0 16 16", width: "16", height: "16" } });
       for (const [cx, cy] of [[5,4],[11,4],[5,8],[11,8],[5,12],[11,12]]) {
         svg.createSvg("circle", { attr: { cx, cy, r: "1.2", fill: "currentColor" } });
@@ -618,7 +618,7 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
       // 「カラー・トグル・上下移動・削除」を2行目にまとめて
       // 折り返したいので、ここに強制改行用のスペーサーを挟む。
       // 通常幅では flex-basis: 0 で何も影響しない（styles.css参照）。
-      setting.controlEl.createEl("div", { cls: "nn-row-break" });
+      setting.controlEl.createDiv({ cls: "nn-row-break" });
 
       setting.addColorPicker(picker =>
         picker.setValue(td.color)
@@ -777,7 +777,7 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
       // カテゴリ定義行と同様、狭い画面では「表示名・開始カッコ・
       // 終了カッコ」を1行目、「カラー・トグル・削除」を2行目に
       // まとめて折り返したいので、強制改行用のスペーサーを挟む。
-      setting.controlEl.createEl("div", { cls: "nn-row-break" });
+      setting.controlEl.createDiv({ cls: "nn-row-break" });
 
       setting.addColorPicker(picker =>
         picker.setValue(bd.color)

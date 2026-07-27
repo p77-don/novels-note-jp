@@ -283,7 +283,7 @@ export function buildTermExtension(
             // ホバー対象要素（およびその子孫、= Popover 自身への
             // 移動ではない）から完全に離れた場合だけ記録をクリアする。
             // Popover の表示・非表示自体は Page Preview 側が管理する。
-            const related = (event as MouseEvent).relatedTarget as Node | null;
+            const related = event.relatedTarget as Node | null;
             if (this.hoverTarget && (!related || !this.hoverTarget.contains(related))) {
               this.hoverTarget = null;
             }
@@ -421,13 +421,8 @@ class EolWidget extends WidgetType {
   }
 
   toDOM(): HTMLElement {
-    const wrap = window.document.createElement("span");
-    wrap.className = "novel-eol";
-    wrap.setAttribute("aria-hidden", "true");
-    const mark = window.document.createElement("span");
-    mark.className = "novel-eol-mark";
-    mark.textContent = "↵";
-    wrap.appendChild(mark);
+    const wrap = createSpan({ cls: "novel-eol", attr: { "aria-hidden": "true" } });
+    wrap.createSpan({ cls: "novel-eol-mark", text: "↵" });
     return wrap;
   }
 

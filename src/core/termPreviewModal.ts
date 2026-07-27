@@ -36,19 +36,19 @@ export class TermPreviewModal extends Modal {
     contentEl.createEl("h3", { text: this.term.name, cls: "nn-modal-title" });
 
     if (this.term.aliases.length > 0) {
-      const aliasEl = contentEl.createEl("div", { cls: "nn-modal-info" });
-      aliasEl.createEl("span", { text: "別名：", cls: "nn-modal-label" });
-      aliasEl.createEl("span", {
+      const aliasEl = contentEl.createDiv({ cls: "nn-modal-info" });
+      aliasEl.createSpan({ text: "別名：", cls: "nn-modal-label" });
+      aliasEl.createSpan({
         text: this.term.aliases.join("、"),
         cls: "nn-modal-value",
       });
     }
 
     // ノート本文プレビュー（Page Preview と同様に Markdown を描画）
-    const previewEl = contentEl.createEl("div", { cls: "nn-term-preview-body" });
+    const previewEl = contentEl.createDiv({ cls: "nn-term-preview-body" });
     void this.renderNoteContent(previewEl);
 
-    const btnRow = contentEl.createEl("div", { cls: "nn-modal-btn-row" });
+    const btnRow = contentEl.createDiv({ cls: "nn-modal-btn-row" });
     const closeBtn = btnRow.createEl("button", {
       text: "閉じる",
       cls: "nn-modal-btn nn-modal-btn-cancel",
