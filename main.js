@@ -4113,6 +4113,7 @@ var NovelsNoteJP = class extends import_obsidian11.Plugin {
   // Obsidian レビューの "Creating style elements is not allowed" に抵触しない。
   // ─────────────────────────────────────────
   applyEditorStyles() {
+    var _a;
     const s = this.settings;
     const wrapWidth = `${s.wrapColumn}em`;
     const bracketColorCss = s.bracketDefinitions.map((bd) => `.cm-editor[data-novel-mode="true"] .novel-bracket-${bd.id} { color: ${bd.color}; }`).join("\n");
@@ -4187,11 +4188,16 @@ var NovelsNoteJP = class extends import_obsidian11.Plugin {
       ${termHoverCursorCss}
       ${cursorHighlightCss}
     `;
-    if (!this.adoptedSheet) {
-      this.adoptedSheet = new CSSStyleSheet();
-      activeDocument.adoptedStyleSheets = [...activeDocument.adoptedStyleSheets, this.adoptedSheet];
+    try {
+      if (!this.adoptedSheet) {
+        const win = (_a = activeDocument.defaultView) != null ? _a : window;
+        this.adoptedSheet = new win.CSSStyleSheet();
+        activeDocument.adoptedStyleSheets = [...activeDocument.adoptedStyleSheets, this.adoptedSheet];
+      }
+      this.adoptedSheet.replaceSync(css);
+    } catch (e) {
+      console.error("[Novels Note JP] \u30A8\u30C7\u30A3\u30BF\u7528CSS\u306E\u9069\u7528\u3067\u30A8\u30E9\u30FC\u304C\u767A\u751F\u3057\u307E\u3057\u305F\u3002", e);
     }
-    this.adoptedSheet.replaceSync(css);
   }
   // ─────────────────────────────────────────
   // 用語インデックス構築

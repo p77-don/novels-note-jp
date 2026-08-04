@@ -581,11 +581,32 @@ export default class NovelsNoteJP extends Plugin {
     `;
 
     // CSSStyleSheet API で注入（style 要素不使用）
-    if (!this.adoptedSheet) {
-      this.adoptedSheet = new CSSStyleSheet();
-      activeDocument.adoptedStyleSheets = [...activeDocument.adoptedStyleSheets, this.adoptedSheet];
+    //
+    // 【重要】new CSSStyleSheet() は、そのコンストラクタ呼び出しが
+    // 実行された「レルム」に紐づいたスタイルシートを作成する。
+    // もしこのレルムが activeDocument のレルムと一致しない場合、
+    // 「Sharing constructed stylesheets in multiple documents is
+    //  not allowed」という例外が発生し、onload() 全体が失敗する
+    // （Obsidianの内部実装の変化により、プラグイン読み込み時点の
+    //  activeDocument のレルムが、素の CSSStyleSheet コンストラクタの
+    //  レルムと一致しなくなるケースが確認された）。
+    // activeDocument.defaultView.CSSStyleSheet（そのウィンドウ自身の
+    // コンストラクタ）を明示的に使うことで、常に activeDocument と
+    // 同じレルムでスタイルシートを構築し、この問題を回避する。
+    //
+    // 万が一それでも失敗した場合に onload() 全体を巻き込んで
+    // プラグインが起動不能になることを防ぐため、try/catch で保護する
+    // （この場合エディタの動的CSS適用だけがスキップされる）。
+    try {
+      if (!this.adoptedSheet) {
+        const win = activeDocument.defaultView ?? window;
+        this.adoptedSheet = new win.CSSStyleSheet();
+        activeDocument.adoptedStyleSheets = [...activeDocument.adoptedStyleSheets, this.adoptedSheet];
+      }
+      this.adoptedSheet.replaceSync(css);
+    } catch (e) {
+      console.error("[Novels Note JP] エディタ用CSSの適用でエラーが発生しました。", e);
     }
-    this.adoptedSheet.replaceSync(css);
   }
 
 
