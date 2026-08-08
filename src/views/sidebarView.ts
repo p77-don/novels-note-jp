@@ -6,16 +6,7 @@
 import { ItemView, WorkspaceLeaf, TFile, Plugin, Notice, Modal, Menu, App, setIcon, Platform, Editor } from "obsidian";
 import { SIDEBAR_VIEW_TYPE, TermEntry, TERM_DRAG_MIME_TYPE } from "../types";
 import { TagDefinition } from "../settings";
-
-// ─────────────────────────────────────────
-// ツリーノード型
-// ─────────────────────────────────────────
-interface FolderNode {
-  name: string;        // フォルダ表示名（最後のセグメント）
-  fullPath: string;    // "characters/heroes" など
-  children: FolderNode[];
-  terms: TermEntry[];
-}
+import { FolderNode, buildFolderTree, sortTree, filterTree, countTerms } from "../core/termTree";
 
 // ─────────────────────────────────────────
 // 用語ノート新規作成ダイアログ
@@ -46,12 +37,35 @@ class CreateTermModal extends Modal {
     contentEl.empty();
     contentEl.addClass("nn-create-term-modal");
 
-    contentEl.createEl("h3", { text: "用語ノートを新規作成", cls: "nn-modal-title" });
+    // ソフトウェアキーボードはOSネイティブのUIであり、WebView内の
+    // どんなCSS z-indexよりも常に最前面に表示される。モーダルが
+    // 画面中央（＝キーボードの占める領域と重なる位置）に表示されると、
+    // キーボードに隠れて操作できなくなるため、モバイルでは画面上部
+    // （キーボードが占めない領域）を起点に表示する。
+    if (Platform.isMobile) {
+      this.containerEl.addClass("nn-mobile-top-modal-container");
+      this.modalEl.addClass("nn-mobile-top-modal");
+    }
+
+    const titleEl = contentEl.createEl("h3", { text: "用語ノートを新規作成", cls: "nn-modal-title" });
 
     // カテゴリ表示（読み取り専用）
     const infoEl = contentEl.createDiv({ cls: "nn-modal-info" });
     infoEl.createSpan({ text: "カテゴリ：", cls: "nn-modal-label" });
     infoEl.createSpan({ text: this.tagLabel, cls: "nn-modal-value" });
+
+    // タイトル・カテゴリ表示部分をタップすると、入力欄からフォーカスを
+    // 外してソフトウェアキーボードを閉じられるようにする
+    // （Obsidian側の「モーダル外タップで閉じる」挙動が当てにならない
+    //  場合があるため、明示的な手段を用意する）。
+    const dismissKeyboard = () => {
+      const active = contentEl.ownerDocument.activeElement;
+      if (active instanceof HTMLElement && contentEl.contains(active)) {
+        active.blur();
+      }
+    };
+    titleEl.addEventListener("mousedown", dismissKeyboard);
+    infoEl.addEventListener("mousedown", dismissKeyboard);
 
     // フォルダパス入力（任意）
     const folderWrap = contentEl.createDiv({ cls: "nn-modal-input-wrap" });
@@ -208,97 +222,6 @@ class ConfirmDeleteModal extends Modal {
   onClose(): void {
     this.contentEl.empty();
   }
-}
-
-// ─────────────────────────────────────────
-// ツリー構築ヘルパー
-// ─────────────────────────────────────────
-
-/** filePath からフォルダパスを返す（ファイル名を除く）
- *  例: "characters/hero/alice.md" → "characters/hero"
- *      "alice.md"                 → ""（ルート）
- */
-function folderOf(filePath: string): string {
-  const idx = filePath.lastIndexOf("/");
-  return idx === -1 ? "" : filePath.substring(0, idx);
-}
-
-/**
- * TermEntry[] をフォルダ階層ツリーに変換する。
- */
-function buildFolderTree(terms: TermEntry[]): FolderNode {
-  const root: FolderNode = { name: "", fullPath: "", children: [], terms: [] };
-
-  for (const term of terms) {
-    const folder = folderOf(term.filePath);
-    const segments = folder === "" ? [] : folder.split("/");
-    insertTerm(root, segments, term);
-  }
-
-  return root;
-}
-
-function insertTerm(
-  node: FolderNode,
-  segments: string[],
-  term: TermEntry
-): void {
-  if (segments.length === 0) {
-    node.terms.push(term);
-    return;
-  }
-  const [head, ...rest] = segments;
-  let child = node.children.find(c => c.name === head);
-  if (!child) {
-    child = {
-      name: head,
-      fullPath: node.fullPath === "" ? head : `${node.fullPath}/${head}`,
-      children: [],
-      terms: [],
-    };
-    node.children.push(child);
-  }
-  insertTerm(child, rest, term);
-}
-
-/** ツリーをソート（フォルダ名・用語名ともに昇順） */
-function sortTree(node: FolderNode): void {
-  node.children.sort((a, b) => a.name.localeCompare(b.name, "ja"));
-  node.terms.sort((a, b) => a.name.localeCompare(b.name, "ja"));
-  for (const child of node.children) sortTree(child);
-}
-
-/**
- * 検索文字列に一致する用語を含むかチェックし、
- * 一致用語だけを残したノードのコピーを返す（なければ null）
- * フォルダ名にマッチした場合はそのフォルダ以下を全て表示する
- */
-function filterTree(node: FolderNode, query: string): FolderNode | null {
-  // フォルダ名自体がクエリに一致する場合はノード全体を返す
-  if (node.name && node.name.includes(query)) {
-    return { ...node };
-  }
-
-  const filteredTerms = node.terms.filter(
-    t =>
-      t.name.includes(query) ||
-      t.aliases.some(a => a.includes(query))
-  );
-  const filteredChildren: FolderNode[] = [];
-  for (const child of node.children) {
-    const result = filterTree(child, query);
-    if (result) filteredChildren.push(result);
-  }
-  if (filteredTerms.length === 0 && filteredChildren.length === 0) return null;
-  return { ...node, terms: filteredTerms, children: filteredChildren };
-}
-
-/** ノード配下の総用語数 */
-function countTerms(node: FolderNode): number {
-  return (
-    node.terms.length +
-    node.children.reduce((s, c) => s + countTerms(c), 0)
-  );
 }
 
 // ─────────────────────────────────────────

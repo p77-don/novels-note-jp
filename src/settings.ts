@@ -43,6 +43,14 @@ export type FullWidthSpaceStyle =
   | "none";     // 表示しない（機能オフ）
 
 // ─────────────────────────────────────────
+// 用語入力パレットの起動範囲
+// ─────────────────────────────────────────
+export type GlossaryPaletteScope =
+  | "novelOnly"        // 原稿ノート（mode: novel）のみ
+  | "novelAndGlossary" // 原稿ノート ＋ 用語ノート（デフォルト）
+  | "all";              // すべてのノート
+
+// ─────────────────────────────────────────
 // プラグイン全体設定
 // ─────────────────────────────────────────
 export interface NovelsNoteSettings {
@@ -83,6 +91,11 @@ export interface NovelsNoteSettings {
 
   // 執筆情報一覧 除外フォルダ
   statsExcludeFolders: string[]; // 執筆情報一覧（原稿ノートの検索）から除外するフォルダパス
+
+  // 用語入力パレット
+  glossaryPaletteEnabled: boolean;         // 機能全体のオン/オフ
+  glossaryPaletteScope: GlossaryPaletteScope; // 起動範囲
+  glossaryPaletteTrigger: string;          // 起動トリガー文字（デフォルト "/"）
 }
 
 // ─────────────────────────────────────────
@@ -143,4 +156,17 @@ export const DEFAULT_SETTINGS: NovelsNoteSettings = {
 
   // 執筆情報一覧 除外フォルダ
   statsExcludeFolders: [],
+
+  // 用語入力パレット
+  glossaryPaletteEnabled: false,
+  glossaryPaletteScope: "novelAndGlossary",
+  glossaryPaletteTrigger: "/",
 };
+
+// ─────────────────────────────────────────
+// 用語入力パレット：トリガー文字として選択不可の記号
+// Markdown・Obsidianで一般的に使用される記号との衝突を避ける
+// ─────────────────────────────────────────
+export const GLOSSARY_PALETTE_FORBIDDEN_TRIGGERS = [
+  "#", "*", ">", "[", "]", "(", ")", "`",
+];

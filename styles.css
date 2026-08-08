@@ -1325,3 +1325,213 @@
   color: var(--text-muted);
   margin-bottom: 2px;
 }
+
+/* ─────────────────────────────────────────
+   用語入力パレット
+   ───────────────────────────────────────── */
+.nn-glossary-palette-anchor {
+  position: fixed;
+  z-index: var(--layer-menu, 999);
+  width: 280px;
+  max-width: 90vw;
+}
+
+.nn-glossary-palette,
+.nn-glossary-palette-content {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font-size: 0.9em;
+}
+
+.nn-glossary-palette {
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  box-shadow: var(--shadow-l);
+}
+
+/* chromeless版：Obsidian標準Modal内で使う場合、Modal自身が
+   背景・枠線・影を持つため、二重に描画しない */
+.nn-glossary-palette-content {
+  background: transparent;
+}
+
+.nn-glossary-search-wrap {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.nn-glossary-search-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.nn-glossary-search-clear-btn {
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 2px 6px;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 0.8em;
+}
+
+.nn-glossary-search-clear-btn:hover {
+  color: var(--text-normal);
+}
+
+/* モバイル：ソフトウェアキーボードはOSネイティブのUIであり、WebView内の
+   どんなCSS z-indexよりも常に最前面に表示される。モーダルの表示位置が
+   キーボードの占める領域（画面下部）と重なっていると、CSSでどう
+   頑張ってもキーボードに隠れてしまうため、唯一の解決策として
+   画面上部（キーボードが占めない領域）を起点に表示する。
+   用語入力パレット・用語ノート新規作成ダイアログなど、モバイルで
+   使う複数のModalから共通で使う。 */
+.nn-mobile-top-modal-container {
+  align-items: flex-start !important;
+}
+
+.nn-mobile-top-modal {
+  margin-top: max(12px, env(safe-area-inset-top, 12px));
+}
+
+/* 用語入力パレット固有のModal調整
+   （Obsidian標準Modalのデフォルト余白が広すぎて無駄が多いため詰める） */
+.nn-glossary-modal {
+  width: min(94vw, 420px) !important;
+  max-width: 94vw !important;
+}
+
+.nn-glossary-modal .modal-content {
+  padding: 0 !important;
+}
+
+.nn-glossary-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+}
+
+.nn-glossary-back-btn,
+.nn-glossary-close-btn {
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 2px 6px;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 0.85em;
+}
+
+.nn-glossary-back-btn:hover:not(.is-disabled),
+.nn-glossary-close-btn:hover {
+  color: var(--text-normal);
+}
+
+.nn-glossary-back-btn.is-disabled {
+  visibility: hidden;
+}
+
+.nn-glossary-breadcrumb {
+  flex: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text-muted);
+  font-size: 0.85em;
+}
+
+.nn-glossary-crumb.is-clickable {
+  cursor: pointer;
+  text-decoration: underline dotted;
+}
+
+.nn-glossary-crumb.is-clickable:hover {
+  color: var(--text-normal);
+}
+
+.nn-glossary-crumb-sep {
+  opacity: 0.5;
+}
+
+.nn-glossary-list {
+  flex: 1 1 auto;
+  min-height: 60px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+.nn-glossary-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  cursor: pointer;
+  color: var(--text-normal);
+}
+
+.nn-glossary-row:hover {
+  background: var(--background-modifier-hover);
+}
+
+.nn-glossary-row.is-selected {
+  background: var(--background-modifier-active-hover);
+}
+
+.nn-glossary-row.is-disabled {
+  color: var(--text-faint);
+  cursor: default;
+}
+
+.nn-glossary-row-icon {
+  flex-shrink: 0;
+}
+
+.nn-glossary-row-label {
+  flex: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.nn-glossary-row-arrow {
+  flex-shrink: 0;
+  color: var(--text-faint);
+}
+
+.nn-glossary-footer {
+  padding: 6px 8px;
+  border-top: 1px solid var(--background-modifier-border);
+  display: flex;
+  justify-content: flex-end;
+}
+
+.nn-glossary-insert-btn {
+  font-size: 0.85em;
+  padding: 2px 12px;
+}
+
+.nn-glossary-insert-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* ─────────────────────────────────────────
+   汎用の確認ダイアログ（ConfirmDialog）
+   ───────────────────────────────────────── */
+.nn-confirm-dialog-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}

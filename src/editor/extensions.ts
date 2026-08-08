@@ -52,13 +52,24 @@ export function buildBracketExtension(getSettings: () => NovelsNoteSettings) {
           // 解消されなかったため、根本原因である非同期化を撤回し、
           // 0.6.4 時点の「同じ update() サイクル内で同期的に
           // 再構築する」方式に戻す。
-          if (
-            update.docChanged ||
-            update.viewportChanged ||
-            update.selectionSet ||
-            update.transactions.some(tr => tr.effects.some(e => e.is(settingsEffect)))
-          ) {
-            this.decorations = this.build(update.view);
+          //
+          // try/catch で保護する理由：CM6は ViewPlugin.update() 内で
+          // 例外が発生すると、そのプラグインインスタンスを永久に
+          // 無効化する仕様がある（Obsidian 1.13系でのCodeMirror
+          // アップグレードに伴う内部レンダラの大幅な書き換えにより、
+          // 稀なケースでの例外発生パターンが変わる可能性があるため、
+          // 念のための保険として追加）。
+          try {
+            if (
+              update.docChanged ||
+              update.viewportChanged ||
+              update.selectionSet ||
+              update.transactions.some(tr => tr.effects.some(e => e.is(settingsEffect)))
+            ) {
+              this.decorations = this.build(update.view);
+            }
+          } catch (e) {
+            console.error("[Novels Note JP] 括弧強調の更新でエラーが発生しました。", e);
           }
         }
 
@@ -152,13 +163,17 @@ export function buildTermExtension(
         update(update: ViewUpdate) {
           // v0.6.4 と同じ同期方式に戻した。
           // 経緯は buildBracketExtension 内の update() コメントを参照。
-          if (
-            update.docChanged ||
-            update.viewportChanged ||
-            update.selectionSet ||
-            update.transactions.some(tr => tr.effects.some(e => e.is(settingsEffect)))
-          ) {
-            this.decorations = this.build(update.view);
+          try {
+            if (
+              update.docChanged ||
+              update.viewportChanged ||
+              update.selectionSet ||
+              update.transactions.some(tr => tr.effects.some(e => e.is(settingsEffect)))
+            ) {
+              this.decorations = this.build(update.view);
+            }
+          } catch (e) {
+            console.error("[Novels Note JP] 用語ハイライトの更新でエラーが発生しました。", e);
           }
         }
 
@@ -305,12 +320,16 @@ export function buildRulerExtension(getSettings: () => NovelsNoteSettings) {
       decorations: DecorationSet;
       constructor(view: EditorView) { this.decorations = this.build(view); }
       update(update: ViewUpdate) {
-        if (
-          update.docChanged ||
-          update.viewportChanged ||
-          update.transactions.some(tr => tr.effects.some(e => e.is(settingsEffect)))
-        ) {
-          this.decorations = this.build(update.view);
+        try {
+          if (
+            update.docChanged ||
+            update.viewportChanged ||
+            update.transactions.some(tr => tr.effects.some(e => e.is(settingsEffect)))
+          ) {
+            this.decorations = this.build(update.view);
+          }
+        } catch (e) {
+          console.error("[Novels Note JP] 折り返しガイドラインの更新でエラーが発生しました。", e);
         }
       }
       build(view: EditorView): DecorationSet {
@@ -351,12 +370,16 @@ export function buildFullWidthSpaceExtension(getSettings: () => NovelsNoteSettin
       decorations: DecorationSet;
       constructor(view: EditorView) { this.decorations = this.build(view); }
       update(update: ViewUpdate) {
-        if (
-          update.docChanged ||
-          update.viewportChanged ||
-          update.transactions.some(tr => tr.effects.some(e => e.is(settingsEffect)))
-        ) {
-          this.decorations = this.build(update.view);
+        try {
+          if (
+            update.docChanged ||
+            update.viewportChanged ||
+            update.transactions.some(tr => tr.effects.some(e => e.is(settingsEffect)))
+          ) {
+            this.decorations = this.build(update.view);
+          }
+        } catch (e) {
+          console.error("[Novels Note JP] 全角スペース可視化の更新でエラーが発生しました。", e);
         }
       }
       build(view: EditorView): DecorationSet {
@@ -439,12 +462,16 @@ export function buildEolMarkerExtension(getSettings: () => NovelsNoteSettings) {
       decorations: DecorationSet;
       constructor(view: EditorView) { this.decorations = this.build(view); }
       update(update: ViewUpdate) {
-        if (
-          update.docChanged ||
-          update.viewportChanged ||
-          update.transactions.some(tr => tr.effects.some(e => e.is(settingsEffect)))
-        ) {
-          this.decorations = this.build(update.view);
+        try {
+          if (
+            update.docChanged ||
+            update.viewportChanged ||
+            update.transactions.some(tr => tr.effects.some(e => e.is(settingsEffect)))
+          ) {
+            this.decorations = this.build(update.view);
+          }
+        } catch (e) {
+          console.error("[Novels Note JP] 行末マーカーの更新でエラーが発生しました。", e);
         }
       }
       build(view: EditorView): DecorationSet {
@@ -629,8 +656,12 @@ export function buildCursorSyncExtension(store: CursorSyncStore, app: App) {
     }
 
     update(update: ViewUpdate): void {
-      if (!update.selectionSet && !update.docChanged) return;
-      this.scheduleCommit(update.view);
+      try {
+        if (!update.selectionSet && !update.docChanged) return;
+        this.scheduleCommit(update.view);
+      } catch (e) {
+        console.error("[Novels Note JP] カーソル同期の更新でエラーが発生しました。", e);
+      }
     }
 
     destroy(): void {

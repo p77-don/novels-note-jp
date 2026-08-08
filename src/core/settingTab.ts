@@ -2,8 +2,9 @@
 // Novels Note JP — 設定タブ
 // ─────────────────────────────────────────
 
-import { App, PluginSettingTab, Setting, Platform } from "obsidian";
+import { App, PluginSettingTab, Setting, Platform, Notice, Modal } from "obsidian";
 import NovelsNoteJP from "../main";
+import { GLOSSARY_PALETTE_FORBIDDEN_TRIGGERS, GlossaryPaletteScope } from "../settings";
 
 // ─────────────────────────────────────────
 // 説明文（setDesc）を複数行に分けて表示するためのヘルパー
@@ -23,6 +24,43 @@ function descLines(...lines: string[]): DocumentFragment {
   });
 }
 
+// ─────────────────────────────────────────
+// 汎用の確認ダイアログ
+//
+// Obsidian 1.13.0 以降には標準の ConfirmationModal があるが、
+// minAppVersion（1.8.7）との互換性のため、独自に軽量な実装を用意する。
+// ─────────────────────────────────────────
+class ConfirmDialog extends Modal {
+  constructor(
+    app: App,
+    private message: string,
+    private onConfirm: () => void
+  ) {
+    super(app);
+  }
+
+  onOpen(): void {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.createEl("p", { text: this.message });
+
+    const btnRow = contentEl.createDiv({ cls: "nn-confirm-dialog-buttons" });
+
+    const yesBtn = btnRow.createEl("button", { text: "はい", cls: "mod-warning" });
+    yesBtn.addEventListener("click", () => {
+      this.close();
+      this.onConfirm();
+    });
+
+    const noBtn = btnRow.createEl("button", { text: "いいえ" });
+    noBtn.addEventListener("click", () => this.close());
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
+  }
+}
+
 export class NovelsNoteSettingTab extends PluginSettingTab {
   plugin: NovelsNoteJP;
 
@@ -37,6 +75,14 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
 
   private refresh(): void {
     const { containerEl } = this;
+
+    // containerEl.empty() で画面全体を作り直すため、何もしないと
+    // スクロール位置が先頭にリセットされてしまう（除外フォルダ・
+    // カテゴリ定義・括弧定義などの追加/削除のたびに毎回スクロール
+    // し直す必要があり手間だった）。再描画前後でスクロール位置を
+    // 保存・復元することで、編集中の場所に留まれるようにする。
+    const scrollTop = containerEl.scrollTop;
+
     containerEl.empty();
 
     this.renderEditorSection(containerEl);
@@ -50,6 +96,15 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
     this.renderHighlightSection(containerEl);
     this.renderTagSection(containerEl);
     this.renderBracketSection(containerEl);
+    this.renderGlossaryPaletteSection(containerEl);
+
+    // 再描画直後のレイアウト確定タイミングによっては、同期的な
+    // 代入だけでは反映されない場合があるため、次のフレームでも
+    // 念のため設定し直す。
+    containerEl.scrollTop = scrollTop;
+    requestAnimationFrame(() => {
+      containerEl.scrollTop = scrollTop;
+    });
   }
 
   // ─────────────────────────────────────────
@@ -915,6 +970,97 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
             this.plugin.settings.countHashtags = value;
             await this.plugin.saveSettings();
             this.plugin.updateWordCount();
+          })
+      );
+  }
+
+  // ─────────────────────────────────────────
+  // 用語入力パレットセクション
+  // ─────────────────────────────────────────
+  private renderGlossaryPaletteSection(containerEl: HTMLElement): void {
+    new Setting(containerEl).setName("用語入力パレット").setHeading();
+    containerEl.createEl("p", {
+      text: "執筆中にトリガー文字を入力すると、用語インデックスから用語を検索・入力できるパレットを開きます。",
+      cls: "setting-item-description",
+    });
+
+    new Setting(containerEl)
+      .setName("用語入力パレットを有効にする")
+      .addToggle(toggle =>
+        toggle.setValue(this.plugin.settings.glossaryPaletteEnabled)
+          .onChange(async value => {
+            this.plugin.settings.glossaryPaletteEnabled = value;
+            await this.plugin.saveSettings();
+            this.plugin.refreshEditors();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("起動範囲")
+      .setDesc(descLines(
+        "・原稿ノートのみ：mode: novel が設定されたノートでのみ起動します。",
+        "・原稿ノート＋用語ノート（デフォルト）：原稿ノートに加えて、用語ノート（キャラクター・場所などのタグを持つノート）でも起動します。",
+        "・すべてのノート：全てのMarkdownノートで起動します。メモ等で普段からトリガー文字を書く場合は誤爆しやすいのでご注意ください。"
+      ))
+      .addDropdown(drop =>
+        drop
+          .addOption("novelOnly", "原稿ノートのみ")
+          .addOption("novelAndGlossary", "原稿ノート＋用語ノート")
+          .addOption("all", "すべてのノート")
+          .setValue(this.plugin.settings.glossaryPaletteScope)
+          .onChange(async value => {
+            this.plugin.settings.glossaryPaletteScope = value as GlossaryPaletteScope;
+            await this.plugin.saveSettings();
+            this.plugin.refreshEditors();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("起動トリガー文字")
+      .setDesc(descLines(
+        "パレットを開くための1文字を指定してください（例： / @ $ : ;）。",
+        `Markdownで一般的に使われる ${GLOSSARY_PALETTE_FORBIDDEN_TRIGGERS.join(" ")} は指定できません。`
+      ))
+      .addText(text =>
+        text.setValue(this.plugin.settings.glossaryPaletteTrigger)
+          .setPlaceholder("/")
+          .onChange(async value => {
+            const trimmed = value.trim();
+
+            // 入力途中（削除中など）で空文字になった瞬間は
+            // 何もせず待つ（通知を出すと入力操作のたびにうるさい）
+            if (trimmed.length === 0) return;
+
+            if (trimmed.length !== 1) {
+              new Notice("トリガー文字は1文字で指定してください。");
+              return;
+            }
+            if (GLOSSARY_PALETTE_FORBIDDEN_TRIGGERS.includes(trimmed)) {
+              new Notice(`「${trimmed}」はMarkdown記法と衝突するため使用できません。`);
+              return;
+            }
+
+            this.plugin.settings.glossaryPaletteTrigger = trimmed;
+            await this.plugin.saveSettings();
+            this.plugin.refreshEditors();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("「最近使った」履歴をクリア")
+      .setDesc("用語入力パレットの「最近使った」に表示される履歴をすべて削除します。この操作は取り消せません。")
+      .addButton(btn =>
+        btn.setButtonText("クリア")
+          .setWarning()
+          .onClick(() => {
+            new ConfirmDialog(
+              this.app,
+              "「最近使った」履歴をすべて削除します。よろしいですか？",
+              async () => {
+                await this.plugin.clearGlossaryPaletteHistory();
+                new Notice("「最近使った」履歴をクリアしました。");
+              }
+            ).open();
           })
       );
   }

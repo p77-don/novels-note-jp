@@ -51,9 +51,18 @@ function applyTcy(text: string): string {
 
     return part
       .replace(
-        /([A-Za-z0-9._:/+-]+)/g,
+        // 半角スペース／タブ区切りで連続する英数字トークンを
+        // 「ひとかたまり」として捉える。前後に別の単語が続く場合
+        // （＝英文・フレーズの一部）は、個々の単語が2文字以下でも
+        // 縦中横にしない。他に単語が続かない「単独の短いトークン」
+        // （文中に埋め込まれた略語・数字など、例：「AIが」「1980年」）
+        // だけを縦中横の対象とする。
+        // 例）"Novels Note JP" → ひとかたまりとして扱われ、
+        //     "JP" だけが縦中横になることはない。
+        /([A-Za-z0-9._:/+-]+(?:[ \t]+[A-Za-z0-9._:/+-]+)*)/g,
         (m) => {
-          if (m.length <= 2) {
+          const words = m.split(/[ \t]+/);
+          if (words.length === 1 && m.length <= 2) {
             return `<span class="tcy">${m}</span>`;
           }
           return `<span class="latin">${m}</span>`;

@@ -26,8 +26,8 @@ __export(main_exports, {
   default: () => NovelsNoteJP
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian11 = require("obsidian");
-var import_view3 = require("@codemirror/view");
+var import_obsidian14 = require("obsidian");
+var import_view4 = require("@codemirror/view");
 
 // src/settings.ts
 var DEFAULT_TAG_DEFINITIONS = [
@@ -75,8 +75,22 @@ var DEFAULT_SETTINGS = {
   // 用語インデックス除外フォルダ
   excludeFolders: [],
   // 執筆情報一覧 除外フォルダ
-  statsExcludeFolders: []
+  statsExcludeFolders: [],
+  // 用語入力パレット
+  glossaryPaletteEnabled: false,
+  glossaryPaletteScope: "novelAndGlossary",
+  glossaryPaletteTrigger: "/"
 };
+var GLOSSARY_PALETTE_FORBIDDEN_TRIGGERS = [
+  "#",
+  "*",
+  ">",
+  "[",
+  "]",
+  "(",
+  ")",
+  "`"
+];
 
 // src/types.ts
 var import_state = require("@codemirror/state");
@@ -220,13 +234,17 @@ function buildRubyExtension(getSettings) {
         this.decorations = this.build(view);
       }
       update(update) {
-        if (update.docChanged || update.viewportChanged || update.selectionSet || update.transactions.some(
-          (tr) => tr.effects.some((e) => e.is(settingsEffect))
-        ) || // ソースモード ⇔ ライブプレビューの切り替えでも再構築する
-        // （切り替え自体は docChanged 等を伴わないため、この判定が
-        //   ないとモード切替直後は古い描画のままになる）
-        update.startState.field(import_obsidian.editorLivePreviewField, false) !== update.state.field(import_obsidian.editorLivePreviewField, false)) {
-          this.decorations = this.build(update.view);
+        try {
+          if (update.docChanged || update.viewportChanged || update.selectionSet || update.transactions.some(
+            (tr) => tr.effects.some((e) => e.is(settingsEffect))
+          ) || // ソースモード ⇔ ライブプレビューの切り替えでも再構築する
+          // （切り替え自体は docChanged 等を伴わないため、この判定が
+          //   ないとモード切替直後は古い描画のままになる）
+          update.startState.field(import_obsidian.editorLivePreviewField, false) !== update.state.field(import_obsidian.editorLivePreviewField, false)) {
+            this.decorations = this.build(update.view);
+          }
+        } catch (e) {
+          console.error("[Novels Note JP] \u30EB\u30D3\u8868\u793A\u306E\u66F4\u65B0\u3067\u30A8\u30E9\u30FC\u304C\u767A\u751F\u3057\u307E\u3057\u305F\u3002", e);
         }
       }
       build(view) {
@@ -349,8 +367,12 @@ function buildBracketExtension(getSettings) {
           this.decorations = this.build(view);
         }
         update(update) {
-          if (update.docChanged || update.viewportChanged || update.selectionSet || update.transactions.some((tr) => tr.effects.some((e) => e.is(settingsEffect)))) {
-            this.decorations = this.build(update.view);
+          try {
+            if (update.docChanged || update.viewportChanged || update.selectionSet || update.transactions.some((tr) => tr.effects.some((e) => e.is(settingsEffect)))) {
+              this.decorations = this.build(update.view);
+            }
+          } catch (e) {
+            console.error("[Novels Note JP] \u62EC\u5F27\u5F37\u8ABF\u306E\u66F4\u65B0\u3067\u30A8\u30E9\u30FC\u304C\u767A\u751F\u3057\u307E\u3057\u305F\u3002", e);
           }
         }
         build(view) {
@@ -401,8 +423,12 @@ function buildTermExtension(app, getTerms, getSettings) {
           this.decorations = this.build(view);
         }
         update(update) {
-          if (update.docChanged || update.viewportChanged || update.selectionSet || update.transactions.some((tr) => tr.effects.some((e) => e.is(settingsEffect)))) {
-            this.decorations = this.build(update.view);
+          try {
+            if (update.docChanged || update.viewportChanged || update.selectionSet || update.transactions.some((tr) => tr.effects.some((e) => e.is(settingsEffect)))) {
+              this.decorations = this.build(update.view);
+            }
+          } catch (e) {
+            console.error("[Novels Note JP] \u7528\u8A9E\u30CF\u30A4\u30E9\u30A4\u30C8\u306E\u66F4\u65B0\u3067\u30A8\u30E9\u30FC\u304C\u767A\u751F\u3057\u307E\u3057\u305F\u3002", e);
           }
         }
         build(view) {
@@ -524,8 +550,12 @@ function buildRulerExtension(getSettings) {
         this.decorations = this.build(view);
       }
       update(update) {
-        if (update.docChanged || update.viewportChanged || update.transactions.some((tr) => tr.effects.some((e) => e.is(settingsEffect)))) {
-          this.decorations = this.build(update.view);
+        try {
+          if (update.docChanged || update.viewportChanged || update.transactions.some((tr) => tr.effects.some((e) => e.is(settingsEffect)))) {
+            this.decorations = this.build(update.view);
+          }
+        } catch (e) {
+          console.error("[Novels Note JP] \u6298\u308A\u8FD4\u3057\u30AC\u30A4\u30C9\u30E9\u30A4\u30F3\u306E\u66F4\u65B0\u3067\u30A8\u30E9\u30FC\u304C\u767A\u751F\u3057\u307E\u3057\u305F\u3002", e);
         }
       }
       build(view) {
@@ -559,8 +589,12 @@ function buildFullWidthSpaceExtension(getSettings) {
         this.decorations = this.build(view);
       }
       update(update) {
-        if (update.docChanged || update.viewportChanged || update.transactions.some((tr) => tr.effects.some((e) => e.is(settingsEffect)))) {
-          this.decorations = this.build(update.view);
+        try {
+          if (update.docChanged || update.viewportChanged || update.transactions.some((tr) => tr.effects.some((e) => e.is(settingsEffect)))) {
+            this.decorations = this.build(update.view);
+          }
+        } catch (e) {
+          console.error("[Novels Note JP] \u5168\u89D2\u30B9\u30DA\u30FC\u30B9\u53EF\u8996\u5316\u306E\u66F4\u65B0\u3067\u30A8\u30E9\u30FC\u304C\u767A\u751F\u3057\u307E\u3057\u305F\u3002", e);
         }
       }
       build(view) {
@@ -613,8 +647,12 @@ function buildEolMarkerExtension(getSettings) {
         this.decorations = this.build(view);
       }
       update(update) {
-        if (update.docChanged || update.viewportChanged || update.transactions.some((tr) => tr.effects.some((e) => e.is(settingsEffect)))) {
-          this.decorations = this.build(update.view);
+        try {
+          if (update.docChanged || update.viewportChanged || update.transactions.some((tr) => tr.effects.some((e) => e.is(settingsEffect)))) {
+            this.decorations = this.build(update.view);
+          }
+        } catch (e) {
+          console.error("[Novels Note JP] \u884C\u672B\u30DE\u30FC\u30AB\u30FC\u306E\u66F4\u65B0\u3067\u30A8\u30E9\u30FC\u304C\u767A\u751F\u3057\u307E\u3057\u305F\u3002", e);
         }
       }
       build(view) {
@@ -731,8 +769,12 @@ function buildCursorSyncExtension(store, app) {
       }, CURSOR_SYNC_SETTLE_MS);
     }
     update(update) {
-      if (!update.selectionSet && !update.docChanged) return;
-      this.scheduleCommit(update.view);
+      try {
+        if (!update.selectionSet && !update.docChanged) return;
+        this.scheduleCommit(update.view);
+      } catch (e) {
+        console.error("[Novels Note JP] \u30AB\u30FC\u30BD\u30EB\u540C\u671F\u306E\u66F4\u65B0\u3067\u30A8\u30E9\u30FC\u304C\u767A\u751F\u3057\u307E\u3057\u305F\u3002", e);
+      }
     }
     destroy() {
       if (this.settleTimer !== null) window.clearTimeout(this.settleTimer);
@@ -790,6 +832,89 @@ var CursorSyncStore = class {
 
 // src/views/sidebarView.ts
 var import_obsidian3 = require("obsidian");
+
+// src/core/termTree.ts
+function matchTermTag(frontmatter, tagDefinitions) {
+  var _a;
+  if (!frontmatter) return null;
+  const validTags = new Set(tagDefinitions.map((td) => td.tag));
+  let tags = [];
+  const rawTags = frontmatter.tags;
+  if (Array.isArray(rawTags)) {
+    tags = rawTags.map((t) => String(t).replace(/^#/, ""));
+  } else if (typeof rawTags === "string") {
+    tags = [rawTags.replace(/^#/, "")];
+  }
+  return (_a = tags.find((t) => validTags.has(t))) != null ? _a : null;
+}
+function folderOf(filePath) {
+  const idx = filePath.lastIndexOf("/");
+  return idx === -1 ? "" : filePath.substring(0, idx);
+}
+function buildFolderTree(terms) {
+  const root = { name: "", fullPath: "", children: [], terms: [] };
+  for (const term of terms) {
+    const folder = folderOf(term.filePath);
+    const segments = folder === "" ? [] : folder.split("/");
+    insertTerm(root, segments, term);
+  }
+  return root;
+}
+function insertTerm(node, segments, term) {
+  if (segments.length === 0) {
+    node.terms.push(term);
+    return;
+  }
+  const [head, ...rest] = segments;
+  let child = node.children.find((c) => c.name === head);
+  if (!child) {
+    child = {
+      name: head,
+      fullPath: node.fullPath === "" ? head : `${node.fullPath}/${head}`,
+      children: [],
+      terms: []
+    };
+    node.children.push(child);
+  }
+  insertTerm(child, rest, term);
+}
+function sortTree(node) {
+  node.children.sort((a, b) => a.name.localeCompare(b.name, "ja"));
+  node.terms.sort((a, b) => a.name.localeCompare(b.name, "ja"));
+  for (const child of node.children) sortTree(child);
+}
+function filterTree(node, query) {
+  if (node.name && node.name.includes(query)) {
+    return { ...node };
+  }
+  const filteredTerms = node.terms.filter(
+    (t) => t.name.includes(query) || t.aliases.some((a) => a.includes(query))
+  );
+  const filteredChildren = [];
+  for (const child of node.children) {
+    const result = filterTree(child, query);
+    if (result) filteredChildren.push(result);
+  }
+  if (filteredTerms.length === 0 && filteredChildren.length === 0) return null;
+  return { ...node, terms: filteredTerms, children: filteredChildren };
+}
+function countTerms(node) {
+  return node.terms.length + node.children.reduce((s, c) => s + countTerms(c), 0);
+}
+function buildCategoryTree(terms, tagDefinitions) {
+  const result = [];
+  for (const td of tagDefinitions) {
+    if (!td.enabled) continue;
+    const termsInTag = terms.filter((t) => t.tag === td.tag);
+    if (termsInTag.length === 0) continue;
+    const tree = buildFolderTree(termsInTag);
+    sortTree(tree);
+    result.push({ tag: td.tag, label: td.label, color: td.color, tree });
+  }
+  return result;
+}
+
+// src/views/sidebarView.ts
 var CreateTermModal = class extends import_obsidian3.Modal {
   constructor(app, folderPath, tag, tagLabel, onSubmit) {
     super(app);
@@ -802,10 +927,22 @@ var CreateTermModal = class extends import_obsidian3.Modal {
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass("nn-create-term-modal");
-    contentEl.createEl("h3", { text: "\u7528\u8A9E\u30CE\u30FC\u30C8\u3092\u65B0\u898F\u4F5C\u6210", cls: "nn-modal-title" });
+    if (import_obsidian3.Platform.isMobile) {
+      this.containerEl.addClass("nn-mobile-top-modal-container");
+      this.modalEl.addClass("nn-mobile-top-modal");
+    }
+    const titleEl = contentEl.createEl("h3", { text: "\u7528\u8A9E\u30CE\u30FC\u30C8\u3092\u65B0\u898F\u4F5C\u6210", cls: "nn-modal-title" });
     const infoEl = contentEl.createDiv({ cls: "nn-modal-info" });
     infoEl.createSpan({ text: "\u30AB\u30C6\u30B4\u30EA\uFF1A", cls: "nn-modal-label" });
     infoEl.createSpan({ text: this.tagLabel, cls: "nn-modal-value" });
+    const dismissKeyboard = () => {
+      const active = contentEl.ownerDocument.activeElement;
+      if (active instanceof HTMLElement && contentEl.contains(active)) {
+        active.blur();
+      }
+    };
+    titleEl.addEventListener("mousedown", dismissKeyboard);
+    infoEl.addEventListener("mousedown", dismissKeyboard);
     const folderWrap = contentEl.createDiv({ cls: "nn-modal-input-wrap" });
     folderWrap.createEl("label", { text: "\u30D5\u30A9\u30EB\u30C0\uFF08\u4EFB\u610F\uFF09", cls: "nn-modal-field-label" });
     const folderInput = folderWrap.createEl("input", {
@@ -932,60 +1069,6 @@ var ConfirmDeleteModal = class extends import_obsidian3.Modal {
     this.contentEl.empty();
   }
 };
-function folderOf(filePath) {
-  const idx = filePath.lastIndexOf("/");
-  return idx === -1 ? "" : filePath.substring(0, idx);
-}
-function buildFolderTree(terms) {
-  const root = { name: "", fullPath: "", children: [], terms: [] };
-  for (const term of terms) {
-    const folder = folderOf(term.filePath);
-    const segments = folder === "" ? [] : folder.split("/");
-    insertTerm(root, segments, term);
-  }
-  return root;
-}
-function insertTerm(node, segments, term) {
-  if (segments.length === 0) {
-    node.terms.push(term);
-    return;
-  }
-  const [head, ...rest] = segments;
-  let child = node.children.find((c) => c.name === head);
-  if (!child) {
-    child = {
-      name: head,
-      fullPath: node.fullPath === "" ? head : `${node.fullPath}/${head}`,
-      children: [],
-      terms: []
-    };
-    node.children.push(child);
-  }
-  insertTerm(child, rest, term);
-}
-function sortTree(node) {
-  node.children.sort((a, b) => a.name.localeCompare(b.name, "ja"));
-  node.terms.sort((a, b) => a.name.localeCompare(b.name, "ja"));
-  for (const child of node.children) sortTree(child);
-}
-function filterTree(node, query) {
-  if (node.name && node.name.includes(query)) {
-    return { ...node };
-  }
-  const filteredTerms = node.terms.filter(
-    (t) => t.name.includes(query) || t.aliases.some((a) => a.includes(query))
-  );
-  const filteredChildren = [];
-  for (const child of node.children) {
-    const result = filterTree(child, query);
-    if (result) filteredChildren.push(result);
-  }
-  if (filteredTerms.length === 0 && filteredChildren.length === 0) return null;
-  return { ...node, terms: filteredTerms, children: filteredChildren };
-}
-function countTerms(node) {
-  return node.terms.length + node.children.reduce((s, c) => s + countTerms(c), 0);
-}
 var NovelsNoteSidebarView = class extends import_obsidian3.ItemView {
   constructor(leaf) {
     super(leaf);
@@ -1477,6 +1560,29 @@ function descLines(...lines) {
     });
   });
 }
+var ConfirmDialog = class extends import_obsidian4.Modal {
+  constructor(app, message, onConfirm) {
+    super(app);
+    this.message = message;
+    this.onConfirm = onConfirm;
+  }
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.createEl("p", { text: this.message });
+    const btnRow = contentEl.createDiv({ cls: "nn-confirm-dialog-buttons" });
+    const yesBtn = btnRow.createEl("button", { text: "\u306F\u3044", cls: "mod-warning" });
+    yesBtn.addEventListener("click", () => {
+      this.close();
+      this.onConfirm();
+    });
+    const noBtn = btnRow.createEl("button", { text: "\u3044\u3044\u3048" });
+    noBtn.addEventListener("click", () => this.close());
+  }
+  onClose() {
+    this.contentEl.empty();
+  }
+};
 var NovelsNoteSettingTab = class extends import_obsidian4.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
@@ -1487,6 +1593,7 @@ var NovelsNoteSettingTab = class extends import_obsidian4.PluginSettingTab {
   }
   refresh() {
     const { containerEl } = this;
+    const scrollTop = containerEl.scrollTop;
     containerEl.empty();
     this.renderEditorSection(containerEl);
     this.renderRulerSection(containerEl);
@@ -1499,6 +1606,11 @@ var NovelsNoteSettingTab = class extends import_obsidian4.PluginSettingTab {
     this.renderHighlightSection(containerEl);
     this.renderTagSection(containerEl);
     this.renderBracketSection(containerEl);
+    this.renderGlossaryPaletteSection(containerEl);
+    containerEl.scrollTop = scrollTop;
+    requestAnimationFrame(() => {
+      containerEl.scrollTop = scrollTop;
+    });
   }
   // ─────────────────────────────────────────
   // エディタ表示セクション
@@ -2138,6 +2250,66 @@ var NovelsNoteSettingTab = class extends import_obsidian4.PluginSettingTab {
       })
     );
   }
+  // ─────────────────────────────────────────
+  // 用語入力パレットセクション
+  // ─────────────────────────────────────────
+  renderGlossaryPaletteSection(containerEl) {
+    new import_obsidian4.Setting(containerEl).setName("\u7528\u8A9E\u5165\u529B\u30D1\u30EC\u30C3\u30C8").setHeading();
+    containerEl.createEl("p", {
+      text: "\u57F7\u7B46\u4E2D\u306B\u30C8\u30EA\u30AC\u30FC\u6587\u5B57\u3092\u5165\u529B\u3059\u308B\u3068\u3001\u7528\u8A9E\u30A4\u30F3\u30C7\u30C3\u30AF\u30B9\u304B\u3089\u7528\u8A9E\u3092\u691C\u7D22\u30FB\u5165\u529B\u3067\u304D\u308B\u30D1\u30EC\u30C3\u30C8\u3092\u958B\u304D\u307E\u3059\u3002",
+      cls: "setting-item-description"
+    });
+    new import_obsidian4.Setting(containerEl).setName("\u7528\u8A9E\u5165\u529B\u30D1\u30EC\u30C3\u30C8\u3092\u6709\u52B9\u306B\u3059\u308B").addToggle(
+      (toggle) => toggle.setValue(this.plugin.settings.glossaryPaletteEnabled).onChange(async (value) => {
+        this.plugin.settings.glossaryPaletteEnabled = value;
+        await this.plugin.saveSettings();
+        this.plugin.refreshEditors();
+      })
+    );
+    new import_obsidian4.Setting(containerEl).setName("\u8D77\u52D5\u7BC4\u56F2").setDesc(descLines(
+      "\u30FB\u539F\u7A3F\u30CE\u30FC\u30C8\u306E\u307F\uFF1Amode: novel \u304C\u8A2D\u5B9A\u3055\u308C\u305F\u30CE\u30FC\u30C8\u3067\u306E\u307F\u8D77\u52D5\u3057\u307E\u3059\u3002",
+      "\u30FB\u539F\u7A3F\u30CE\u30FC\u30C8\uFF0B\u7528\u8A9E\u30CE\u30FC\u30C8\uFF08\u30C7\u30D5\u30A9\u30EB\u30C8\uFF09\uFF1A\u539F\u7A3F\u30CE\u30FC\u30C8\u306B\u52A0\u3048\u3066\u3001\u7528\u8A9E\u30CE\u30FC\u30C8\uFF08\u30AD\u30E3\u30E9\u30AF\u30BF\u30FC\u30FB\u5834\u6240\u306A\u3069\u306E\u30BF\u30B0\u3092\u6301\u3064\u30CE\u30FC\u30C8\uFF09\u3067\u3082\u8D77\u52D5\u3057\u307E\u3059\u3002",
+      "\u30FB\u3059\u3079\u3066\u306E\u30CE\u30FC\u30C8\uFF1A\u5168\u3066\u306EMarkdown\u30CE\u30FC\u30C8\u3067\u8D77\u52D5\u3057\u307E\u3059\u3002\u30E1\u30E2\u7B49\u3067\u666E\u6BB5\u304B\u3089\u30C8\u30EA\u30AC\u30FC\u6587\u5B57\u3092\u66F8\u304F\u5834\u5408\u306F\u8AA4\u7206\u3057\u3084\u3059\u3044\u306E\u3067\u3054\u6CE8\u610F\u304F\u3060\u3055\u3044\u3002"
+    )).addDropdown(
+      (drop) => drop.addOption("novelOnly", "\u539F\u7A3F\u30CE\u30FC\u30C8\u306E\u307F").addOption("novelAndGlossary", "\u539F\u7A3F\u30CE\u30FC\u30C8\uFF0B\u7528\u8A9E\u30CE\u30FC\u30C8").addOption("all", "\u3059\u3079\u3066\u306E\u30CE\u30FC\u30C8").setValue(this.plugin.settings.glossaryPaletteScope).onChange(async (value) => {
+        this.plugin.settings.glossaryPaletteScope = value;
+        await this.plugin.saveSettings();
+        this.plugin.refreshEditors();
+      })
+    );
+    new import_obsidian4.Setting(containerEl).setName("\u8D77\u52D5\u30C8\u30EA\u30AC\u30FC\u6587\u5B57").setDesc(descLines(
+      "\u30D1\u30EC\u30C3\u30C8\u3092\u958B\u304F\u305F\u3081\u306E1\u6587\u5B57\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044\uFF08\u4F8B\uFF1A / @ $ : ;\uFF09\u3002",
+      `Markdown\u3067\u4E00\u822C\u7684\u306B\u4F7F\u308F\u308C\u308B ${GLOSSARY_PALETTE_FORBIDDEN_TRIGGERS.join(" ")} \u306F\u6307\u5B9A\u3067\u304D\u307E\u305B\u3093\u3002`
+    )).addText(
+      (text) => text.setValue(this.plugin.settings.glossaryPaletteTrigger).setPlaceholder("/").onChange(async (value) => {
+        const trimmed = value.trim();
+        if (trimmed.length === 0) return;
+        if (trimmed.length !== 1) {
+          new import_obsidian4.Notice("\u30C8\u30EA\u30AC\u30FC\u6587\u5B57\u306F1\u6587\u5B57\u3067\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044\u3002");
+          return;
+        }
+        if (GLOSSARY_PALETTE_FORBIDDEN_TRIGGERS.includes(trimmed)) {
+          new import_obsidian4.Notice(`\u300C${trimmed}\u300D\u306FMarkdown\u8A18\u6CD5\u3068\u885D\u7A81\u3059\u308B\u305F\u3081\u4F7F\u7528\u3067\u304D\u307E\u305B\u3093\u3002`);
+          return;
+        }
+        this.plugin.settings.glossaryPaletteTrigger = trimmed;
+        await this.plugin.saveSettings();
+        this.plugin.refreshEditors();
+      })
+    );
+    new import_obsidian4.Setting(containerEl).setName("\u300C\u6700\u8FD1\u4F7F\u3063\u305F\u300D\u5C65\u6B74\u3092\u30AF\u30EA\u30A2").setDesc("\u7528\u8A9E\u5165\u529B\u30D1\u30EC\u30C3\u30C8\u306E\u300C\u6700\u8FD1\u4F7F\u3063\u305F\u300D\u306B\u8868\u793A\u3055\u308C\u308B\u5C65\u6B74\u3092\u3059\u3079\u3066\u524A\u9664\u3057\u307E\u3059\u3002\u3053\u306E\u64CD\u4F5C\u306F\u53D6\u308A\u6D88\u305B\u307E\u305B\u3093\u3002").addButton(
+      (btn) => btn.setButtonText("\u30AF\u30EA\u30A2").setWarning().onClick(() => {
+        new ConfirmDialog(
+          this.app,
+          "\u300C\u6700\u8FD1\u4F7F\u3063\u305F\u300D\u5C65\u6B74\u3092\u3059\u3079\u3066\u524A\u9664\u3057\u307E\u3059\u3002\u3088\u308D\u3057\u3044\u3067\u3059\u304B\uFF1F",
+          async () => {
+            await this.plugin.clearGlossaryPaletteHistory();
+            new import_obsidian4.Notice("\u300C\u6700\u8FD1\u4F7F\u3063\u305F\u300D\u5C65\u6B74\u3092\u30AF\u30EA\u30A2\u3057\u307E\u3057\u305F\u3002");
+          }
+        ).open();
+      })
+    );
+  }
 };
 
 // src/core/hashtags.ts
@@ -2464,9 +2636,18 @@ function applyTcy(text) {
   return parts.map((part, i) => {
     if (i % 2 === 1) return part;
     return part.replace(
-      /([A-Za-z0-9._:/+-]+)/g,
+      // 半角スペース／タブ区切りで連続する英数字トークンを
+      // 「ひとかたまり」として捉える。前後に別の単語が続く場合
+      // （＝英文・フレーズの一部）は、個々の単語が2文字以下でも
+      // 縦中横にしない。他に単語が続かない「単独の短いトークン」
+      // （文中に埋め込まれた略語・数字など、例：「AIが」「1980年」）
+      // だけを縦中横の対象とする。
+      // 例）"Novels Note JP" → ひとかたまりとして扱われ、
+      //     "JP" だけが縦中横になることはない。
+      /([A-Za-z0-9._:/+-]+(?:[ \t]+[A-Za-z0-9._:/+-]+)*)/g,
       (m) => {
-        if (m.length <= 2) {
+        const words = m.split(/[ \t]+/);
+        if (words.length === 1 && m.length <= 2) {
           return `<span class="tcy">${m}</span>`;
         }
         return `<span class="latin">${m}</span>`;
@@ -3815,6 +3996,835 @@ var TermPreviewModal = class extends import_obsidian10.Modal {
   }
 };
 
+// src/editor/glossaryPalette.ts
+var import_view3 = require("@codemirror/view");
+var import_obsidian13 = require("obsidian");
+
+// src/core/glossaryHistory.ts
+var import_obsidian11 = require("obsidian");
+var HISTORY_FILE_NAME = "glossary-history.json";
+var MAX_HISTORY_ENTRIES = 50;
+function historyFilePath(pluginDir) {
+  return (0, import_obsidian11.normalizePath)(`${pluginDir}/${HISTORY_FILE_NAME}`);
+}
+async function loadGlossaryHistory(app, pluginDir) {
+  const path = historyFilePath(pluginDir);
+  try {
+    const exists = await app.vault.adapter.exists(path);
+    if (!exists) return {};
+    const raw = await app.vault.adapter.read(path);
+    const parsed = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      return {};
+    }
+    const result = {};
+    for (const [key, value] of Object.entries(parsed)) {
+      if (typeof value === "number" && Number.isFinite(value)) {
+        result[key] = value;
+      }
+    }
+    return result;
+  } catch (e) {
+    return {};
+  }
+}
+async function saveGlossaryHistory(app, pluginDir, history) {
+  const path = historyFilePath(pluginDir);
+  await app.vault.adapter.write(path, JSON.stringify(history));
+}
+async function recordGlossaryUsage(app, pluginDir, filePath, history) {
+  const updated = { ...history, [filePath]: Math.floor(Date.now() / 1e3) };
+  const entries = Object.entries(updated).sort((a, b) => b[1] - a[1]);
+  const trimmed = {};
+  for (const [key, value] of entries.slice(0, MAX_HISTORY_ENTRIES)) {
+    trimmed[key] = value;
+  }
+  await saveGlossaryHistory(app, pluginDir, trimmed);
+  return trimmed;
+}
+async function clearGlossaryHistory(app, pluginDir) {
+  await saveGlossaryHistory(app, pluginDir, {});
+}
+function sortHistoryByRecency(history) {
+  return Object.entries(history).sort((a, b) => b[1] - a[1]).map(([filePath]) => filePath);
+}
+
+// src/views/glossaryPaletteView.ts
+var CATEGORY_ICONS = {
+  character: "\u{1F468}",
+  location: "\u{1F30F}",
+  glossary: "\u{1F4D9}",
+  organization: "\u{1F3E2}",
+  item: "\u{1F4E6}"
+};
+function iconForTag(tag) {
+  var _a;
+  return (_a = CATEGORY_ICONS[tag]) != null ? _a : "\u{1F4D7}";
+}
+function fileBaseName(filePath) {
+  var _a;
+  const last = (_a = filePath.split("/").pop()) != null ? _a : filePath;
+  return last.replace(/\.md$/, "");
+}
+var GlossaryPaletteView = class {
+  constructor(rootEl, categories, recentFilePaths, allTerms, callbacks, chromeless = false) {
+    this.rootEl = rootEl;
+    this.categories = categories;
+    this.recentFilePaths = recentFilePaths;
+    this.allTerms = allTerms;
+    this.callbacks = callbacks;
+    this.chromeless = chromeless;
+    this.closeBtn = null;
+    this.path = [{ kind: "root" }];
+    // フォーカス直後の短い猶予期間（この時刻までのinputイベントは無視する）
+    this.ignoreInputUntil = 0;
+    this.query = "";
+    this.rows = [];
+    this.selectedIndex = 0;
+    this.buildSkeleton();
+    this.render();
+  }
+  // ─────────────────────────────────────────
+  // 骨組み構築（一度だけ）
+  // ─────────────────────────────────────────
+  buildSkeleton() {
+    this.rootEl.addClass(this.chromeless ? "nn-glossary-palette-content" : "nn-glossary-palette");
+    this.headerEl = this.rootEl.createDiv({ cls: "nn-glossary-header" });
+    this.headerEl.addEventListener("mousedown", () => {
+      const active = this.rootEl.ownerDocument.activeElement;
+      if (active === this.searchInputEl) {
+        this.searchInputEl.blur();
+      }
+    });
+    this.backBtn = this.headerEl.createEl("button", {
+      text: "\u2190",
+      cls: "nn-glossary-back-btn",
+      attr: { "aria-label": "\u89AA\u968E\u5C64\u3078\u623B\u308B" }
+    });
+    this.backBtn.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.navigateBack();
+    });
+    this.breadcrumbEl = this.headerEl.createDiv({ cls: "nn-glossary-breadcrumb" });
+    if (!this.chromeless) {
+      this.closeBtn = this.headerEl.createEl("button", {
+        text: "\u2715",
+        cls: "nn-glossary-close-btn",
+        attr: { "aria-label": "\u30D1\u30EC\u30C3\u30C8\u3092\u9589\u3058\u308B" }
+      });
+      this.closeBtn.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this.callbacks.onClose();
+      });
+    }
+    const searchWrap = this.rootEl.createDiv({ cls: "nn-glossary-search-wrap" });
+    this.searchInputEl = searchWrap.createEl("input", {
+      type: "text",
+      placeholder: "\u691C\u7D22\uFF08\u7528\u8A9E\u540D\u30FB\u5225\u540D\u3067\u7D5E\u308A\u8FBC\u307F\uFF09",
+      cls: "nn-glossary-search-input"
+    });
+    this.searchClearBtn = searchWrap.createEl("button", {
+      text: "\u2715",
+      cls: "nn-glossary-search-clear-btn",
+      attr: { "aria-label": "\u691C\u7D22\u6587\u5B57\u3092\u30AF\u30EA\u30A2" }
+    });
+    this.searchClearBtn.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.searchInputEl.value = "";
+      this.setQuery("");
+      this.searchInputEl.focus();
+    });
+    this.searchInputEl.addEventListener("input", () => {
+      if (Date.now() < this.ignoreInputUntil) {
+        this.searchInputEl.value = "";
+        return;
+      }
+      this.setQuery(this.searchInputEl.value);
+    });
+    this.searchInputEl.addEventListener("keydown", (e) => {
+      switch (e.key) {
+        case "ArrowDown":
+          e.preventDefault();
+          this.moveSelection(1);
+          break;
+        case "ArrowUp":
+          e.preventDefault();
+          this.moveSelection(-1);
+          break;
+        case "ArrowRight":
+          if (this.searchInputEl.selectionStart === this.searchInputEl.value.length && this.searchInputEl.selectionEnd === this.searchInputEl.value.length) {
+            e.preventDefault();
+            this.navigateInto();
+          }
+          break;
+        case "ArrowLeft":
+          if (this.searchInputEl.selectionStart === 0 && this.searchInputEl.selectionEnd === 0) {
+            e.preventDefault();
+            this.navigateBack();
+          }
+          break;
+        case "Enter":
+          e.preventDefault();
+          this.confirmSelection();
+          break;
+        case "Escape":
+          e.preventDefault();
+          this.callbacks.onClose();
+          break;
+        default:
+          break;
+      }
+    });
+    this.listEl = this.rootEl.createDiv({ cls: "nn-glossary-list" });
+    this.listEl.addEventListener("mousedown", (e) => {
+      if (e.target !== this.listEl) return;
+      const active = this.rootEl.ownerDocument.activeElement;
+      if (active === this.searchInputEl) this.searchInputEl.blur();
+    });
+    this.footerEl = this.rootEl.createDiv({ cls: "nn-glossary-footer" });
+    this.footerEl.addEventListener("mousedown", (e) => {
+      if (e.target !== this.footerEl) return;
+      const active = this.rootEl.ownerDocument.activeElement;
+      if (active === this.searchInputEl) this.searchInputEl.blur();
+    });
+    this.insertBtn = this.footerEl.createEl("button", {
+      text: "\u5165\u529B",
+      cls: "nn-glossary-insert-btn"
+    });
+    this.insertBtn.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.confirmSelection();
+    });
+  }
+  /** 検索入力欄にフォーカスを移す（開いた直後に呼ぶ） */
+  focusInput() {
+    this.ignoreInputUntil = Date.now() + 200;
+    this.searchInputEl.focus();
+    this.searchInputEl.value = "";
+  }
+  // ─────────────────────────────────────────
+  // 外部からの入力（CM6側から呼ばれる）
+  // ─────────────────────────────────────────
+  /** トリガー文字以降に入力された文字列（検索クエリ）を反映する */
+  setQuery(query) {
+    this.query = query;
+    this.selectedIndex = 0;
+    this.render();
+  }
+  moveSelection(delta) {
+    if (this.rows.length === 0) return;
+    this.selectedIndex = Math.min(
+      Math.max(this.selectedIndex + delta, 0),
+      this.rows.length - 1
+    );
+    this.renderList();
+  }
+  /** → キー、または非leaf行でのEnter/クリック */
+  navigateInto() {
+    const row = this.rows[this.selectedIndex];
+    if (row == null ? void 0 : row.navigate) row.navigate();
+  }
+  /** ← キー */
+  navigateBack() {
+    if (this.query.trim().length > 0) return;
+    if (this.path.length <= 1) return;
+    this.path.pop();
+    this.selectedIndex = 0;
+    this.render();
+  }
+  /**
+   * Enter キー、または入力ボタン。
+   *
+   * 常に選択中の行の insertText をそのまま入力する。
+   * 以前は「非leaf行なら代わりに階層移動する」というフォールバックが
+   * あったが、これだと「フォルダ名そのものを文字として入力したい」
+   * という操作ができず、かつ「入力ボタンで階層移動してしまう」という
+   * 分かりにくい挙動になっていたため廃止した。階層移動は行の
+   * クリック、または →キー（navigateInto）でのみ行う。
+   */
+  confirmSelection() {
+    var _a;
+    const row = this.rows[this.selectedIndex];
+    if (!row || row.disabled) return;
+    this.callbacks.onInsert(row.insertText, (_a = row.filePath) != null ? _a : "");
+  }
+  destroy() {
+  }
+  /**
+   * パレット全体に許容される高さ（px）を渡し、ヘッダー・フッターの
+   * 実測高さを差し引いた残りをリスト部分の高さ上限として設定する。
+   * flexboxの縮小計算に任せきりにせず明示的に計算することで、
+   * 用語数が多い場合でも入力ボタン（フッター）が必ず見える範囲に
+   * 収まるようにする（モバイルでソフトキーボードにより
+   * 表示領域が狭い場合の対策）。
+   */
+  setListMaxHeight(totalHeightPx) {
+    const headerH = this.headerEl.getBoundingClientRect().height;
+    const footerH = this.footerEl.getBoundingClientRect().height;
+    const listMax = Math.max(60, totalHeightPx - headerH - footerH - 4);
+    this.listEl.style.maxHeight = `${listMax}px`;
+  }
+  // ─────────────────────────────────────────
+  // 階層移動
+  // ─────────────────────────────────────────
+  push(segment) {
+    this.path.push(segment);
+    this.selectedIndex = 0;
+    this.render();
+  }
+  currentSegment() {
+    return this.path[this.path.length - 1];
+  }
+  // ─────────────────────────────────────────
+  // 行の生成
+  // ─────────────────────────────────────────
+  row(icon, label, navigate) {
+    return { icon, label, insertText: label, navigate };
+  }
+  emptyRow(label) {
+    return { icon: "\u2026", label, insertText: "", disabled: true };
+  }
+  termFileRow(term) {
+    const candidates = this.notationCandidates(term);
+    if (candidates.length === 1) {
+      const only = candidates[0];
+      return {
+        icon: only.icon,
+        label: only.label,
+        insertText: only.label,
+        filePath: term.filePath
+      };
+    }
+    const fileName = fileBaseName(term.filePath);
+    return {
+      icon: "\u{1F4C4}",
+      label: fileName,
+      insertText: fileName,
+      filePath: term.filePath,
+      navigate: () => this.push({ kind: "term", term })
+    };
+  }
+  /**
+   * 用語ファイル1件から「表記候補」（ファイル名／name／aliases）を組み立てる。
+   * name がファイル名と同じ場合は🪪行を省略する（重複表示回避）。
+   */
+  notationCandidates(term) {
+    const base = fileBaseName(term.filePath);
+    const list = [{ icon: "\u{1F4C4}", label: base }];
+    if (term.name && term.name !== base) {
+      list.push({ icon: "\u{1FAAA}", label: term.name });
+    }
+    for (const alias of term.aliases) {
+      if (alias) list.push({ icon: "\u{1F3F7}", label: alias });
+    }
+    return list;
+  }
+  computeSearchRows(query) {
+    const groups = [];
+    for (const term of this.allTerms) {
+      const matched = this.notationCandidates(term).filter((c) => c.label.includes(query));
+      if (matched.length > 0) {
+        groups.push({
+          sortKey: term.name || fileBaseName(term.filePath),
+          term,
+          matched
+        });
+      }
+    }
+    groups.sort((a, b) => a.sortKey.localeCompare(b.sortKey, "ja"));
+    const rows = [];
+    for (const { term, matched } of groups) {
+      for (const c of matched) {
+        rows.push({
+          icon: c.icon,
+          label: c.label,
+          insertText: c.label,
+          filePath: term.filePath
+        });
+      }
+    }
+    if (rows.length === 0) rows.push(this.emptyRow("\u4E00\u81F4\u3059\u308B\u7528\u8A9E\u304C\u3042\u308A\u307E\u305B\u3093"));
+    return rows;
+  }
+  computeRowsForSegment(segment) {
+    switch (segment.kind) {
+      case "root":
+        return [
+          this.row("\u{1F552}", "\u6700\u8FD1\u4F7F\u3063\u305F", () => this.push({ kind: "recent" })),
+          this.row("\u{1F4C2}", "\u30AB\u30C6\u30B4\u30EA", () => this.push({ kind: "category-list" })),
+          this.row("\u{1F50D}", "\u3059\u3079\u3066", () => this.push({ kind: "all" }))
+        ];
+      case "recent": {
+        const terms = this.recentFilePaths.map((fp) => this.allTerms.find((t) => t.filePath === fp)).filter((t) => !!t);
+        if (terms.length === 0) return [this.emptyRow("\u6700\u8FD1\u4F7F\u3063\u305F\u7528\u8A9E\u306F\u3042\u308A\u307E\u305B\u3093")];
+        return terms.map((t) => this.termFileRow(t));
+      }
+      case "category-list": {
+        if (this.categories.length === 0) return [this.emptyRow("\u7528\u8A9E\u304C\u767B\u9332\u3055\u308C\u3066\u3044\u307E\u305B\u3093")];
+        return this.categories.map(
+          (cat) => this.row(iconForTag(cat.tag), cat.label, () => this.push({ kind: "category", node: cat }))
+        );
+      }
+      case "all":
+        return this.computeSearchRows(this.query.trim());
+      case "category": {
+        const rows = [];
+        for (const child of segment.node.tree.children) {
+          rows.push(
+            this.row(
+              "\u{1F4C1}",
+              child.name,
+              () => this.push({ kind: "folder", node: child, categoryNode: segment.node })
+            )
+          );
+        }
+        for (const term of segment.node.tree.terms) rows.push(this.termFileRow(term));
+        if (rows.length === 0) return [this.emptyRow("\u3053\u306E\u30AB\u30C6\u30B4\u30EA\u306B\u7528\u8A9E\u304C\u3042\u308A\u307E\u305B\u3093")];
+        return rows;
+      }
+      case "folder": {
+        const rows = [];
+        for (const child of segment.node.children) {
+          rows.push(
+            this.row(
+              "\u{1F4C1}",
+              child.name,
+              () => this.push({ kind: "folder", node: child, categoryNode: segment.categoryNode })
+            )
+          );
+        }
+        for (const term of segment.node.terms) rows.push(this.termFileRow(term));
+        if (rows.length === 0) return [this.emptyRow("\u3053\u306E\u30D5\u30A9\u30EB\u30C0\u306B\u7528\u8A9E\u304C\u3042\u308A\u307E\u305B\u3093")];
+        return rows;
+      }
+      case "term":
+        return this.notationCandidates(segment.term).map((c) => ({
+          icon: c.icon,
+          label: c.label,
+          insertText: c.label,
+          filePath: segment.term.filePath
+        }));
+    }
+  }
+  // ─────────────────────────────────────────
+  // 描画
+  // ─────────────────────────────────────────
+  render() {
+    this.rows = this.query.trim().length > 0 ? this.computeSearchRows(this.query.trim()) : this.computeRowsForSegment(this.currentSegment());
+    if (this.selectedIndex >= this.rows.length) {
+      this.selectedIndex = Math.max(0, this.rows.length - 1);
+    }
+    this.renderBreadcrumb();
+    this.renderList();
+  }
+  labelFor(segment) {
+    switch (segment.kind) {
+      case "root":
+        return "\u7528\u8A9E\u5165\u529B\u30D1\u30EC\u30C3\u30C8";
+      case "recent":
+        return "\u{1F552} \u6700\u8FD1\u4F7F\u3063\u305F";
+      case "category-list":
+        return "\u{1F4C2} \u30AB\u30C6\u30B4\u30EA";
+      case "all":
+        return "\u{1F50D} \u3059\u3079\u3066\uFF08\u5165\u529B\u3057\u3066\u7D5E\u308A\u8FBC\u307F\uFF09";
+      case "category":
+        return `${iconForTag(segment.node.tag)} ${segment.node.label}`;
+      case "folder":
+        return `\u{1F4C1} ${segment.node.name}`;
+      case "term":
+        return `\u{1F4C4} ${fileBaseName(segment.term.filePath)}`;
+    }
+  }
+  renderBreadcrumb() {
+    this.breadcrumbEl.empty();
+    const isSearching = this.query.trim().length > 0;
+    if (isSearching) {
+      this.breadcrumbEl.createSpan({
+        text: `\u{1F50D} ${this.query.trim()}`,
+        cls: "nn-glossary-crumb"
+      });
+    } else {
+      this.path.forEach((segment, i) => {
+        if (i > 0) {
+          this.breadcrumbEl.createSpan({ text: " \u203A ", cls: "nn-glossary-crumb-sep" });
+        }
+        const crumb = this.breadcrumbEl.createSpan({
+          text: this.labelFor(segment),
+          cls: "nn-glossary-crumb"
+        });
+        if (i < this.path.length - 1) {
+          crumb.addClass("is-clickable");
+          crumb.addEventListener("mousedown", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            this.path = this.path.slice(0, i + 1);
+            this.selectedIndex = 0;
+            this.render();
+          });
+        }
+      });
+    }
+    const canGoBack = !isSearching && this.path.length > 1;
+    this.backBtn.toggleClass("is-disabled", !canGoBack);
+    this.backBtn.disabled = !canGoBack;
+  }
+  renderList() {
+    this.listEl.empty();
+    this.rows.forEach((row, i) => {
+      const rowEl = this.listEl.createDiv({
+        cls: "nn-glossary-row" + (i === this.selectedIndex ? " is-selected" : "") + (row.disabled ? " is-disabled" : "")
+      });
+      rowEl.createSpan({ text: row.icon, cls: "nn-glossary-row-icon" });
+      rowEl.createSpan({ text: row.label, cls: "nn-glossary-row-label" });
+      if (row.navigate) rowEl.createSpan({ text: "\u203A", cls: "nn-glossary-row-arrow" });
+      if (row.disabled) return;
+      rowEl.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this.selectedIndex = i;
+        if (row.navigate) {
+          row.navigate();
+          return;
+        }
+        this.renderList();
+      });
+    });
+    const selectedEl = this.listEl.children[this.selectedIndex];
+    selectedEl == null ? void 0 : selectedEl.scrollIntoView({ block: "nearest" });
+    const selectedRow = this.rows[this.selectedIndex];
+    const canInsert = !!selectedRow && !selectedRow.disabled;
+    this.insertBtn.disabled = !canInsert;
+  }
+};
+
+// src/views/glossaryPaletteModal.ts
+var import_obsidian12 = require("obsidian");
+var GlossaryPaletteModal = class extends import_obsidian12.Modal {
+  constructor(app, categories, recentFilePaths, allTerms, callbacks) {
+    super(app);
+    this.categories = categories;
+    this.recentFilePaths = recentFilePaths;
+    this.allTerms = allTerms;
+    this.callbacks = callbacks;
+    this.paletteView = null;
+  }
+  onOpen() {
+    const { contentEl, modalEl, containerEl } = this;
+    contentEl.empty();
+    modalEl.addClass("nn-glossary-modal", "nn-mobile-top-modal");
+    containerEl.addClass("nn-mobile-top-modal-container");
+    this.paletteView = new GlossaryPaletteView(
+      contentEl,
+      this.categories,
+      this.recentFilePaths,
+      this.allTerms,
+      {
+        // 挿入自体は呼び出し元（editor/glossaryPalette.ts）に任せる。
+        // 呼び出し元の commitInsert() が closePalette() 経由で
+        // このModalの close() を呼ぶため、ここで自ら close() する
+        // 必要はない（二重に閉じようとしても closePalette() 側の
+        // ガードで無害化される設計になっている）。
+        onInsert: (text, filePath) => this.callbacks.onInsert(text, filePath),
+        onClose: () => this.close()
+      },
+      true
+      // chromeless: Modal自身が背景・枠線・影を持つため、二重にしない
+    );
+  }
+  onClose() {
+    var _a;
+    (_a = this.paletteView) == null ? void 0 : _a.destroy();
+    this.paletteView = null;
+    this.contentEl.empty();
+    this.callbacks.onClose();
+  }
+};
+
+// src/editor/glossaryPalette.ts
+var POPUP_ESTIMATED_HEIGHT = 320;
+function findFileForView(app, view) {
+  const ref = { file: null };
+  app.workspace.iterateAllLeaves((leaf) => {
+    if (ref.file) return;
+    if (leaf.view instanceof import_obsidian13.MarkdownView) {
+      const cm = leaf.view.editor.cm;
+      if (cm === view) ref.file = leaf.view.file;
+    }
+  });
+  return ref.file;
+}
+function isPaletteAllowed(scope, isNovelMode, file, app, tagDefinitions) {
+  if (scope === "all") return true;
+  if (isNovelMode) return true;
+  if (scope === "novelOnly") return false;
+  if (!file) return false;
+  const cache = app.metadataCache.getFileCache(file);
+  return matchTermTag(cache == null ? void 0 : cache.frontmatter, tagDefinitions) !== null;
+}
+function buildGlossaryPaletteExtension(deps) {
+  class GlossaryPalettePlugin {
+    constructor(view) {
+      this.isOpen = false;
+      this.triggerPos = 0;
+      // 0: 手動起動（起点に文字は存在しない、純粋な挿入）
+      // 1: トリガー文字が実在する（確定時にその1文字を置き換える）
+      this.triggerCharLength = 0;
+      // デスクトップ：カーソル追従ポップアップ
+      this.popupEl = null;
+      this.paletteView = null;
+      // 一度決めた表示位置（左上の起点）を、内容の行数変化で動かさないためのフラグ。
+      this.popupPositioned = false;
+      // パレット外クリックで閉じるためのリスナー（デスクトップのみ）。
+      // 閉じる際に確実に解除する。
+      this.outsideClickHandler = null;
+      this.outsideClickDoc = null;
+      // モバイル：Obsidian標準Modal
+      this.paletteModal = null;
+      this.historyCache = {};
+      this.historyLoaded = false;
+      this.view = view;
+      void this.ensureHistoryLoaded();
+    }
+    async ensureHistoryLoaded() {
+      if (this.historyLoaded) return;
+      this.historyCache = await loadGlossaryHistory(deps.app, deps.pluginDir);
+      this.historyLoaded = true;
+    }
+    update(update) {
+      if (!update.docChanged) return;
+      if (this.isOpen) return;
+      try {
+        this.maybeTrigger(update);
+      } catch (e) {
+        console.error("[Novels Note JP] \u7528\u8A9E\u5165\u529B\u30D1\u30EC\u30C3\u30C8\u306E\u8D77\u52D5\u5224\u5B9A\u3067\u30A8\u30E9\u30FC\u304C\u767A\u751F\u3057\u307E\u3057\u305F\u3002", e);
+      }
+    }
+    destroy() {
+      this.closePalette();
+    }
+    // ─────────────────────────────────────────
+    // 手動起動（コマンドパレット／ホットキー／モバイルツールバーから）
+    //
+    // ─────────────────────────────────────────
+    // 手動起動（コマンドパレット／ホットキー／モバイルツールバーから）
+    //
+    // 起動範囲設定（原稿ノートのみ等）は、トリガー文字での起動と
+    // 完全に同じ基準を適用する（以前は「明示的な操作だから常に許可」
+    // としていたが、設定と実際の挙動が一致せず分かりにくいという
+    // フィードバックを受けて統一した）。
+    // ─────────────────────────────────────────
+    openManually() {
+      var _a;
+      if (this.isOpen) return;
+      const settings = deps.getSettings();
+      if (!settings.glossaryPaletteEnabled) {
+        new import_obsidian13.Notice("\u7528\u8A9E\u5165\u529B\u30D1\u30EC\u30C3\u30C8\u306F\u8A2D\u5B9A\u3067\u7121\u52B9\u306B\u306A\u3063\u3066\u3044\u307E\u3059\u3002");
+        return;
+      }
+      const sel = this.view.state.selection.main;
+      if (!sel.empty) {
+        new import_obsidian13.Notice("\u30C6\u30AD\u30B9\u30C8\u3092\u9078\u629E\u3057\u305F\u72B6\u614B\u3067\u306F\u5B9F\u884C\u3067\u304D\u307E\u305B\u3093\u3002\u30AB\u30FC\u30BD\u30EB\u3092\u7F6E\u3044\u3066\u304B\u3089\u304A\u8A66\u3057\u304F\u3060\u3055\u3044\u3002");
+        return;
+      }
+      const file = findFileForView(deps.app, this.view);
+      const isNovel = (_a = this.view.state.field(novelModeField, false)) != null ? _a : false;
+      const allowed = isPaletteAllowed(settings.glossaryPaletteScope, isNovel, file, deps.app, deps.getTagDefinitions());
+      if (!allowed) {
+        new import_obsidian13.Notice("\u3053\u306E\u30CE\u30FC\u30C8\u3067\u306F\u8D77\u52D5\u7BC4\u56F2\u306E\u8A2D\u5B9A\u306B\u3088\u308A\u7528\u8A9E\u5165\u529B\u30D1\u30EC\u30C3\u30C8\u3092\u5229\u7528\u3067\u304D\u307E\u305B\u3093\u3002");
+        return;
+      }
+      this.openPalette(this.view, sel.head, file, 0);
+    }
+    resetHistoryCache() {
+      this.historyCache = {};
+    }
+    // ─────────────────────────────────────────
+    // トリガー検出
+    // ─────────────────────────────────────────
+    maybeTrigger(update) {
+      var _a;
+      const settings = deps.getSettings();
+      if (!settings.glossaryPaletteEnabled) return;
+      const trigger = settings.glossaryPaletteTrigger;
+      if (!trigger) return;
+      const sel = update.state.selection.main;
+      if (!sel.empty) return;
+      const pos = sel.head;
+      if (pos === 0) return;
+      let triggerInserted = false;
+      update.changes.iterChanges((_fromA, _toA, _fromB, toB, inserted) => {
+        if (toB === pos && inserted.toString() === trigger) triggerInserted = true;
+      });
+      if (!triggerInserted) return;
+      const file = findFileForView(deps.app, update.view);
+      const isNovel = (_a = update.view.state.field(novelModeField, false)) != null ? _a : false;
+      const allowed = isPaletteAllowed(settings.glossaryPaletteScope, isNovel, file, deps.app, deps.getTagDefinitions());
+      if (!allowed) {
+        return;
+      }
+      this.openPalette(update.view, pos - 1, file, 1);
+    }
+    // ─────────────────────────────────────────
+    // 開閉
+    // ─────────────────────────────────────────
+    openPalette(view, triggerPos, file, triggerCharLength) {
+      var _a;
+      void this.ensureHistoryLoaded();
+      this.isOpen = true;
+      this.triggerPos = triggerPos;
+      this.triggerCharLength = triggerCharLength;
+      const terms = deps.getTerms();
+      const categories = buildCategoryTree(terms, deps.getTagDefinitions());
+      const recentFilePaths = sortHistoryByRecency(this.historyCache).filter(
+        (fp) => terms.some((t) => t.filePath === fp)
+      );
+      const callbacks = {
+        onInsert: (text, filePath) => this.commitInsert(text, filePath),
+        onClose: () => this.closePalette()
+      };
+      if (import_obsidian13.Platform.isMobile) {
+        this.paletteModal = new GlossaryPaletteModal(deps.app, categories, recentFilePaths, terms, callbacks);
+        this.paletteModal.open();
+        return;
+      }
+      this.popupPositioned = false;
+      const doc = view.dom.ownerDocument;
+      this.popupEl = doc.body.createDiv({ cls: "nn-glossary-palette-anchor" });
+      this.paletteView = new GlossaryPaletteView(this.popupEl, categories, recentFilePaths, terms, callbacks);
+      this.reposition();
+      const win = (_a = doc.defaultView) != null ? _a : window;
+      win.setTimeout(() => {
+        var _a2;
+        try {
+          if (this.isOpen) (_a2 = this.paletteView) == null ? void 0 : _a2.focusInput();
+        } catch (e) {
+          console.error("[Novels Note JP] \u7528\u8A9E\u5165\u529B\u30D1\u30EC\u30C3\u30C8\uFF1A\u30D5\u30A9\u30FC\u30AB\u30B9\u51E6\u7406\u3067\u30A8\u30E9\u30FC\u304C\u767A\u751F\u3057\u307E\u3057\u305F\u3002", e);
+        }
+      }, 0);
+      this.outsideClickDoc = doc;
+      this.outsideClickHandler = (e) => {
+        try {
+          if (this.popupEl && !this.popupEl.contains(e.target)) {
+            this.closePalette();
+          }
+        } catch (err) {
+          console.error("[Novels Note JP] \u7528\u8A9E\u5165\u529B\u30D1\u30EC\u30C3\u30C8\uFF1A\u5916\u5074\u30AF\u30EA\u30C3\u30AF\u5224\u5B9A\u3067\u30A8\u30E9\u30FC\u304C\u767A\u751F\u3057\u307E\u3057\u305F\u3002", err);
+        }
+      };
+      win.setTimeout(() => {
+        try {
+          if (this.outsideClickHandler) {
+            doc.addEventListener("mousedown", this.outsideClickHandler);
+          }
+        } catch (e) {
+          console.error("[Novels Note JP] \u7528\u8A9E\u5165\u529B\u30D1\u30EC\u30C3\u30C8\uFF1A\u5916\u5074\u30AF\u30EA\u30C3\u30AF\u30EA\u30B9\u30CA\u30FC\u767B\u9332\u3067\u30A8\u30E9\u30FC\u304C\u767A\u751F\u3057\u307E\u3057\u305F\u3002", e);
+        }
+      }, 0);
+    }
+    closePalette() {
+      var _a, _b, _c;
+      if (!this.isOpen && !this.popupEl && !this.paletteModal) return;
+      this.isOpen = false;
+      this.popupPositioned = false;
+      if (this.outsideClickHandler) {
+        (_a = this.outsideClickDoc) == null ? void 0 : _a.removeEventListener("mousedown", this.outsideClickHandler);
+        this.outsideClickHandler = null;
+        this.outsideClickDoc = null;
+      }
+      (_b = this.paletteView) == null ? void 0 : _b.destroy();
+      this.paletteView = null;
+      (_c = this.popupEl) == null ? void 0 : _c.remove();
+      this.popupEl = null;
+      if (this.paletteModal) {
+        const modal = this.paletteModal;
+        this.paletteModal = null;
+        modal.close();
+      }
+      this.view.focus();
+    }
+    // ─────────────────────────────────────────
+    // 座標計算（デスクトップのフローティングポップアップのみ）
+    //
+    // 重要：CM6は「update()サイクルの最中に coordsAtPos 等の
+    // レイアウト測定を行うこと」を禁止しており、違反すると
+    // "Reading the editor layout isn't allowed during an update"
+    // という例外を投げる（実機ログで確認済み）。トリガー文字
+    // （"/"等）の入力はCM6のupdate()サイクルの中で処理されるため、
+    // その中から直接 coordsAtPos を呼ぶことはできない。
+    // そのため、CM6が公式に提供している requestMeasure() を使い、
+    // 「読み取り（read）」と「書き込み（write）」を正しいフェーズに
+    // 分離して実行する。
+    //
+    // 「左上を起点とする」ため、位置は開いた瞬間に一度だけ決定し、
+    // 以降検索結果の増減で行数が変わっても top/left は動かさない
+    // （bottom基準で配置すると、内容の高さが変わるたびに上端＝
+    //  パンくずの位置が上下してしまい視線が泳ぐため、必ずtop基準で
+    //  配置する）。横方向も画面右端で切れないようクランプする。
+    // ─────────────────────────────────────────
+    reposition() {
+      if (!this.popupEl) return;
+      if (this.popupPositioned) return;
+      this.view.requestMeasure({
+        read: (view) => {
+          var _a, _b;
+          const coords = view.coordsAtPos(this.triggerPos);
+          if (!coords) return null;
+          const popupEl = this.popupEl;
+          if (!popupEl) return null;
+          const win = popupEl.ownerDocument.defaultView;
+          const vv = win == null ? void 0 : win.visualViewport;
+          const viewportBottom = vv ? vv.offsetTop + vv.height : (_a = win == null ? void 0 : win.innerHeight) != null ? _a : 800;
+          const viewportRight = vv ? vv.offsetLeft + vv.width : (_b = win == null ? void 0 : win.innerWidth) != null ? _b : 1200;
+          const popupWidth = popupEl.getBoundingClientRect().width || 280;
+          return { coords, viewportBottom, viewportRight, popupWidth };
+        },
+        write: (measured) => {
+          if (!measured || !this.popupEl) return;
+          const { coords, viewportBottom, viewportRight, popupWidth } = measured;
+          this.popupEl.style.position = "fixed";
+          this.popupEl.style.right = "";
+          this.popupEl.style.bottom = "";
+          const left = Math.max(4, Math.min(coords.left, viewportRight - popupWidth - 4));
+          this.popupEl.style.left = `${left}px`;
+          const spaceBelow = viewportBottom - coords.bottom;
+          if (spaceBelow < POPUP_ESTIMATED_HEIGHT && coords.top > POPUP_ESTIMATED_HEIGHT) {
+            this.popupEl.style.top = `${coords.top - POPUP_ESTIMATED_HEIGHT - 4}px`;
+          } else {
+            this.popupEl.style.top = `${coords.bottom + 4}px`;
+          }
+          this.popupPositioned = true;
+        }
+      });
+    }
+    // ─────────────────────────────────────────
+    // 入力確定
+    // ─────────────────────────────────────────
+    commitInsert(text, filePath) {
+      if (!text) return;
+      const view = this.view;
+      const from = this.triggerPos;
+      const to = from + this.triggerCharLength;
+      this.closePalette();
+      view.dispatch({
+        changes: { from, to, insert: text },
+        selection: { anchor: from + text.length },
+        userEvent: "input.complete"
+      });
+      if (filePath) {
+        void recordGlossaryUsage(deps.app, deps.pluginDir, filePath, this.historyCache).then((updated) => {
+          this.historyCache = updated;
+        });
+      }
+    }
+  }
+  const glossaryPaletteViewPlugin = import_view3.ViewPlugin.fromClass(GlossaryPalettePlugin);
+  return { extension: [glossaryPaletteViewPlugin], viewPlugin: glossaryPaletteViewPlugin };
+}
+
 // src/main.ts
 function hexToRgba(hex, alpha) {
   const body = hex.trim().replace(/^#/, "");
@@ -3840,7 +4850,7 @@ function areTermListsEqual(a, b) {
   }
   return true;
 }
-var NovelsNoteJP = class extends import_obsidian11.Plugin {
+var NovelsNoteJP = class extends import_obsidian14.Plugin {
   constructor() {
     super(...arguments);
     this.terms = [];
@@ -3859,11 +4869,16 @@ var NovelsNoteJP = class extends import_obsidian11.Plugin {
      * へ橋渡しするための共有ストア。詳細は editor/cursorSyncStore.ts を参照。
      */
     this.cursorSyncStore = new CursorSyncStore();
+    // 設定画面から「最近使った」履歴クリア時に、既に開いている全エディタの
+    // メモリ上キャッシュへも反映するために保持する（詳細は
+    // clearGlossaryPaletteHistory() を参照）。
+    this.glossaryPaletteBundle = null;
   }
   // ─────────────────────────────────────────
   // ロード
   // ─────────────────────────────────────────
   async onload() {
+    var _a;
     await this.loadSettings();
     this.registerExtensions(["txt"], "markdown");
     this.registerView(
@@ -3931,7 +4946,7 @@ var NovelsNoteJP = class extends import_obsidian11.Plugin {
       defaultMod: false
     });
     this.registerEditorExtension(novelModeField);
-    this.registerEditorExtension(import_view3.EditorView.lineWrapping);
+    this.registerEditorExtension(import_view4.EditorView.lineWrapping);
     this.registerEditorExtension(
       buildBracketExtension(() => this.settings)
     );
@@ -3960,9 +4975,39 @@ var NovelsNoteJP = class extends import_obsidian11.Plugin {
     this.registerEditorExtension(
       buildCursorSyncExtension(this.cursorSyncStore, this.app)
     );
+    const glossaryPaletteBundle = buildGlossaryPaletteExtension({
+      app: this.app,
+      getTerms: () => this.terms,
+      getTagDefinitions: () => this.settings.tagDefinitions,
+      getSettings: () => this.settings,
+      pluginDir: (_a = this.manifest.dir) != null ? _a : `.obsidian/plugins/${this.manifest.id}`
+    });
+    this.glossaryPaletteBundle = glossaryPaletteBundle;
+    this.registerEditorExtension(glossaryPaletteBundle.extension);
+    this.addCommand({
+      id: "open-glossary-palette",
+      name: "\u7528\u8A9E\u5165\u529B\u30D1\u30EC\u30C3\u30C8\u3092\u8D77\u52D5",
+      checkCallback: (checking) => {
+        const mdView = this.app.workspace.getActiveViewOfType(import_obsidian14.MarkdownView);
+        if (!mdView) return false;
+        if (checking) return true;
+        const cm = mdView.editor.cm;
+        if (!cm) {
+          new import_obsidian14.Notice("\u7DE8\u96C6\u753B\u9762\uFF08\u30BD\u30FC\u30B9\u30E2\u30FC\u30C9\uFF0FLive Preview\uFF09\u3067\u304A\u8A66\u3057\u304F\u3060\u3055\u3044\u3002");
+          return true;
+        }
+        const instance = cm.plugin(glossaryPaletteBundle.viewPlugin);
+        if (!instance) {
+          new import_obsidian14.Notice("\u73FE\u5728\u306E\u30A8\u30C7\u30A3\u30BF\u3067\u306F\u7528\u8A9E\u5165\u529B\u30D1\u30EC\u30C3\u30C8\u3092\u5229\u7528\u3067\u304D\u307E\u305B\u3093\u3002");
+          return true;
+        }
+        instance.openManually();
+        return true;
+      }
+    });
     this.registerEvent(
       this.app.workspace.on("editor-menu", (menu, editor, info) => {
-        if (!(info instanceof import_obsidian11.MarkdownView)) return;
+        if (!(info instanceof import_obsidian14.MarkdownView)) return;
         onEditorMenuForRuby(this.app, () => this.settings, menu, editor, info);
       })
     );
@@ -4015,7 +5060,7 @@ var NovelsNoteJP = class extends import_obsidian11.Plugin {
   registerVaultEvents() {
     this.registerEvent(
       this.app.vault.on("modify", async (file) => {
-        if (file instanceof import_obsidian11.TFile && file.extension === "md") {
+        if (file instanceof import_obsidian14.TFile && file.extension === "md") {
           await this.waitForMetadata(file);
           this.scheduleRebuild();
         }
@@ -4023,7 +5068,7 @@ var NovelsNoteJP = class extends import_obsidian11.Plugin {
     );
     this.registerEvent(
       this.app.vault.on("create", async (file) => {
-        if (file instanceof import_obsidian11.TFile && file.extension === "md") {
+        if (file instanceof import_obsidian14.TFile && file.extension === "md") {
           await this.waitForMetadata(file);
           this.scheduleRebuild();
         }
@@ -4036,7 +5081,7 @@ var NovelsNoteJP = class extends import_obsidian11.Plugin {
     );
     this.registerEvent(
       this.app.vault.on("rename", async (file) => {
-        if (file instanceof import_obsidian11.TFile && file.extension === "md") {
+        if (file instanceof import_obsidian14.TFile && file.extension === "md") {
           await this.waitForMetadata(file);
         }
         this.scheduleRebuild();
@@ -4063,7 +5108,7 @@ var NovelsNoteJP = class extends import_obsidian11.Plugin {
     this.registerEvent(
       this.app.workspace.on("active-leaf-change", (leaf) => {
         this.refreshEditors();
-        if (leaf && leaf.view instanceof import_obsidian11.MarkdownView) {
+        if (leaf && leaf.view instanceof import_obsidian14.MarkdownView) {
           this.lastActiveMarkdownLeaf = leaf;
         }
       })
@@ -4096,6 +5141,29 @@ var NovelsNoteJP = class extends import_obsidian11.Plugin {
   async saveSettings() {
     await this.saveData(this.settings);
   }
+  /**
+   * 用語入力パレットの「最近使った」履歴をすべて削除する
+   * （設定画面の「クリア」ボタンから呼ばれる）。
+   *
+   * ディスク上のファイルを削除するだけでなく、既に開いている
+   * 全エディタが保持しているメモリ上の履歴キャッシュも同時に
+   * リセットする。これが無いと、既に開いているノートでは
+   * パレットを開いた瞬間に古いキャッシュがそのまま使われてしまい、
+   * ノートを切り替えるまで「クリアされていない」ように見えてしまう。
+   */
+  async clearGlossaryPaletteHistory() {
+    var _a;
+    const pluginDir = (_a = this.manifest.dir) != null ? _a : `.obsidian/plugins/${this.manifest.id}`;
+    await clearGlossaryHistory(this.app, pluginDir);
+    const bundle = this.glossaryPaletteBundle;
+    if (!bundle) return;
+    this.app.workspace.iterateAllLeaves((leaf) => {
+      var _a2;
+      if (!(leaf.view instanceof import_obsidian14.MarkdownView)) return;
+      const cm = leaf.view.editor.cm;
+      (_a2 = cm == null ? void 0 : cm.plugin(bundle.viewPlugin)) == null ? void 0 : _a2.resetHistoryCache();
+    });
+  }
   // ─────────────────────────────────────────
   // CSS 動的生成
   //
@@ -4113,6 +5181,7 @@ var NovelsNoteJP = class extends import_obsidian11.Plugin {
   // Obsidian レビューの "Creating style elements is not allowed" に抵触しない。
   // ─────────────────────────────────────────
   applyEditorStyles() {
+    var _a;
     const s = this.settings;
     const wrapWidth = `${s.wrapColumn}em`;
     const bracketColorCss = s.bracketDefinitions.map((bd) => `.cm-editor[data-novel-mode="true"] .novel-bracket-${bd.id} { color: ${bd.color}; }`).join("\n");
@@ -4187,11 +5256,16 @@ var NovelsNoteJP = class extends import_obsidian11.Plugin {
       ${termHoverCursorCss}
       ${cursorHighlightCss}
     `;
-    if (!this.adoptedSheet) {
-      this.adoptedSheet = new CSSStyleSheet();
-      activeDocument.adoptedStyleSheets = [...activeDocument.adoptedStyleSheets, this.adoptedSheet];
+    try {
+      if (!this.adoptedSheet) {
+        const win = (_a = activeDocument.defaultView) != null ? _a : window;
+        this.adoptedSheet = new win.CSSStyleSheet();
+        activeDocument.adoptedStyleSheets = [...activeDocument.adoptedStyleSheets, this.adoptedSheet];
+      }
+      this.adoptedSheet.replaceSync(css);
+    } catch (e) {
+      console.error("[Novels Note JP] \u30A8\u30C7\u30A3\u30BF\u7528CSS\u306E\u9069\u7528\u3067\u30A8\u30E9\u30FC\u304C\u767A\u751F\u3057\u307E\u3057\u305F\u3002", e);
     }
-    this.adoptedSheet.replaceSync(css);
   }
   // ─────────────────────────────────────────
   // 用語インデックス構築
@@ -4206,7 +5280,6 @@ var NovelsNoteJP = class extends import_obsidian11.Plugin {
     var _a;
     const previousTerms = this.terms;
     this.terms = [];
-    const validTags = new Set(this.settings.tagDefinitions.map((td) => td.tag));
     const files = this.app.vault.getMarkdownFiles();
     const excludedPrefixes = ((_a = this.settings.excludeFolders) != null ? _a : []).map((f) => f.trim()).filter((f) => f.length > 0).map((f) => f.endsWith("/") ? f : f + "/");
     for (const file of files) {
@@ -4214,13 +5287,7 @@ var NovelsNoteJP = class extends import_obsidian11.Plugin {
       const cache = this.app.metadataCache.getFileCache(file);
       if (!(cache == null ? void 0 : cache.frontmatter)) continue;
       const fm = cache.frontmatter;
-      let tags = [];
-      if (Array.isArray(fm.tags)) {
-        tags = fm.tags.map((t) => String(t).replace(/^#/, ""));
-      } else if (typeof fm.tags === "string") {
-        tags = [fm.tags.replace(/^#/, "")];
-      }
-      const matchedTag = tags.find((t) => validTags.has(t));
+      const matchedTag = matchTermTag(fm, this.settings.tagDefinitions);
       if (!matchedTag) continue;
       const name = typeof fm.name === "string" && fm.name.trim() !== "" ? fm.name.trim() : file.basename;
       let aliases = [];
@@ -4255,7 +5322,7 @@ var NovelsNoteJP = class extends import_obsidian11.Plugin {
     this.app.workspace.iterateAllLeaves((leaf) => {
       var _a;
       const view = leaf.view;
-      if (view instanceof import_obsidian11.MarkdownView) {
+      if (view instanceof import_obsidian14.MarkdownView) {
         const file = (_a = view.file) != null ? _a : null;
         const isNovel = this.isNovelModeFile(file);
         const cm = view.editor.cm;
@@ -4309,7 +5376,7 @@ var NovelsNoteJP = class extends import_obsidian11.Plugin {
    */
   updateWordCount() {
     if (!this.statusBarEl) return;
-    const view = this.app.workspace.getActiveViewOfType(import_obsidian11.MarkdownView);
+    const view = this.app.workspace.getActiveViewOfType(import_obsidian14.MarkdownView);
     if (!view) {
       this.statusBarEl.setText("\u2014");
       return;
@@ -4392,7 +5459,7 @@ var NovelsNoteJP = class extends import_obsidian11.Plugin {
       name: "\u73FE\u5728\u306E\u30D5\u30A1\u30A4\u30EB\u3092\u539F\u7A3F Export \u3059\u308B",
       callback: () => {
         let file = null;
-        const mdView = this.app.workspace.getActiveViewOfType(import_obsidian11.MarkdownView);
+        const mdView = this.app.workspace.getActiveViewOfType(import_obsidian14.MarkdownView);
         if (mdView == null ? void 0 : mdView.file) {
           file = mdView.file;
         }
@@ -4403,7 +5470,7 @@ var NovelsNoteJP = class extends import_obsidian11.Plugin {
           }
         }
         if (!file) {
-          new import_obsidian11.Notice("\u30A8\u30AF\u30B9\u30DD\u30FC\u30C8\u5BFE\u8C61\u306E\u30D5\u30A1\u30A4\u30EB\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3002");
+          new import_obsidian14.Notice("\u30A8\u30AF\u30B9\u30DD\u30FC\u30C8\u5BFE\u8C61\u306E\u30D5\u30A1\u30A4\u30EB\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3002");
           return;
         }
         new ExportModal(this.app, file, this.settings.rubyStyle).open();
@@ -4423,7 +5490,7 @@ var NovelsNoteJP = class extends import_obsidian11.Plugin {
   async activateVerticalPreview() {
     const { workspace } = this.app;
     const existing = workspace.getLeavesOfType(VERTICAL_VIEW_TYPE);
-    if (import_obsidian11.Platform.isMobile) {
+    if (import_obsidian14.Platform.isMobile) {
       for (const leaf3 of existing) {
         leaf3.detach();
       }
@@ -4457,7 +5524,7 @@ var NovelsNoteJP = class extends import_obsidian11.Plugin {
     const activeLeaf = workspace.getMostRecentLeaf();
     let targetLeaf = activeLeaf;
     let targetFile = null;
-    if (activeLeaf && activeLeaf.view.getViewType() === "markdown" && activeLeaf.view.file instanceof import_obsidian11.TFile) {
+    if (activeLeaf && activeLeaf.view.getViewType() === "markdown" && activeLeaf.view.file instanceof import_obsidian14.TFile) {
       targetFile = activeLeaf.view.file;
     }
     if (!targetFile) {
@@ -4466,7 +5533,7 @@ var NovelsNoteJP = class extends import_obsidian11.Plugin {
         if (targetFile) return;
         if (leaf.view.getViewType() !== "markdown") return;
         const f = leaf.view.file;
-        if (!(f instanceof import_obsidian11.TFile)) return;
+        if (!(f instanceof import_obsidian14.TFile)) return;
         const cache2 = this.app.metadataCache.getFileCache(f);
         if (((_a2 = cache2 == null ? void 0 : cache2.frontmatter) == null ? void 0 : _a2.mode) === "novel") {
           targetFile = f;
@@ -4475,12 +5542,12 @@ var NovelsNoteJP = class extends import_obsidian11.Plugin {
       });
     }
     if (!targetFile) {
-      new import_obsidian11.Notice("\u5C0F\u8AAC\u7528\u30D3\u30E5\u30FC\u306E\u5BFE\u8C61\u5916\u3067\u3059\u3002Frontmatter \u306B mode: novel \u306E\u30D7\u30ED\u30D1\u30C6\u30A3\u3092\u8A2D\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044\u3002");
+      new import_obsidian14.Notice("\u5C0F\u8AAC\u7528\u30D3\u30E5\u30FC\u306E\u5BFE\u8C61\u5916\u3067\u3059\u3002Frontmatter \u306B mode: novel \u306E\u30D7\u30ED\u30D1\u30C6\u30A3\u3092\u8A2D\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044\u3002");
       return;
     }
     const cache = this.app.metadataCache.getFileCache(targetFile);
     if (((_a = cache == null ? void 0 : cache.frontmatter) == null ? void 0 : _a.mode) !== "novel") {
-      new import_obsidian11.Notice("\u5C0F\u8AAC\u7528\u30D3\u30E5\u30FC\u306E\u5BFE\u8C61\u5916\u3067\u3059\u3002Frontmatter \u306B mode: novel \u306E\u30D7\u30ED\u30D1\u30C6\u30A3\u3092\u8A2D\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044\u3002");
+      new import_obsidian14.Notice("\u5C0F\u8AAC\u7528\u30D3\u30E5\u30FC\u306E\u5BFE\u8C61\u5916\u3067\u3059\u3002Frontmatter \u306B mode: novel \u306E\u30D7\u30ED\u30D1\u30C6\u30A3\u3092\u8A2D\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044\u3002");
       const existing2 = workspace.getLeavesOfType(NOVEL_READING_VIEW_TYPE);
       if (existing2.length > 0) {
         void workspace.revealLeaf(existing2[0]);
@@ -4564,7 +5631,7 @@ var NovelsNoteJP = class extends import_obsidian11.Plugin {
     const stillOpen = this.app.workspace.getLeavesOfType("markdown").includes(leaf);
     if (!stillOpen) return null;
     const view = leaf.view;
-    if (view instanceof import_obsidian11.MarkdownView) {
+    if (view instanceof import_obsidian14.MarkdownView) {
       return { editor: view.editor, file: (_b = view.file) != null ? _b : null };
     }
     return null;
@@ -4585,20 +5652,20 @@ var NovelsNoteJP = class extends import_obsidian11.Plugin {
       editorCallback: (editor) => {
         const selected = editor.getSelection();
         if (!selected || selected.length === 0) {
-          new import_obsidian11.Notice("\u7528\u8A9E\u3068\u3057\u3066\u958B\u304D\u305F\u3044\u6587\u5B57\u5217\u3092\u9078\u629E\u3057\u3066\u304F\u3060\u3055\u3044\u3002");
+          new import_obsidian14.Notice("\u7528\u8A9E\u3068\u3057\u3066\u958B\u304D\u305F\u3044\u6587\u5B57\u5217\u3092\u9078\u629E\u3057\u3066\u304F\u3060\u3055\u3044\u3002");
           return;
         }
         const term = this.terms.find(
           (t) => t.name === selected || t.aliases.includes(selected)
         );
         if (!term) {
-          new import_obsidian11.Notice(`\u300C${selected}\u300D\u306B\u4E00\u81F4\u3059\u308B\u7528\u8A9E\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3002`);
+          new import_obsidian14.Notice(`\u300C${selected}\u300D\u306B\u4E00\u81F4\u3059\u308B\u7528\u8A9E\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3002`);
           return;
         }
         new TermPreviewModal(this.app, term, () => {
           const file = this.app.vault.getAbstractFileByPath(term.filePath);
-          if (!(file instanceof import_obsidian11.TFile)) {
-            new import_obsidian11.Notice("\u7528\u8A9E\u30CE\u30FC\u30C8\u306E\u8AAD\u307F\u8FBC\u307F\u306B\u5931\u6557\u3057\u307E\u3057\u305F\u3002");
+          if (!(file instanceof import_obsidian14.TFile)) {
+            new import_obsidian14.Notice("\u7528\u8A9E\u30CE\u30FC\u30C8\u306E\u8AAD\u307F\u8FBC\u307F\u306B\u5931\u6557\u3057\u307E\u3057\u305F\u3002");
             return;
           }
           void this.app.workspace.getLeaf(false).openFile(file);

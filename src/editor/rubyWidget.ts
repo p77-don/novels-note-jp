@@ -73,20 +73,24 @@ export function buildRubyExtension(getSettings: () => NovelsNoteSettings) {
       }
 
       update(update: ViewUpdate) {
-        if (
-          update.docChanged ||
-          update.viewportChanged ||
-          update.selectionSet ||
-          update.transactions.some(tr =>
-            tr.effects.some(e => e.is(settingsEffect))
-          ) ||
-          // ソースモード ⇔ ライブプレビューの切り替えでも再構築する
-          // （切り替え自体は docChanged 等を伴わないため、この判定が
-          //   ないとモード切替直後は古い描画のままになる）
-          update.startState.field(editorLivePreviewField, false) !==
-            update.state.field(editorLivePreviewField, false)
-        ) {
-          this.decorations = this.build(update.view);
+        try {
+          if (
+            update.docChanged ||
+            update.viewportChanged ||
+            update.selectionSet ||
+            update.transactions.some(tr =>
+              tr.effects.some(e => e.is(settingsEffect))
+            ) ||
+            // ソースモード ⇔ ライブプレビューの切り替えでも再構築する
+            // （切り替え自体は docChanged 等を伴わないため、この判定が
+            //   ないとモード切替直後は古い描画のままになる）
+            update.startState.field(editorLivePreviewField, false) !==
+              update.state.field(editorLivePreviewField, false)
+          ) {
+            this.decorations = this.build(update.view);
+          }
+        } catch (e) {
+          console.error("[Novels Note JP] ルビ表示の更新でエラーが発生しました。", e);
         }
       }
 

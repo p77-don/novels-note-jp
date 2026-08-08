@@ -44,6 +44,9 @@ import { NovelReadingView } from "./views/novelReadingView";
 import { WritingStatsView } from "./views/writingStatsView";
 import { onEditorMenuForRuby, registerRubyCommands } from "./editor/rubyInserter";
 import { TermPreviewModal } from "./core/termPreviewModal";
+import { matchTermTag } from "./core/termTree";
+import { buildGlossaryPaletteExtension, GlossaryPaletteBundle } from "./editor/glossaryPalette";
+import { clearGlossaryHistory } from "./core/glossaryHistory";
 
 // ─────────────────────────────────────────
 // HEXカラー → rgba() 文字列変換
@@ -117,6 +120,11 @@ export default class NovelsNoteJP extends Plugin {
    * へ橋渡しするための共有ストア。詳細は editor/cursorSyncStore.ts を参照。
    */
   private cursorSyncStore = new CursorSyncStore();
+
+  // 設定画面から「最近使った」履歴クリア時に、既に開いている全エディタの
+  // メモリ上キャッシュへも反映するために保持する（詳細は
+  // clearGlossaryPaletteHistory() を参照）。
+  private glossaryPaletteBundle: GlossaryPaletteBundle | null = null;
 
   // ─────────────────────────────────────────
   // ロード
@@ -261,6 +269,55 @@ export default class NovelsNoteJP extends Plugin {
     this.registerEditorExtension(
       buildCursorSyncExtension(this.cursorSyncStore, this.app)
     );
+
+    // ─────────────────────────────────────────
+    // 用語入力パレット：トリガー文字でカーソル位置に用語入力UIを表示する
+    // ─────────────────────────────────────────
+    const glossaryPaletteBundle = buildGlossaryPaletteExtension({
+      app: this.app,
+      getTerms: () => this.terms,
+      getTagDefinitions: () => this.settings.tagDefinitions,
+      getSettings: () => this.settings,
+      pluginDir: this.manifest.dir ?? `.obsidian/plugins/${this.manifest.id}`,
+    });
+    this.glossaryPaletteBundle = glossaryPaletteBundle;
+    this.registerEditorExtension(glossaryPaletteBundle.extension);
+
+    // トリガー文字を経由せず、コマンドパレット／ホットキー／
+    // モバイルツールバーからも起動できるようにする
+    // （仕様書「起動方法②：コマンド」に対応）。
+    //
+    // editorCallback ではなく checkCallback を使う理由：
+    // editorCallback は「呼び出せる状況でなければ黙って何もしない」
+    // ため、Reading View（プレビュー表示）中など CM6 エディタが
+    // 存在しない状況で実行された場合に、原因不明のまま
+    // "何も起きない" ように見えてしまう。checkCallback にして
+    // 自前でチェックすることで、失敗時に必ず理由を Notice で
+    // 表示できるようにする。
+    this.addCommand({
+      id: "open-glossary-palette",
+      name: "用語入力パレットを起動",
+      checkCallback: (checking: boolean) => {
+        const mdView = this.app.workspace.getActiveViewOfType(MarkdownView);
+        if (!mdView) return false;
+
+        if (checking) return true;
+
+        const cm = (mdView.editor as unknown as { cm: EditorView | undefined }).cm;
+        if (!cm) {
+          new Notice("編集画面（ソースモード／Live Preview）でお試しください。");
+          return true;
+        }
+        const instance = cm.plugin(glossaryPaletteBundle.viewPlugin);
+        if (!instance) {
+          new Notice("現在のエディタでは用語入力パレットを利用できません。");
+          return true;
+        }
+        instance.openManually();
+        return true;
+      },
+    });
+
 
     // ─────────────────────────────────────────
     // 右クリック「ルビを振る」メニュー（デスクトップ）
@@ -441,6 +498,30 @@ export default class NovelsNoteJP extends Plugin {
     await this.saveData(this.settings);
   }
 
+  /**
+   * 用語入力パレットの「最近使った」履歴をすべて削除する
+   * （設定画面の「クリア」ボタンから呼ばれる）。
+   *
+   * ディスク上のファイルを削除するだけでなく、既に開いている
+   * 全エディタが保持しているメモリ上の履歴キャッシュも同時に
+   * リセットする。これが無いと、既に開いているノートでは
+   * パレットを開いた瞬間に古いキャッシュがそのまま使われてしまい、
+   * ノートを切り替えるまで「クリアされていない」ように見えてしまう。
+   */
+  async clearGlossaryPaletteHistory(): Promise<void> {
+    const pluginDir = this.manifest.dir ?? `.obsidian/plugins/${this.manifest.id}`;
+    await clearGlossaryHistory(this.app, pluginDir);
+
+    const bundle = this.glossaryPaletteBundle;
+    if (!bundle) return;
+
+    this.app.workspace.iterateAllLeaves(leaf => {
+      if (!(leaf.view instanceof MarkdownView)) return;
+      const cm = (leaf.view.editor as unknown as { cm: EditorView | undefined }).cm;
+      cm?.plugin(bundle.viewPlugin)?.resetHistoryCache();
+    });
+  }
+
   // ─────────────────────────────────────────
   // CSS 動的生成
   //
@@ -581,11 +662,32 @@ export default class NovelsNoteJP extends Plugin {
     `;
 
     // CSSStyleSheet API で注入（style 要素不使用）
-    if (!this.adoptedSheet) {
-      this.adoptedSheet = new CSSStyleSheet();
-      activeDocument.adoptedStyleSheets = [...activeDocument.adoptedStyleSheets, this.adoptedSheet];
+    //
+    // 【重要】new CSSStyleSheet() は、そのコンストラクタ呼び出しが
+    // 実行された「レルム」に紐づいたスタイルシートを作成する。
+    // もしこのレルムが activeDocument のレルムと一致しない場合、
+    // 「Sharing constructed stylesheets in multiple documents is
+    //  not allowed」という例外が発生し、onload() 全体が失敗する
+    // （Obsidianの内部実装の変化により、プラグイン読み込み時点の
+    //  activeDocument のレルムが、素の CSSStyleSheet コンストラクタの
+    //  レルムと一致しなくなるケースが実機で確認された）。
+    // activeDocument.defaultView.CSSStyleSheet（そのウィンドウ自身の
+    // コンストラクタ）を明示的に使うことで、常に activeDocument と
+    // 同じレルムでスタイルシートを構築し、この問題を回避する。
+    //
+    // 万が一それでも失敗した場合に onload() 全体を巻き込んで
+    // プラグインが起動不能になることを防ぐため、try/catch で保護する
+    // （この場合エディタの動的CSS適用だけがスキップされる）。
+    try {
+      if (!this.adoptedSheet) {
+        const win = activeDocument.defaultView ?? window;
+        this.adoptedSheet = new win.CSSStyleSheet();
+        activeDocument.adoptedStyleSheets = [...activeDocument.adoptedStyleSheets, this.adoptedSheet];
+      }
+      this.adoptedSheet.replaceSync(css);
+    } catch (e) {
+      console.error("[Novels Note JP] エディタ用CSSの適用でエラーが発生しました。", e);
     }
-    this.adoptedSheet.replaceSync(css);
   }
 
 
@@ -601,7 +703,6 @@ export default class NovelsNoteJP extends Plugin {
   async buildTermIndex(): Promise<boolean> {
     const previousTerms = this.terms;
     this.terms = [];
-    const validTags = new Set(this.settings.tagDefinitions.map(td => td.tag));
     const files = this.app.vault.getMarkdownFiles();
 
     // 除外フォルダのリストを正規化（末尾スラッシュを統一）
@@ -618,14 +719,7 @@ export default class NovelsNoteJP extends Plugin {
       if (!cache?.frontmatter) continue;
       const fm = cache.frontmatter;
 
-      let tags: string[] = [];
-      if (Array.isArray(fm.tags)) {
-        tags = fm.tags.map((t: unknown) => String(t).replace(/^#/, ""));
-      } else if (typeof fm.tags === "string") {
-        tags = [fm.tags.replace(/^#/, "")];
-      }
-
-      const matchedTag = tags.find(t => validTags.has(t));
+      const matchedTag = matchTermTag(fm, this.settings.tagDefinitions);
       if (!matchedTag) continue;
 
       const name: string =
