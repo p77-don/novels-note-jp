@@ -1574,7 +1574,7 @@ var ConfirmDialog = class extends import_obsidian4.Modal {
     const yesBtn = btnRow.createEl("button", { text: "\u306F\u3044", cls: "mod-warning" });
     yesBtn.addEventListener("click", () => {
       this.close();
-      this.onConfirm();
+      void this.onConfirm();
     });
     const noBtn = btnRow.createEl("button", { text: "\u3044\u3044\u3048" });
     noBtn.addEventListener("click", () => this.close());
@@ -1608,7 +1608,7 @@ var NovelsNoteSettingTab = class extends import_obsidian4.PluginSettingTab {
     this.renderBracketSection(containerEl);
     this.renderGlossaryPaletteSection(containerEl);
     containerEl.scrollTop = scrollTop;
-    requestAnimationFrame(() => {
+    window.requestAnimationFrame(() => {
       containerEl.scrollTop = scrollTop;
     });
   }
@@ -2297,8 +2297,13 @@ var NovelsNoteSettingTab = class extends import_obsidian4.PluginSettingTab {
         this.plugin.refreshEditors();
       })
     );
-    new import_obsidian4.Setting(containerEl).setName("\u300C\u6700\u8FD1\u4F7F\u3063\u305F\u300D\u5C65\u6B74\u3092\u30AF\u30EA\u30A2").setDesc("\u7528\u8A9E\u5165\u529B\u30D1\u30EC\u30C3\u30C8\u306E\u300C\u6700\u8FD1\u4F7F\u3063\u305F\u300D\u306B\u8868\u793A\u3055\u308C\u308B\u5C65\u6B74\u3092\u3059\u3079\u3066\u524A\u9664\u3057\u307E\u3059\u3002\u3053\u306E\u64CD\u4F5C\u306F\u53D6\u308A\u6D88\u305B\u307E\u305B\u3093\u3002").addButton(
-      (btn) => btn.setButtonText("\u30AF\u30EA\u30A2").setWarning().onClick(() => {
+    new import_obsidian4.Setting(containerEl).setName("\u300C\u6700\u8FD1\u4F7F\u3063\u305F\u300D\u5C65\u6B74\u3092\u30AF\u30EA\u30A2").setDesc("\u7528\u8A9E\u5165\u529B\u30D1\u30EC\u30C3\u30C8\u306E\u300C\u6700\u8FD1\u4F7F\u3063\u305F\u300D\u306B\u8868\u793A\u3055\u308C\u308B\u5C65\u6B74\u3092\u3059\u3079\u3066\u524A\u9664\u3057\u307E\u3059\u3002\u3053\u306E\u64CD\u4F5C\u306F\u53D6\u308A\u6D88\u305B\u307E\u305B\u3093\u3002").addButton((btn) => {
+      if (typeof btn.setDestructive === "function") {
+        btn.setDestructive();
+      } else {
+        btn.setWarning();
+      }
+      return btn.setButtonText("\u30AF\u30EA\u30A2").onClick(() => {
         new ConfirmDialog(
           this.app,
           "\u300C\u6700\u8FD1\u4F7F\u3063\u305F\u300D\u5C65\u6B74\u3092\u3059\u3079\u3066\u524A\u9664\u3057\u307E\u3059\u3002\u3088\u308D\u3057\u3044\u3067\u3059\u304B\uFF1F",
@@ -2307,8 +2312,8 @@ var NovelsNoteSettingTab = class extends import_obsidian4.PluginSettingTab {
             new import_obsidian4.Notice("\u300C\u6700\u8FD1\u4F7F\u3063\u305F\u300D\u5C65\u6B74\u3092\u30AF\u30EA\u30A2\u3057\u307E\u3057\u305F\u3002");
           }
         ).open();
-      })
-    );
+      });
+    });
   }
 };
 
@@ -4266,7 +4271,7 @@ var GlossaryPaletteView = class {
     const headerH = this.headerEl.getBoundingClientRect().height;
     const footerH = this.footerEl.getBoundingClientRect().height;
     const listMax = Math.max(60, totalHeightPx - headerH - footerH - 4);
-    this.listEl.style.maxHeight = `${listMax}px`;
+    this.listEl.setCssStyles({ maxHeight: `${listMax}px` });
   }
   // ─────────────────────────────────────────
   // 階層移動
@@ -4785,17 +4790,21 @@ function buildGlossaryPaletteExtension(deps) {
         write: (measured) => {
           if (!measured || !this.popupEl) return;
           const { coords, viewportBottom, viewportRight, popupWidth } = measured;
-          this.popupEl.style.position = "fixed";
-          this.popupEl.style.right = "";
-          this.popupEl.style.bottom = "";
           const left = Math.max(4, Math.min(coords.left, viewportRight - popupWidth - 4));
-          this.popupEl.style.left = `${left}px`;
           const spaceBelow = viewportBottom - coords.bottom;
+          let top;
           if (spaceBelow < POPUP_ESTIMATED_HEIGHT && coords.top > POPUP_ESTIMATED_HEIGHT) {
-            this.popupEl.style.top = `${coords.top - POPUP_ESTIMATED_HEIGHT - 4}px`;
+            top = coords.top - POPUP_ESTIMATED_HEIGHT - 4;
           } else {
-            this.popupEl.style.top = `${coords.bottom + 4}px`;
+            top = coords.bottom + 4;
           }
+          this.popupEl.setCssStyles({
+            position: "fixed",
+            right: "",
+            bottom: "",
+            left: `${left}px`,
+            top: `${top}px`
+          });
           this.popupPositioned = true;
         }
       });

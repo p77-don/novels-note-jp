@@ -1392,8 +1392,11 @@
    画面上部（キーボードが占めない領域）を起点に表示する。
    用語入力パレット・用語ノート新規作成ダイアログなど、モバイルで
    使う複数のModalから共通で使う。 */
-.nn-mobile-top-modal-container {
-  align-items: flex-start !important;
+/* 併記されている .modal-container と組み合わせることで詳細度を上げ、
+   Obsidian標準スタイル（.modal-container 単体, 詳細度 0,1,0）より
+   確実に優先させる。!important は使わない。 */
+.modal-container.nn-mobile-top-modal-container {
+  align-items: flex-start;
 }
 
 .nn-mobile-top-modal {
@@ -1401,14 +1404,17 @@
 }
 
 /* 用語入力パレット固有のModal調整
-   （Obsidian標準Modalのデフォルト余白が広すぎて無駄が多いため詰める） */
-.nn-glossary-modal {
-  width: min(94vw, 420px) !important;
-  max-width: 94vw !important;
+   （Obsidian標準Modalのデフォルト余白が広すぎて無駄が多いため詰める）
+   併記されている .modal と組み合わせて詳細度を上げることで、
+   Obsidian標準スタイル（.modal 単体, 詳細度 0,1,0）より確実に
+   優先させる。!important は使わない。 */
+.modal.nn-glossary-modal {
+  width: min(94vw, 420px);
+  max-width: 94vw;
 }
 
 .nn-glossary-modal .modal-content {
-  padding: 0 !important;
+  padding: 0;
 }
 
 .nn-glossary-header {
@@ -1452,7 +1458,11 @@
 
 .nn-glossary-crumb.is-clickable {
   cursor: pointer;
-  text-decoration: underline dotted;
+  /* text-decoration の複数値ショートハンド（underline dotted）は
+     Obsidianの対象バージョンで部分サポートの警告対象となるため、
+     同じ見た目をロングハンドプロパティの組み合わせで表現する。 */
+  text-decoration-line: underline;
+  text-decoration-style: dotted;
 }
 
 .nn-glossary-crumb.is-clickable:hover {

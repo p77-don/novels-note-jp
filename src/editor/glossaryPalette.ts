@@ -420,23 +420,29 @@ export function buildGlossaryPaletteExtension(deps: GlossaryPaletteDeps): Glossa
           if (!measured || !this.popupEl) return;
           const { coords, viewportBottom, viewportRight, popupWidth } = measured;
 
-          this.popupEl.style.position = "fixed";
-          this.popupEl.style.right = "";
-          this.popupEl.style.bottom = "";
-
           const left = Math.max(4, Math.min(coords.left, viewportRight - popupWidth - 4));
-          this.popupEl.style.left = `${left}px`;
 
           const spaceBelow = viewportBottom - coords.bottom;
+          let top: number;
           if (spaceBelow < POPUP_ESTIMATED_HEIGHT && coords.top > POPUP_ESTIMATED_HEIGHT) {
             // 画面下端に近い場合は、トリガー位置の上端から見積もり高さぶん
             // 上に離れた位置を top として固定する。実際の内容がこれより
             // 低くても top は動かさず、下端側だけが伸縮する
             // （＝左上の起点は常に固定される）。
-            this.popupEl.style.top = `${coords.top - POPUP_ESTIMATED_HEIGHT - 4}px`;
+            top = coords.top - POPUP_ESTIMATED_HEIGHT - 4;
           } else {
-            this.popupEl.style.top = `${coords.bottom + 4}px`;
+            top = coords.bottom + 4;
           }
+
+          // 静的スタイル代入は obsidianmd/no-static-styles-assignment に抵触するため、
+          // setCssStyles でまとめて適用する（コミュニティプラグイン審査対応）。
+          this.popupEl.setCssStyles({
+            position: "fixed",
+            right: "",
+            bottom: "",
+            left: `${left}px`,
+            top: `${top}px`,
+          });
 
           this.popupPositioned = true;
         },

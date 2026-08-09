@@ -348,7 +348,9 @@ export class GlossaryPaletteView {
     const headerH = this.headerEl.getBoundingClientRect().height;
     const footerH = this.footerEl.getBoundingClientRect().height;
     const listMax = Math.max(60, totalHeightPx - headerH - footerH - 4);
-    this.listEl.style.maxHeight = `${listMax}px`;
+    // 静的スタイル代入は obsidianmd/no-static-styles-assignment に抵触するため、
+    // setCssStyles を使用する（コミュニティプラグイン審査対応）。
+    this.listEl.setCssStyles({ maxHeight: `${listMax}px` });
   }
 
   // ─────────────────────────────────────────

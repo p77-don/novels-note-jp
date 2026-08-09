@@ -34,7 +34,9 @@ class ConfirmDialog extends Modal {
   constructor(
     app: App,
     private message: string,
-    private onConfirm: () => void
+    // 呼び出し側で async コールバック（履歴削除など await を伴う処理）を
+    // 渡せるように、戻り値の型として void | Promise<void> の両方を許容する。
+    private onConfirm: () => void | Promise<void>
   ) {
     super(app);
   }
@@ -49,7 +51,11 @@ class ConfirmDialog extends Modal {
     const yesBtn = btnRow.createEl("button", { text: "はい", cls: "mod-warning" });
     yesBtn.addEventListener("click", () => {
       this.close();
-      this.onConfirm();
+      // onConfirm が Promise を返す場合でも、このイベントハンドラ自体は
+      // void を返せば良いため、意図的に await せず切り離す
+      // （no-misused-promises 対策）。エラーハンドリングは呼び出し側の
+      // 各コールバック内で行う。
+      void this.onConfirm();
     });
 
     const noBtn = btnRow.createEl("button", { text: "いいえ" });
@@ -102,7 +108,7 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
     // 代入だけでは反映されない場合があるため、次のフレームでも
     // 念のため設定し直す。
     containerEl.scrollTop = scrollTop;
-    requestAnimationFrame(() => {
+    window.requestAnimationFrame(() => {
       containerEl.scrollTop = scrollTop;
     });
   }
@@ -1049,9 +1055,21 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName("「最近使った」履歴をクリア")
       .setDesc("用語入力パレットの「最近使った」に表示される履歴をすべて削除します。この操作は取り消せません。")
-      .addButton(btn =>
-        btn.setButtonText("クリア")
-          .setWarning()
+      .addButton(btn => {
+        // setWarning() は非推奨（@since 1.13.0 で setDestructive() に置き換え）。
+        // ただし setDestructive() 自体も @since 1.13.0 であり、
+        // minAppVersion（1.8.7）を引き上げない方針のため型定義上は
+        // 呼べても実行時に存在しない可能性がある。
+        // そのため実行時にメソッドの有無を判定し、利用可能な環境
+        // （Obsidian 1.13.0+）では setDestructive() を、
+        // それより前のバージョンでは非推奨だが動作する setWarning() を
+        // フォールバックとして使う。
+        if (typeof btn.setDestructive === "function") {
+          btn.setDestructive();
+        } else {
+          btn.setWarning();
+        }
+        return btn.setButtonText("クリア")
           .onClick(() => {
             new ConfirmDialog(
               this.app,
@@ -1061,8 +1079,8 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
                 new Notice("「最近使った」履歴をクリアしました。");
               }
             ).open();
-          })
-      );
+          });
+      });
   }
 
 }
