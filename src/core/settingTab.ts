@@ -1055,21 +1055,20 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName("「最近使った」履歴をクリア")
       .setDesc("用語入力パレットの「最近使った」に表示される履歴をすべて削除します。この操作は取り消せません。")
-      .addButton(btn => {
-        // setWarning() は非推奨（@since 1.13.0 で setDestructive() に置き換え）。
-        // ただし setDestructive() 自体も @since 1.13.0 であり、
-        // minAppVersion（1.8.7）を引き上げない方針のため型定義上は
-        // 呼べても実行時に存在しない可能性がある。
-        // そのため実行時にメソッドの有無を判定し、利用可能な環境
-        // （Obsidian 1.13.0+）では setDestructive() を、
-        // それより前のバージョンでは非推奨だが動作する setWarning() を
-        // フォールバックとして使う。
-        if (typeof btn.setDestructive === "function") {
-          btn.setDestructive();
-        } else {
-          btn.setWarning();
-        }
-        return btn.setButtonText("クリア")
+      .addButton(btn =>
+        btn.setButtonText("クリア")
+          // setDestructive() は @since 1.13.0 のAPIであり、実行時に
+          // typeof で存在チェックするガードを書いても、Obsidianの
+          // コミュニティプラグイン審査の静的解析（obsidianmd/no-unsupported-api）
+          // はソースコード上の API 参照そのものを検出してエラーとするため
+          // 通過できない（実際に obsidianmd/no-unsupported-api で
+          // エラーになることを確認済み）。
+          // minAppVersion（1.8.7）を引き上げない方針である以上、
+          // setDestructive() への参照自体をコードに含めることができない。
+          // setWarning() は非推奨だが廃止はされておらず動作するため、
+          // こちらのみを使用する（審査では「警告」扱いに留まり、
+          // 登録のブロッカーにはならない）。
+          .setWarning()
           .onClick(() => {
             new ConfirmDialog(
               this.app,
@@ -1079,8 +1078,8 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
                 new Notice("「最近使った」履歴をクリアしました。");
               }
             ).open();
-          });
-      });
+          })
+      );
   }
 
 }
