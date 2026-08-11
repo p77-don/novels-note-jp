@@ -170,7 +170,11 @@ export default class NovelsNoteJP extends Plugin {
     // 執筆情報一覧 View 登録
     this.registerView(
       WRITING_STATS_VIEW_TYPE,
-      leaf => new WritingStatsView(leaf, () => this.buildWritingStats())
+      leaf => new WritingStatsView(
+        leaf,
+        () => this.buildWritingStats(),
+        () => this.settings.readingSpeedCharsPerMinute
+      )
     );
 
     this.addRibbonIcon("list-tree", "用語インデックスを開く", () =>
@@ -256,7 +260,7 @@ export default class NovelsNoteJP extends Plugin {
     // mode:novel のエディタ上でルビ記法をインライン描画する
     // ─────────────────────────────────────────
     this.registerEditorExtension(
-      buildRubyExtension(() => this.settings)
+      buildRubyExtension(() => this.settings, () => this.terms)
     );
 
     // ─────────────────────────────────────────
@@ -1222,7 +1226,7 @@ export default class NovelsNoteJP extends Plugin {
       if (cache?.frontmatter?.["mode"] !== "novel") continue;
 
       const source = await this.app.vault.cachedRead(file);
-      const { raw: totalChars } = countCharacters(source, this.settings);
+      const { raw: totalChars, novel: novelChars } = countCharacters(source, this.settings);
       const { narrativeChars, dialogueChars } = countNarrativeAndDialogue(source, this.settings);
 
       const slashIdx = file.path.lastIndexOf("/");
@@ -1237,6 +1241,7 @@ export default class NovelsNoteJP extends Plugin {
         totalChars,
         narrativeChars,
         dialogueChars,
+        novelChars,
       });
     }
 

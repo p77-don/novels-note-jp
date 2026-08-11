@@ -76,6 +76,8 @@ var DEFAULT_SETTINGS = {
   excludeFolders: [],
   // 執筆情報一覧 除外フォルダ
   statsExcludeFolders: [],
+  // 執筆情報一覧 推定読了時間
+  readingSpeedCharsPerMinute: 400,
   // 用語入力パレット
   glossaryPaletteEnabled: false,
   glossaryPaletteScope: "novelAndGlossary",
@@ -204,18 +206,69 @@ function convertRubyAndEscape(text, style) {
   return result;
 }
 
+// src/core/termMatcher.ts
+function findTermMatches(docText, terms, settings) {
+  if (terms.length === 0) return [];
+  const enabledTags = new Set(
+    settings.tagDefinitions.filter((td) => td.enabled).map((td) => td.tag)
+  );
+  const searchList = [];
+  for (const term of terms) {
+    if (!enabledTags.has(term.tag)) continue;
+    searchList.push({ word: term.name, cssClass: `novel-hl-${term.tag}`, filePath: term.filePath });
+    for (const alias of term.aliases) {
+      if (alias.trim().length > 0) {
+        searchList.push({ word: alias.trim(), cssClass: `novel-hl-${term.tag}`, filePath: term.filePath });
+      }
+    }
+  }
+  if (searchList.length === 0) return [];
+  searchList.sort((a, b) => b.word.length - a.word.length);
+  const docLength = docText.length;
+  const covered = new Uint8Array(docLength);
+  const matches = [];
+  for (const { word, cssClass, filePath } of searchList) {
+    if (word.length === 0) continue;
+    let pos = 0;
+    while (pos <= docLength - word.length) {
+      const idx = docText.indexOf(word, pos);
+      if (idx === -1) break;
+      let skip = false;
+      for (let i = idx; i < idx + word.length; i++) {
+        if (covered[i]) {
+          skip = true;
+          break;
+        }
+      }
+      if (!skip) {
+        matches.push({ start: idx, end: idx + word.length, cssClass, filePath });
+        for (let i = idx; i < idx + word.length; i++) covered[i] = 1;
+      }
+      pos = idx + word.length;
+    }
+  }
+  matches.sort((a, b) => a.start - b.start);
+  return matches;
+}
+
 // src/editor/rubyWidget.ts
 var RubyWidget = class extends import_view.WidgetType {
-  constructor(base, ruby) {
+  constructor(base, ruby, highlightClass) {
     super();
     this.base = base;
     this.ruby = ruby;
+    this.highlightClass = highlightClass;
   }
   eq(other) {
-    return this.base === other.base && this.ruby === other.ruby;
+    return this.base === other.base && this.ruby === other.ruby && this.highlightClass === other.highlightClass;
   }
   toDOM() {
-    const rubyEl = createEl("ruby", { cls: "nn-editor-ruby", text: this.base });
+    const rubyEl = createEl("ruby", { cls: "nn-editor-ruby" });
+    if (this.highlightClass) {
+      rubyEl.createSpan({ cls: this.highlightClass, text: this.base });
+    } else {
+      rubyEl.appendText(this.base);
+    }
     const rt = rubyEl.createEl("rt", { text: this.ruby });
     const fontSizeEm = computeRtFontSizeEm(this.base, this.ruby);
     if (fontSizeEm !== DEFAULT_RT_FONT_SIZE_EM) {
@@ -227,7 +280,7 @@ var RubyWidget = class extends import_view.WidgetType {
     return false;
   }
 };
-function buildRubyExtension(getSettings) {
+function buildRubyExtension(getSettings, getTerms) {
   return import_view.ViewPlugin.fromClass(
     class {
       constructor(view) {
@@ -263,6 +316,14 @@ function buildRubyExtension(getSettings) {
           cursorPositions.add(range.anchor);
         }
         const docText = view.state.doc.toString();
+        const terms = getTerms();
+        const termMatches = settings.highlightEnabled && terms.length > 0 ? findTermMatches(docText, terms, settings) : [];
+        const findHighlightClass = (baseFrom, baseTo) => {
+          for (const t of termMatches) {
+            if (t.start < baseTo && t.end > baseFrom) return t.cssClass;
+          }
+          return null;
+        };
         const allMatches = [];
         for (const { from: vFrom, to: vTo } of view.visibleRanges) {
           const scanFrom = Math.max(0, vFrom - 200);
@@ -294,11 +355,12 @@ function buildRubyExtension(getSettings) {
             ranges.some((r) => r.from < m.to && r.to > m.from)
           );
           if (cursorTouches) continue;
+          const highlightClass = findHighlightClass(m.baseFrom, m.baseTo);
           builder.add(
             m.from,
             m.to,
             import_view.Decoration.replace({
-              widget: new RubyWidget(m.base, m.ruby),
+              widget: new RubyWidget(m.base, m.ruby, highlightClass),
               inclusive: false
             })
           );
@@ -439,45 +501,8 @@ function buildTermExtension(app, getTerms, getSettings) {
           if (!settings.highlightEnabled) return builder.finish();
           const terms = getTerms();
           if (terms.length === 0) return builder.finish();
-          const enabledTags = new Set(
-            settings.tagDefinitions.filter((td) => td.enabled).map((td) => td.tag)
-          );
-          const searchList = [];
-          for (const term of terms) {
-            if (!enabledTags.has(term.tag)) continue;
-            searchList.push({ word: term.name, cssClass: `novel-hl-${term.tag}`, filePath: term.filePath });
-            for (const alias of term.aliases) {
-              if (alias.trim().length > 0) {
-                searchList.push({ word: alias.trim(), cssClass: `novel-hl-${term.tag}`, filePath: term.filePath });
-              }
-            }
-          }
-          searchList.sort((a, b) => b.word.length - a.word.length);
           const docText = view.state.doc.toString();
-          const docLength = docText.length;
-          const covered = new Uint8Array(docLength);
-          const matches = [];
-          for (const { word, cssClass, filePath } of searchList) {
-            if (word.length === 0) continue;
-            let pos = 0;
-            while (pos <= docLength - word.length) {
-              const idx = docText.indexOf(word, pos);
-              if (idx === -1) break;
-              let skip = false;
-              for (let i = idx; i < idx + word.length; i++) {
-                if (covered[i]) {
-                  skip = true;
-                  break;
-                }
-              }
-              if (!skip) {
-                matches.push({ start: idx, end: idx + word.length, cssClass, filePath });
-                for (let i = idx; i < idx + word.length; i++) covered[i] = 1;
-              }
-              pos = idx + word.length;
-            }
-          }
-          matches.sort((a, b) => a.start - b.start);
+          const matches = findTermMatches(docText, terms, settings);
           for (const m of matches) {
             builder.add(m.start, m.end, import_view2.Decoration.mark({
               class: m.cssClass,
@@ -1603,6 +1628,7 @@ var NovelsNoteSettingTab = class extends import_obsidian4.PluginSettingTab {
     this.renderWordCountSection(containerEl);
     this.renderExcludeFoldersSection(containerEl);
     this.renderStatsExcludeFoldersSection(containerEl);
+    this.renderReadingSpeedSection(containerEl);
     this.renderHighlightSection(containerEl);
     this.renderTagSection(containerEl);
     this.renderBracketSection(containerEl);
@@ -1851,6 +1877,23 @@ var NovelsNoteSettingTab = class extends import_obsidian4.PluginSettingTab {
     this.plugin.updateSidebar();
     this.plugin.refreshEditors();
     this.refresh();
+  }
+  // ─────────────────────────────────────────
+  // 執筆情報一覧 — 推定読了時間の読了速度設定
+  // ─────────────────────────────────────────
+  renderReadingSpeedSection(containerEl) {
+    new import_obsidian4.Setting(containerEl).setName("\u57F7\u7B46\u60C5\u5831\u4E00\u89A7 \u2014 \u63A8\u5B9A\u8AAD\u4E86\u6642\u9593").setHeading();
+    new import_obsidian4.Setting(containerEl).setName("\u8AAD\u4E86\u901F\u5EA6\uFF08\u5B57/\u5206\uFF09").setDesc(
+      "\u300C\u57F7\u7B46\u60C5\u5831\u4E00\u89A7\u300D\u306B\u8868\u793A\u3059\u308B\u63A8\u5B9A\u8AAD\u4E86\u6642\u9593\u306E\u8A08\u7B97\u306B\u4F7F\u3046\u8AAD\u66F8\u901F\u5EA6\u306E\u76EE\u5B89\u3067\u3059\u3002\u5C0F\u8AAC\u63DB\u7B97\u6587\u5B57\u6570\uFF08\u5168\u89D21\u30FB\u534A\u89D20.5\u63DB\u7B97\uFF09\u3092\u57FA\u6E96\u306B\u8A08\u7B97\u3057\u307E\u3059\u3002\u3042\u304F\u307E\u3067\u76EE\u5B89\u306E\u305F\u3081\u3001\u5B9F\u969B\u306E\u8AAD\u4E86\u6642\u9593\u3068\u306F\u5DEE\u304C\u751F\u3058\u307E\u3059\u3002\u5909\u66F4\u5F8C\u306F\u300C\u57F7\u7B46\u60C5\u5831\u4E00\u89A7\u300D\u30BF\u30D6\u306E\u300C\u518D\u96C6\u8A08\u300D\uFF08\u307E\u305F\u306F\u958B\u304D\u76F4\u3057\uFF09\u3067\u53CD\u6620\u3055\u308C\u307E\u3059\u3002"
+    ).addText(
+      (text) => text.setValue(String(this.plugin.settings.readingSpeedCharsPerMinute)).onChange(async (value) => {
+        const n = parseInt(value, 10);
+        if (!isNaN(n) && n > 0) {
+          this.plugin.settings.readingSpeedCharsPerMinute = n;
+          await this.plugin.saveSettings();
+        }
+      })
+    );
   }
   // ─────────────────────────────────────────
   // 執筆情報一覧 — 除外フォルダ設定
@@ -3563,6 +3606,53 @@ var NovelReadingView = _NovelReadingView;
 
 // src/views/writingStatsView.ts
 var import_obsidian8 = require("obsidian");
+
+// src/core/readingTime.ts
+function estimateReadingMinutes(novelChars, charsPerMinute) {
+  if (charsPerMinute <= 0 || novelChars <= 0) return 0;
+  return novelChars / charsPerMinute;
+}
+function formatReadingTime(minutes) {
+  if (!isFinite(minutes) || minutes <= 0) return "\u2014";
+  const totalMinutes = Math.round(minutes);
+  const MINUTES_PER_HOUR = 60;
+  const MINUTES_PER_DAY = 60 * 24;
+  if (totalMinutes < MINUTES_PER_HOUR) {
+    return `\u7D04${Math.max(totalMinutes, 1)}\u5206`;
+  }
+  if (totalMinutes < MINUTES_PER_DAY) {
+    const hours = Math.floor(totalMinutes / MINUTES_PER_HOUR);
+    const remMinutes = totalMinutes % MINUTES_PER_HOUR;
+    return remMinutes > 0 ? `\u7D04${hours}\u6642\u9593${remMinutes}\u5206` : `\u7D04${hours}\u6642\u9593`;
+  }
+  const days = Math.floor(totalMinutes / MINUTES_PER_DAY);
+  const remHours = Math.floor(totalMinutes % MINUTES_PER_DAY / MINUTES_PER_HOUR);
+  return remHours > 0 ? `\u7D04${days}\u65E5${remHours}\u6642\u9593` : `\u7D04${days}\u65E5`;
+}
+
+// src/core/chartScale.ts
+function computeNiceScale(maxValue, targetTickCount = 5) {
+  if (!isFinite(maxValue) || maxValue <= 0) {
+    return { max: 0, step: 0, ticks: [0] };
+  }
+  const rawStep = maxValue / targetTickCount;
+  const magnitude = Math.pow(10, Math.floor(Math.log10(rawStep)));
+  const residual = rawStep / magnitude;
+  let niceResidual;
+  if (residual > 5) niceResidual = 10;
+  else if (residual > 2) niceResidual = 5;
+  else if (residual > 1) niceResidual = 2;
+  else niceResidual = 1;
+  const step = niceResidual * magnitude;
+  const niceMax = Math.ceil(maxValue / step) * step;
+  const ticks = [];
+  for (let v = 0; v <= niceMax + step * 1e-6; v += step) {
+    ticks.push(Math.round(v));
+  }
+  return { max: niceMax, step, ticks };
+}
+
+// src/views/writingStatsView.ts
 function formatDateTime(ms) {
   const d = new Date(ms);
   const pad = (n) => n < 10 ? "0" + n : String(n);
@@ -3572,14 +3662,29 @@ function formatRatio(part, total) {
   if (total <= 0) return "\u2014";
   return `${(part / total * 100).toFixed(1)}%`;
 }
+function renderPieChart(container, narrativeChars, dialogueChars, mini) {
+  const total = narrativeChars + dialogueChars;
+  const narrativePercent = total > 0 ? narrativeChars / total * 100 : 0;
+  const pie = container.createDiv({
+    cls: "nn-stats-pie" + (mini ? " nn-stats-pie-mini" : "")
+  });
+  pie.setCssProps({
+    "--nn-pie-percent": total > 0 ? `${narrativePercent}%` : "0%"
+  });
+}
+function renderColorDot(labelEl, colorClass) {
+  labelEl.createSpan({ cls: `nn-stats-label-dot ${colorClass}` });
+}
 var WritingStatsView = class extends import_obsidian8.ItemView {
-  constructor(leaf, fetchEntries) {
+  constructor(leaf, fetchEntries, getReadingSpeed) {
     super(leaf);
     this.entries = [];
     this.sortKey = "name";
     this.sortAsc = true;
+    this.viewMode = "list";
     this.loading = true;
     this.fetchEntries = fetchEntries;
+    this.getReadingSpeed = getReadingSpeed;
   }
   getViewType() {
     return WRITING_STATS_VIEW_TYPE;
@@ -3628,6 +3733,7 @@ var WritingStatsView = class extends import_obsidian8.ItemView {
       return;
     }
     if (this.entries.length === 0) {
+      this.renderViewToggle(headerEl);
       this.renderToolbar(headerEl);
       scrollEl.createEl("p", {
         text: "mode: novel \u306E\u30CE\u30FC\u30C8\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3067\u3057\u305F\u3002\u9664\u5916\u30D5\u30A9\u30EB\u30C0\u306E\u8A2D\u5B9A\u3082\u3042\u308F\u305B\u3066\u3054\u78BA\u8A8D\u304F\u3060\u3055\u3044\u3002",
@@ -3636,8 +3742,67 @@ var WritingStatsView = class extends import_obsidian8.ItemView {
       return;
     }
     this.renderSummary(headerEl);
+    this.renderViewToggle(headerEl);
     this.renderToolbar(headerEl);
-    this.renderList(scrollEl);
+    if (this.viewMode === "list") {
+      this.renderList(scrollEl);
+    } else {
+      this.renderChart(scrollEl);
+    }
+  }
+  // ─────────────────────────────────────────
+  // 現在の並び替え条件を適用したエントリ一覧を返す
+  // （一覧表示・グラフ表示の両方から共通で利用する）
+  // ─────────────────────────────────────────
+  getSortedEntries() {
+    return [...this.entries].sort((a, b) => {
+      let cmp = 0;
+      if (this.sortKey === "name") {
+        cmp = a.fileName.localeCompare(b.fileName, "ja");
+      } else if (this.sortKey === "created") {
+        cmp = a.createdAt - b.createdAt;
+      } else if (this.sortKey === "modified") {
+        cmp = a.modifiedAt - b.modifiedAt;
+      } else {
+        cmp = a.totalChars - b.totalChars;
+      }
+      return this.sortAsc ? cmp : -cmp;
+    });
+  }
+  // ─────────────────────────────────────────
+  // 固定ヘッダー：表示切替（各原稿詳細／文字数グラフ）＋再集計ボタン
+  // 「各原稿詳細」「文字数グラフ」「再集計」の順に並べる。
+  // 再集計ボタンはモバイルでは表示領域が限られるため非表示にする
+  // （タブを開き直せば自動的に再集計されるため、実用上困らない）。
+  // ─────────────────────────────────────────
+  renderViewToggle(container) {
+    const toggle = container.createDiv({ cls: "nn-stats-viewmode-toggle" });
+    toggle.createSpan({
+      text: import_obsidian8.Platform.isMobile ? "\u8868\u793A\u5207\u66FF" : "\u8868\u793A\u5207\u66FF:",
+      cls: "nn-stats-toolbar-label"
+    });
+    const addToggleButton = (mode, label) => {
+      const isActive = this.viewMode === mode;
+      const btn = toggle.createEl("button", {
+        text: label,
+        cls: "nn-stats-viewmode-btn" + (isActive ? " nn-stats-viewmode-btn-active" : "")
+      });
+      btn.addEventListener("click", () => {
+        if (this.viewMode === mode) return;
+        this.viewMode = mode;
+        this.render();
+      });
+    };
+    addToggleButton("list", "\u5404\u539F\u7A3F\u8A73\u7D30");
+    addToggleButton("chart", "\u6587\u5B57\u6570\u30B0\u30E9\u30D5");
+    if (import_obsidian8.Platform.isMobile) return;
+    const refreshBtn = toggle.createEl("button", {
+      text: "\u518D\u96C6\u8A08",
+      cls: "nn-stats-refresh-btn"
+    });
+    refreshBtn.addEventListener("click", () => {
+      void this.reload();
+    });
   }
   // ─────────────────────────────────────────
   // 固定ヘッダー：全原稿の合計サマリー（ソート対象外・常時表示）
@@ -3647,26 +3812,42 @@ var WritingStatsView = class extends import_obsidian8.ItemView {
     let totalChars = 0;
     let narrativeChars = 0;
     let dialogueChars = 0;
+    let novelChars = 0;
     for (const e of this.entries) {
       totalChars += e.totalChars;
       narrativeChars += e.narrativeChars;
       dialogueChars += e.dialogueChars;
+      novelChars += e.novelChars;
     }
     const summary = container.createDiv({ cls: "nn-stats-summary" });
     summary.createDiv({ text: "\u5168\u539F\u7A3F\u306E\u5408\u8A08", cls: "nn-stats-summary-label" });
-    const grid = summary.createDiv({ cls: "nn-stats-summary-grid" });
-    const addMetric = (label, value) => {
+    const body = summary.createDiv({ cls: "nn-stats-summary-body" });
+    const grid = body.createDiv({ cls: "nn-stats-summary-grid" });
+    const addMetric = (label, value, dotColorClass) => {
       const metric = grid.createDiv({ cls: "nn-stats-metric" });
-      metric.createDiv({ text: label, cls: "nn-stats-metric-label" });
+      const labelEl = metric.createDiv({ cls: "nn-stats-metric-label" });
+      if (dotColorClass) renderColorDot(labelEl, dotColorClass);
+      labelEl.createSpan({ text: label });
       metric.createDiv({ text: value, cls: "nn-stats-metric-value" });
     };
+    const readingMinutes = estimateReadingMinutes(novelChars, this.getReadingSpeed());
     addMetric("\u5BFE\u8C61\u30CE\u30FC\u30C8\u6570", `${totalNotes.toLocaleString()} \u4EF6`);
     addMetric("\u57F7\u7B46\u6587\u5B57\u6570", `${totalChars.toLocaleString()} \u5B57`);
-    addMetric("\u5730\u306E\u6587", `${narrativeChars.toLocaleString()} \u5B57 (${formatRatio(narrativeChars, totalChars)})`);
-    addMetric("\u4F1A\u8A71\u6587", `${dialogueChars.toLocaleString()} \u5B57 (${formatRatio(dialogueChars, totalChars)})`);
+    addMetric("\u63A8\u5B9A\u8AAD\u4E86\u6642\u9593", formatReadingTime(readingMinutes));
+    addMetric(
+      "\u5730\u306E\u6587",
+      `${narrativeChars.toLocaleString()} \u5B57 (${formatRatio(narrativeChars, totalChars)})`,
+      "nn-stats-label-dot-narrative"
+    );
+    addMetric(
+      "\u4F1A\u8A71\u6587",
+      `${dialogueChars.toLocaleString()} \u5B57 (${formatRatio(dialogueChars, totalChars)})`,
+      "nn-stats-label-dot-dialogue"
+    );
+    renderPieChart(body, narrativeChars, dialogueChars, false);
   }
   // ─────────────────────────────────────────
-  // 固定ヘッダー：並び替えツールバー＋再集計ボタン
+  // 固定ヘッダー：並び替えツールバー
   // ─────────────────────────────────────────
   renderToolbar(container) {
     const toolbar = container.createDiv({
@@ -3695,30 +3876,13 @@ var WritingStatsView = class extends import_obsidian8.ItemView {
     addSortButton("name", "\u30D5\u30A1\u30A4\u30EB\u540D");
     addSortButton("created", "\u4F5C\u6210\u65E5\u6642");
     addSortButton("modified", "\u6700\u7D42\u66F4\u65B0\u65E5\u6642");
-    if (import_obsidian8.Platform.isMobile) return;
-    const refreshBtn = toolbar.createEl("button", {
-      text: "\u518D\u96C6\u8A08",
-      cls: "nn-stats-refresh-btn"
-    });
-    refreshBtn.addEventListener("click", () => {
-      void this.reload();
-    });
+    addSortButton("chars", "\u6587\u5B57\u6570");
   }
   // ─────────────────────────────────────────
   // スクロール領域：ファイル単位カードの一覧
   // ─────────────────────────────────────────
   renderList(container) {
-    const sorted = [...this.entries].sort((a, b) => {
-      let cmp = 0;
-      if (this.sortKey === "name") {
-        cmp = a.fileName.localeCompare(b.fileName, "ja");
-      } else if (this.sortKey === "created") {
-        cmp = a.createdAt - b.createdAt;
-      } else {
-        cmp = a.modifiedAt - b.modifiedAt;
-      }
-      return this.sortAsc ? cmp : -cmp;
-    });
+    const sorted = this.getSortedEntries();
     const list = container.createDiv({ cls: "nn-stats-list" });
     for (const entry of sorted) {
       const card = list.createDiv({ cls: "nn-stats-card" });
@@ -3740,20 +3904,96 @@ var WritingStatsView = class extends import_obsidian8.ItemView {
       row2.createDiv({ text: `\u4F5C\u6210: ${formatDateTime(entry.createdAt)}` });
       row2.createDiv({ text: `\u66F4\u65B0: ${formatDateTime(entry.modifiedAt)}` });
       const row3 = card.createDiv({ cls: "nn-stats-card-row3" });
-      const addStat = (label, text) => {
-        const stat = row3.createDiv({ cls: "nn-stats-card-stat" });
-        stat.createDiv({ text: label, cls: "nn-stats-card-stat-label" });
+      const statsCol = row3.createDiv({ cls: "nn-stats-card-stats" });
+      const addStat = (label, text, dotColorClass) => {
+        const stat = statsCol.createDiv({ cls: "nn-stats-card-stat" });
+        const labelEl = stat.createDiv({ cls: "nn-stats-card-stat-label" });
+        if (dotColorClass) renderColorDot(labelEl, dotColorClass);
+        labelEl.createSpan({ text: label });
         stat.createDiv({ text, cls: "nn-stats-card-stat-value" });
       };
+      const readingMinutes = estimateReadingMinutes(entry.novelChars, this.getReadingSpeed());
       addStat("\u57F7\u7B46\u6587\u5B57\u6570", `${entry.totalChars.toLocaleString()} \u5B57`);
+      addStat("\u63A8\u5B9A\u8AAD\u4E86\u6642\u9593", formatReadingTime(readingMinutes));
       addStat(
         "\u5730\u306E\u6587",
-        `${entry.narrativeChars.toLocaleString()} \u5B57 (${formatRatio(entry.narrativeChars, entry.totalChars)})`
+        `${entry.narrativeChars.toLocaleString()} \u5B57 (${formatRatio(entry.narrativeChars, entry.totalChars)})`,
+        "nn-stats-label-dot-narrative"
       );
       addStat(
         "\u4F1A\u8A71\u6587",
-        `${entry.dialogueChars.toLocaleString()} \u5B57 (${formatRatio(entry.dialogueChars, entry.totalChars)})`
+        `${entry.dialogueChars.toLocaleString()} \u5B57 (${formatRatio(entry.dialogueChars, entry.totalChars)})`,
+        "nn-stats-label-dot-dialogue"
       );
+      renderPieChart(row3, entry.narrativeChars, entry.dialogueChars, true);
+    }
+  }
+  // ─────────────────────────────────────────
+  // スクロール領域：グラフ表示（積み上げ棒グラフ）
+  //
+  // 各原稿を「地の文＋会話文＝総文字数」の1本の棒として表示し、
+  // 原稿間の分量差を比較できるようにする。目盛り軸の最大値を
+  // 基準にバーの幅（%）を算出し、setCssProps() でCSSカスタム
+  // プロパティとして渡す（.style への直接代入は行わない）。
+  // ─────────────────────────────────────────
+  renderChart(container) {
+    const sorted = this.getSortedEntries();
+    const maxTotal = Math.max(0, ...sorted.map((e) => e.totalChars));
+    const scale = computeNiceScale(maxTotal);
+    const chart = container.createDiv({ cls: "nn-stats-chart" });
+    const legend = chart.createDiv({ cls: "nn-stats-chart-legend" });
+    const addLegendItem = (dotClass, label) => {
+      const item = legend.createSpan({ cls: "nn-stats-chart-legend-item" });
+      item.createSpan({ cls: `nn-stats-label-dot ${dotClass}` });
+      item.createSpan({ text: label });
+    };
+    addLegendItem("nn-stats-label-dot-narrative", "\u5730\u306E\u6587");
+    addLegendItem("nn-stats-label-dot-dialogue", "\u4F1A\u8A71\u6587");
+    if (scale.max <= 0) {
+      chart.createEl("p", {
+        text: "\u6587\u5B57\u6570\u304C0\u306E\u305F\u3081\u3001\u30B0\u30E9\u30D5\u3092\u8868\u793A\u3067\u304D\u307E\u305B\u3093\u3002",
+        cls: "nn-stats-empty"
+      });
+      return;
+    }
+    const axisRow = chart.createDiv({ cls: "nn-stats-chart-row nn-stats-chart-axis-row" });
+    axisRow.createDiv({ cls: "nn-stats-chart-label" });
+    const axisTrack = axisRow.createDiv({ cls: "nn-stats-chart-axis-track" });
+    for (const tick of scale.ticks) {
+      const tickEl = axisTrack.createDiv({ cls: "nn-stats-chart-tick" });
+      tickEl.setCssProps({ "--nn-tick-left": `${tick / scale.max * 100}%` });
+      tickEl.createDiv({ cls: "nn-stats-chart-tick-line" });
+      tickEl.createDiv({ text: tick.toLocaleString(), cls: "nn-stats-chart-tick-label" });
+    }
+    axisRow.createDiv({ cls: "nn-stats-chart-value" });
+    const rows = chart.createDiv({ cls: "nn-stats-chart-rows" });
+    for (const entry of sorted) {
+      const row = rows.createDiv({ cls: "nn-stats-chart-row" });
+      const label = row.createEl("a", {
+        text: entry.fileName,
+        cls: "nn-stats-chart-label internal-link",
+        href: "#"
+      });
+      label.setAttr("title", entry.fileName);
+      label.addEventListener("click", (e) => {
+        e.preventDefault();
+        this.openEntryFile(entry);
+      });
+      const barArea = row.createDiv({ cls: "nn-stats-chart-bar-area" });
+      const narrativePct = entry.narrativeChars / scale.max * 100;
+      const dialoguePct = entry.dialogueChars / scale.max * 100;
+      const narrativeSeg = barArea.createDiv({
+        cls: "nn-stats-chart-bar-segment nn-stats-chart-bar-narrative"
+      });
+      narrativeSeg.setCssProps({ "--nn-bar-width": `${narrativePct}%` });
+      const dialogueSeg = barArea.createDiv({
+        cls: "nn-stats-chart-bar-segment nn-stats-chart-bar-dialogue"
+      });
+      dialogueSeg.setCssProps({ "--nn-bar-width": `${dialoguePct}%` });
+      row.createDiv({
+        text: `${entry.totalChars.toLocaleString()} \u5B57`,
+        cls: "nn-stats-chart-value"
+      });
     }
   }
   // ─────────────────────────────────────────
@@ -4917,7 +5157,11 @@ var NovelsNoteJP = class extends import_obsidian14.Plugin {
     );
     this.registerView(
       WRITING_STATS_VIEW_TYPE,
-      (leaf) => new WritingStatsView(leaf, () => this.buildWritingStats())
+      (leaf) => new WritingStatsView(
+        leaf,
+        () => this.buildWritingStats(),
+        () => this.settings.readingSpeedCharsPerMinute
+      )
     );
     this.addRibbonIcon(
       "list-tree",
@@ -4974,7 +5218,7 @@ var NovelsNoteJP = class extends import_obsidian14.Plugin {
       buildTermDropExtension(this.app)
     );
     this.registerEditorExtension(
-      buildRubyExtension(() => this.settings)
+      buildRubyExtension(() => this.settings, () => this.terms)
     );
     this.registerEditorExtension(
       buildCursorSyncExtension(this.cursorSyncStore, this.app)
@@ -5695,7 +5939,7 @@ var NovelsNoteJP = class extends import_obsidian14.Plugin {
       const cache = this.app.metadataCache.getFileCache(file);
       if (((_b = cache == null ? void 0 : cache.frontmatter) == null ? void 0 : _b["mode"]) !== "novel") continue;
       const source = await this.app.vault.cachedRead(file);
-      const { raw: totalChars } = countCharacters(source, this.settings);
+      const { raw: totalChars, novel: novelChars } = countCharacters(source, this.settings);
       const { narrativeChars, dialogueChars } = countNarrativeAndDialogue(source, this.settings);
       const slashIdx = file.path.lastIndexOf("/");
       const folderPath = slashIdx === -1 ? "" : file.path.slice(0, slashIdx);
@@ -5707,7 +5951,8 @@ var NovelsNoteJP = class extends import_obsidian14.Plugin {
         modifiedAt: file.stat.mtime,
         totalChars,
         narrativeChars,
-        dialogueChars
+        dialogueChars,
+        novelChars
       });
     }
     return entries;

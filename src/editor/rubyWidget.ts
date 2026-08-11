@@ -16,26 +16,49 @@ import {
 import { RangeSetBuilder } from "@codemirror/state";
 import { editorLivePreviewField } from "obsidian";
 import { NovelsNoteSettings } from "../settings";
-import { settingsEffect, novelModeField } from "../types";
+import { settingsEffect, novelModeField, TermEntry } from "../types";
 import { findRubyMatches, RubyMatch, computeRtFontSizeEm, DEFAULT_RT_FONT_SIZE_EM } from "../core/rubyPatterns";
+import { findTermMatches, TermMatch } from "../core/termMatcher";
 
 // ─────────────────────────────────────────
 // ルビウィジェット
+//
+// ルビ構文全体（親文字＋ルビ記号＋ルビ文字）を Decoration.replace で
+// 丸ごと置き換えて描画するため、置き換え前の親文字に付いていた
+// 用語ハイライトの Decoration.mark はそのままでは失われてしまう
+// （置換後のDOMは本ウィジェットが新規に作るため）。
+// そのため、親文字が用語ハイライト対象である場合は、呼び出し側
+// （buildRubyExtension）で判定した highlightClass をこのウィジェットに
+// 渡し、ここで改めて親文字部分に同じCSSクラスを適用する。
 // ─────────────────────────────────────────
 class RubyWidget extends WidgetType {
   constructor(
     readonly base: string,
-    readonly ruby: string
+    readonly ruby: string,
+    readonly highlightClass: string | null
   ) {
     super();
   }
 
   eq(other: RubyWidget): boolean {
-    return this.base === other.base && this.ruby === other.ruby;
+    return this.base === other.base &&
+      this.ruby === other.ruby &&
+      this.highlightClass === other.highlightClass;
   }
 
   toDOM(): HTMLElement {
-    const rubyEl = createEl("ruby", { cls: "nn-editor-ruby", text: this.base });
+    const rubyEl = createEl("ruby", { cls: "nn-editor-ruby" });
+    if (this.highlightClass) {
+      // 用語ハイライト対象の親文字：本文側と同じクラスを付けた
+      // <span> で包み、色付けを引き継ぐ（本文側は
+      // main.ts の applyEditorStyles() が注入する
+      // `.cm-content .novel-hl-xxx` セレクタで色指定されており、
+      // このウィジェットのDOMも .cm-content の子孫になるため、
+      // 同じクラスを付けるだけで同一のスタイルが適用される）。
+      rubyEl.createSpan({ cls: this.highlightClass, text: this.base });
+    } else {
+      rubyEl.appendText(this.base);
+    }
     const rt = rubyEl.createEl("rt", { text: this.ruby });
     // ルビ文字数が親文字数に対して極端に多い場合のみ、
     // font-size を縮小して折り返しズレを防ぐ
@@ -63,7 +86,10 @@ class RubyWidget extends WidgetType {
 // ─────────────────────────────────────────
 // ViewPlugin 本体
 // ─────────────────────────────────────────
-export function buildRubyExtension(getSettings: () => NovelsNoteSettings) {
+export function buildRubyExtension(
+  getSettings: () => NovelsNoteSettings,
+  getTerms: () => TermEntry[]
+) {
   return ViewPlugin.fromClass(
     class {
       decorations: DecorationSet;
@@ -121,6 +147,25 @@ export function buildRubyExtension(getSettings: () => NovelsNoteSettings) {
         }
 
         const docText = view.state.doc.toString();
+
+        // 用語ハイライトとの重なり判定用データ（本文全体が対象）。
+        // ルビの親文字範囲がここに含まれる場合、ウィジェット側にも
+        // 同じCSSクラスを渡して色付けを引き継ぐ（クラス自体の定義や
+        // 有効/無効判定は buildTermExtension と共通の findTermMatches()
+        // に委ねているため、判定基準が二重管理でずれる心配はない）。
+        const terms = getTerms();
+        const termMatches: TermMatch[] =
+          settings.highlightEnabled && terms.length > 0
+            ? findTermMatches(docText, terms, settings)
+            : [];
+
+        const findHighlightClass = (baseFrom: number, baseTo: number): string | null => {
+          for (const t of termMatches) {
+            if (t.start < baseTo && t.end > baseFrom) return t.cssClass;
+          }
+          return null;
+        };
+
         const allMatches: RubyMatch[] = [];
 
         // 可視範囲のみ処理する（パフォーマンス）
@@ -164,11 +209,12 @@ export function buildRubyExtension(getSettings: () => NovelsNoteSettings) {
           if (cursorTouches) continue;
 
           // 構文全体を WidgetType で置換する
+          const highlightClass = findHighlightClass(m.baseFrom, m.baseTo);
           builder.add(
             m.from,
             m.to,
             Decoration.replace({
-              widget: new RubyWidget(m.base, m.ruby),
+              widget: new RubyWidget(m.base, m.ruby, highlightClass),
               inclusive: false,
             })
           );

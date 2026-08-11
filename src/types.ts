@@ -22,9 +22,10 @@ export interface WritingStatsEntry {
   folderPath: string;   // 親フォルダのパス（Vault 直下の場合は空文字）
   createdAt: number;    // 作成日時（epoch ms）
   modifiedAt: number;   // 最終更新日時（epoch ms）
-  totalChars: number;      // 執筆文字数
+  totalChars: number;      // 執筆文字数（raw）
   narrativeChars: number;  // 地の文の文字数
   dialogueChars: number;   // 会話文の文字数
+  novelChars: number;      // 小説換算文字数（全角1・半角0.5）。推定読了時間の計算に使用。
 }
 
 // ─────────────────────────────────────────

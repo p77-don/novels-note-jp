@@ -24,6 +24,7 @@ import {
   TERM_DRAG_MIME_TYPE,
 } from "../types";
 import { parseBrackets } from "./bracketParser";
+import { findTermMatches } from "../core/termMatcher";
 
 // ─────────────────────────────────────────
 // Extension 1: カッコハイライト（最低優先度）
@@ -190,46 +191,9 @@ export function buildTermExtension(
           const terms = getTerms();
           if (terms.length === 0) return builder.finish();
 
-          const enabledTags = new Set(
-            settings.tagDefinitions.filter(td => td.enabled).map(td => td.tag)
-          );
-
-          const searchList: { word: string; cssClass: string; filePath: string }[] = [];
-          for (const term of terms) {
-            if (!enabledTags.has(term.tag)) continue;
-            searchList.push({ word: term.name, cssClass: `novel-hl-${term.tag}`, filePath: term.filePath });
-            for (const alias of term.aliases) {
-              if (alias.trim().length > 0) {
-                searchList.push({ word: alias.trim(), cssClass: `novel-hl-${term.tag}`, filePath: term.filePath });
-              }
-            }
-          }
-          searchList.sort((a, b) => b.word.length - a.word.length);
-
           const docText = view.state.doc.toString();
-          const docLength = docText.length;
-          const covered = new Uint8Array(docLength);
-          const matches: { start: number; end: number; cssClass: string; filePath: string }[] = [];
+          const matches = findTermMatches(docText, terms, settings);
 
-          for (const { word, cssClass, filePath } of searchList) {
-            if (word.length === 0) continue;
-            let pos = 0;
-            while (pos <= docLength - word.length) {
-              const idx = docText.indexOf(word, pos);
-              if (idx === -1) break;
-              let skip = false;
-              for (let i = idx; i < idx + word.length; i++) {
-                if (covered[i]) { skip = true; break; }
-              }
-              if (!skip) {
-                matches.push({ start: idx, end: idx + word.length, cssClass, filePath });
-                for (let i = idx; i < idx + word.length; i++) covered[i] = 1;
-              }
-              pos = idx + word.length;
-            }
-          }
-
-          matches.sort((a, b) => a.start - b.start);
           for (const m of matches) {
             builder.add(m.start, m.end, Decoration.mark({
               class: m.cssClass,

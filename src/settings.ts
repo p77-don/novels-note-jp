@@ -92,6 +92,9 @@ export interface NovelsNoteSettings {
   // 執筆情報一覧 除外フォルダ
   statsExcludeFolders: string[]; // 執筆情報一覧（原稿ノートの検索）から除外するフォルダパス
 
+  // 執筆情報一覧 推定読了時間
+  readingSpeedCharsPerMinute: number; // 読了速度の目安（字/分）。小説換算文字数（novel）を基準に計算する。
+
   // 用語入力パレット
   glossaryPaletteEnabled: boolean;         // 機能全体のオン/オフ
   glossaryPaletteScope: GlossaryPaletteScope; // 起動範囲
@@ -156,6 +159,9 @@ export const DEFAULT_SETTINGS: NovelsNoteSettings = {
 
   // 執筆情報一覧 除外フォルダ
   statsExcludeFolders: [],
+
+  // 執筆情報一覧 推定読了時間
+  readingSpeedCharsPerMinute: 400,
 
   // 用語入力パレット
   glossaryPaletteEnabled: false,

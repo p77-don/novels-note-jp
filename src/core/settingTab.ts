@@ -99,6 +99,7 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
     this.renderWordCountSection(containerEl);
     this.renderExcludeFoldersSection(containerEl);
     this.renderStatsExcludeFoldersSection(containerEl);
+    this.renderReadingSpeedSection(containerEl);
     this.renderHighlightSection(containerEl);
     this.renderTagSection(containerEl);
     this.renderBracketSection(containerEl);
@@ -459,6 +460,32 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
     this.plugin.updateSidebar();
     this.plugin.refreshEditors();
     this.refresh(); // セクション全体を再描画
+  }
+
+  // ─────────────────────────────────────────
+  // 執筆情報一覧 — 推定読了時間の読了速度設定
+  // ─────────────────────────────────────────
+  private renderReadingSpeedSection(containerEl: HTMLElement): void {
+    new Setting(containerEl).setName("執筆情報一覧 — 推定読了時間").setHeading();
+
+    new Setting(containerEl)
+      .setName("読了速度（字/分）")
+      .setDesc(
+        "「執筆情報一覧」に表示する推定読了時間の計算に使う読書速度の目安です。" +
+        "小説換算文字数（全角1・半角0.5換算）を基準に計算します。" +
+        "あくまで目安のため、実際の読了時間とは差が生じます。" +
+        "変更後は「執筆情報一覧」タブの「再集計」（または開き直し）で反映されます。"
+      )
+      .addText(text =>
+        text.setValue(String(this.plugin.settings.readingSpeedCharsPerMinute))
+          .onChange(async value => {
+            const n = parseInt(value, 10);
+            if (!isNaN(n) && n > 0) {
+              this.plugin.settings.readingSpeedCharsPerMinute = n;
+              await this.plugin.saveSettings();
+            }
+          })
+      );
   }
 
   // ─────────────────────────────────────────

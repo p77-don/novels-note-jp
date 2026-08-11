@@ -1152,6 +1152,16 @@
   flex-direction: column;
   height: 100%;
   overflow: hidden;
+
+  /* 地の文／会話文比率の円グラフ・ラベルドットで共有する配色。
+     ビュー全体のルートで定義し、円グラフ本体とラベルドットの
+     両方から参照できるようにする（CSSカスタムプロパティは
+     兄弟要素間では継承されないため、共通の祖先である .nn-stats-view で定義する）。
+     Obsidian組み込みの拡張カラー変数（--color-blue・--color-orange）は
+     ライト/ダークモードでそれぞれ異なる値が定義済みのため、
+     これを使うだけでテーマ切り替えに自動追従する。 */
+  --nn-pie-narrative-color: var(--color-blue);
+  --nn-pie-dialogue-color: var(--color-orange);
 }
 
 .nn-stats-loading,
@@ -1196,7 +1206,18 @@
   margin-bottom: 8px;
 }
 
+/* メトリクスグリッドと円グラフを横並びにし、
+   狭い画面（モバイル）では折り返して縦積みにする */
+.nn-stats-summary-body {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
 .nn-stats-summary-grid {
+  flex: 1 1 220px;
+  min-width: 220px;
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: 12px;
@@ -1206,11 +1227,33 @@
   font-size: 0.8em;
   color: var(--text-muted);
   margin-bottom: 2px;
+  display: flex;
+  align-items: center;
 }
 
 .nn-stats-metric-value {
   font-size: 1.2em;
   font-weight: 600;
+}
+
+/* 地の文／会話文ラベルの前に付ける色ドット（●）。
+   背景色バッジにすると全体のバランスを崩してしまうため、
+   ラベル横の小さな丸だけで円グラフとの色対応を示す。 */
+.nn-stats-label-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 5px;
+  flex-shrink: 0;
+}
+
+.nn-stats-label-dot-narrative {
+  background: var(--nn-pie-narrative-color);
+}
+
+.nn-stats-label-dot-dialogue {
+  background: var(--nn-pie-dialogue-color);
 }
 
 /* 並び替えツールバー＋再集計ボタン
@@ -1256,10 +1299,9 @@
   border-color: var(--text-accent);
 }
 
-/* 再集計ボタン：ソートボタン群の右側に余白を空けて配置 */
+/* 再集計ボタン：表示切替ボタン（各原稿詳細／文字数グラフ）の隣に配置 */
 .nn-stats-refresh-btn {
   font-size: 0.85em;
-  margin-left: auto;
 }
 
 /* ファイル単位カード一覧 */
@@ -1311,19 +1353,234 @@
   margin-bottom: 6px;
 }
 
+/* 3段目：統計値（2列グリッド）＋ミニ円グラフを横並びに配置 */
 .nn-stats-card-row3 {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 4px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
   font-size: 0.9em;
   border-top: 1px solid var(--background-modifier-border);
   padding-top: 6px;
+}
+
+.nn-stats-card-stats {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px 10px;
 }
 
 .nn-stats-card-stat-label {
   font-size: 0.75em;
   color: var(--text-muted);
   margin-bottom: 2px;
+  display: flex;
+  align-items: center;
+}
+
+/* ─────────────────────────────────────────
+   地の文／会話文比率の円グラフ（conic-gradient）
+   割合（--nn-pie-percent）は JS 側から setCssProps() で
+   カスタムプロパティとして渡される。
+───────────────────────────────────────── */
+.nn-stats-pie {
+  flex-shrink: 0;
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  background: conic-gradient(
+    var(--nn-pie-narrative-color) 0% var(--nn-pie-percent),
+    var(--nn-pie-dialogue-color) var(--nn-pie-percent) 100%
+  );
+  position: relative;
+}
+
+/* 中央を親要素の背景色でくり抜き、ドーナツ状にする */
+.nn-stats-pie::after {
+  content: "";
+  position: absolute;
+  inset: 22%;
+  border-radius: 50%;
+  background: var(--background-secondary);
+}
+
+.nn-stats-pie-mini {
+  width: 36px;
+  height: 36px;
+}
+
+.nn-stats-pie-mini::after {
+  inset: 26%;
+}
+
+/* ─────────────────────────────────────────
+   表示切替（一覧／グラフ）
+───────────────────────────────────────── */
+.nn-stats-viewmode-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+.nn-stats-viewmode-btn {
+  padding: 4px 14px;
+  border-radius: 4px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  color: var(--text-normal);
+  cursor: pointer;
+  font-size: 0.85em;
+}
+
+.nn-stats-viewmode-btn:hover {
+  background: var(--background-modifier-hover);
+}
+
+.nn-stats-viewmode-btn-active {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border-color: var(--interactive-accent);
+}
+
+.nn-stats-viewmode-btn-active:hover {
+  background: var(--interactive-accent-hover);
+}
+
+/* ─────────────────────────────────────────
+   グラフ表示（積み上げ棒グラフ）
+
+   各原稿を「地の文＋会話文＝総文字数」の1本の棒として表示し、
+   原稿間の分量差を比較する。目盛り軸（.nn-stats-chart-axis-row）と
+   各原稿行（.nn-stats-chart-row）は同一の grid-template-columns を
+   共有することで、目盛りとバーの位置が正確に揃う。
+───────────────────────────────────────── */
+.nn-stats-chart {
+  padding: 4px 4px 16px;
+}
+
+.nn-stats-chart-legend {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 12px;
+  font-size: 0.85em;
+  color: var(--text-muted);
+}
+
+.nn-stats-chart-legend-item {
+  display: inline-flex;
+  align-items: center;
+}
+
+.nn-stats-chart-row {
+  display: grid;
+  grid-template-columns: 160px 1fr 90px;
+  align-items: center;
+  gap: 10px;
+}
+
+.nn-stats-chart-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.nn-stats-chart-axis-row {
+  margin-bottom: 10px;
+  height: 26px;
+}
+
+.nn-stats-chart-label {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 0.85em;
+}
+
+a.nn-stats-chart-label {
+  cursor: pointer;
+}
+
+.nn-stats-chart-value {
+  font-size: 0.85em;
+  text-align: right;
+  white-space: nowrap;
+  color: var(--text-muted);
+}
+
+.nn-stats-chart-bar-area {
+  display: flex;
+  height: 18px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--background-modifier-border);
+}
+
+.nn-stats-chart-bar-segment {
+  flex: 0 0 var(--nn-bar-width, 0%);
+  height: 100%;
+}
+
+.nn-stats-chart-bar-narrative {
+  background: var(--nn-pie-narrative-color);
+}
+
+.nn-stats-chart-bar-dialogue {
+  background: var(--nn-pie-dialogue-color);
+}
+
+.nn-stats-chart-axis-track {
+  position: relative;
+  height: 100%;
+}
+
+.nn-stats-chart-tick {
+  position: absolute;
+  left: var(--nn-tick-left, 0%);
+  top: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transform: translateX(-50%);
+}
+
+/* 0目盛りは軸の左端、最大目盛りは右端からはみ出さないよう個別調整 */
+.nn-stats-chart-tick:first-child {
+  transform: translateX(0);
+  align-items: flex-start;
+}
+
+.nn-stats-chart-tick:last-child {
+  transform: translateX(-100%);
+  align-items: flex-end;
+}
+
+.nn-stats-chart-tick-line {
+  width: 1px;
+  height: 8px;
+  background: var(--background-modifier-border);
+}
+
+.nn-stats-chart-tick-label {
+  font-size: 0.7em;
+  color: var(--text-muted);
+  margin-top: 2px;
+  white-space: nowrap;
+}
+
+/* モバイル・狭い画面：ラベル／値の列幅を縮小 */
+@media (max-width: 500px) {
+  .nn-stats-chart-row {
+    grid-template-columns: 84px 1fr 64px;
+    gap: 6px;
+  }
+
+  .nn-stats-chart-value {
+    font-size: 0.78em;
+  }
 }
 
 /* ─────────────────────────────────────────
