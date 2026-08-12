@@ -88,8 +88,20 @@ export class WritingStatsView extends ItemView {
   private sortAsc = true;
   private viewMode: ViewMode = "list";
   private loading = true;
+  // ファイル名・フォルダ名を対象にした絞り込みキーワード
+  private filterText = "";
   private fetchEntries: () => Promise<WritingStatsEntry[]>;
   private getReadingSpeed: () => number;
+
+  // 絞り込み時に「合計サマリー」「一覧／グラフ」だけを部分再描画するための
+  // コンテナ参照。並び替えツールバー（検索ボックスを含む）自体は
+  // render() でしか作り直さないため、検索ボックスへの入力のたびに
+  // this.render() を呼ぶと入力欄自体が毎回作り直されてフォーカスが
+  // 外れてしまう（＝1文字打つたびに入力が止まる）。これを避けるため、
+  // 検索ボックスの input イベントでは refreshFiltered() のみを呼び、
+  // 検索ボックスを含むツールバーそのものは再生成しない。
+  private summaryContainerEl: HTMLElement | null = null;
+  private scrollEl: HTMLElement | null = null;
 
   constructor(
     leaf: WorkspaceLeaf,
@@ -140,6 +152,8 @@ export class WritingStatsView extends ItemView {
 
     const headerEl = container.createDiv({ cls: "nn-stats-header" });
     const scrollEl = container.createDiv({ cls: "nn-stats-scroll" });
+    this.scrollEl = scrollEl;
+    this.summaryContainerEl = null;
 
     if (this.loading) {
       scrollEl.createEl("p", {
@@ -160,23 +174,78 @@ export class WritingStatsView extends ItemView {
       return;
     }
 
-    this.renderSummary(headerEl);
+    // サマリーは絞り込みのたびに再計算するため、専用コンテナに分離しておく
+    // （renderToolbar 内の検索ボックスとは独立に refreshFiltered() から再描画する）。
+    this.summaryContainerEl = headerEl.createDiv();
+    this.renderSummary(this.summaryContainerEl);
+
     this.renderViewToggle(headerEl);
     this.renderToolbar(headerEl);
 
-    if (this.viewMode === "list") {
-      this.renderList(scrollEl);
-    } else {
-      this.renderChart(scrollEl);
+    this.renderBody();
+  }
+
+  // ─────────────────────────────────────────
+  // スクロール領域（一覧／グラフ）のみを再描画する
+  // 絞り込みキーワード変更時（refreshFiltered）・並び替え変更時
+  // （render() 経由）の両方から呼ばれる。
+  // ─────────────────────────────────────────
+  private renderBody(): void {
+    if (!this.scrollEl) return;
+    const scrollEl = this.scrollEl;
+    scrollEl.empty();
+
+    const filtered = this.getFilteredEntries();
+
+    if (filtered.length === 0) {
+      scrollEl.createEl("p", {
+        text: "絞り込み条件に一致する原稿が見つかりませんでした。",
+        cls: "nn-stats-empty",
+      });
+      return;
     }
+
+    if (this.viewMode === "list") {
+      this.renderList(scrollEl, filtered);
+    } else {
+      this.renderChart(scrollEl, filtered);
+    }
+  }
+
+  // ─────────────────────────────────────────
+  // 絞り込みキーワード変更時：検索ボックス自体は再生成せず、
+  // 合計サマリーと一覧／グラフだけを部分再描画する
+  // （入力欄のフォーカスを維持するため）。
+  // ─────────────────────────────────────────
+  private refreshFiltered(): void {
+    if (this.summaryContainerEl) {
+      this.summaryContainerEl.empty();
+      this.renderSummary(this.summaryContainerEl);
+    }
+    this.renderBody();
+  }
+
+  // ─────────────────────────────────────────
+  // 絞り込みキーワードを適用したエントリ一覧を返す
+  // （ファイル名・フォルダ名を対象に、大文字小文字を区別しない部分一致）
+  // ─────────────────────────────────────────
+  private getFilteredEntries(): WritingStatsEntry[] {
+    const query = this.filterText.trim().toLowerCase();
+    if (!query) return this.entries;
+    return this.entries.filter(e =>
+      e.fileName.toLowerCase().includes(query) ||
+      e.folderPath.toLowerCase().includes(query)
+    );
   }
 
   // ─────────────────────────────────────────
   // 現在の並び替え条件を適用したエントリ一覧を返す
   // （一覧表示・グラフ表示の両方から共通で利用する）
+  // 対象は呼び出し側で絞り込み済みのエントリ一覧
+  // （getFilteredEntries() の結果）を渡す。
   // ─────────────────────────────────────────
-  private getSortedEntries(): WritingStatsEntry[] {
-    return [...this.entries].sort((a, b) => {
+  private getSortedEntries(entries: WritingStatsEntry[]): WritingStatsEntry[] {
+    return [...entries].sort((a, b) => {
       let cmp = 0;
       if (this.sortKey === "name") {
         cmp = a.fileName.localeCompare(b.fileName, "ja");
@@ -236,14 +305,18 @@ export class WritingStatsView extends ItemView {
 
   // ─────────────────────────────────────────
   // 固定ヘッダー：全原稿の合計サマリー（ソート対象外・常時表示）
+  // 絞り込みキーワードが指定されている場合は、絞り込み後のエントリ
+  // のみを対象に合計を再計算する（全原稿の合計ではなく「絞り込み結果の
+  // 合計」になる。ラベル文言は変えず、対象ノート数の増減で反映される）。
   // ─────────────────────────────────────────
   private renderSummary(container: HTMLElement): void {
-    const totalNotes = this.entries.length;
+    const filtered = this.getFilteredEntries();
+    const totalNotes = filtered.length;
     let totalChars = 0;
     let narrativeChars = 0;
     let dialogueChars = 0;
     let novelChars = 0;
-    for (const e of this.entries) {
+    for (const e of filtered) {
       totalChars += e.totalChars;
       narrativeChars += e.narrativeChars;
       dialogueChars += e.dialogueChars;
@@ -317,13 +390,47 @@ export class WritingStatsView extends ItemView {
     addSortButton("created", "作成日時");
     addSortButton("modified", "最終更新日時");
     addSortButton("chars", "文字数");
+
+    // 「文字数」ボタンの右側に、ファイル名・フォルダ名で絞り込むための
+    // 検索ボックスを配置する。入力のたびに render() 全体を呼び直すと
+    // この入力欄自体が作り直されてフォーカスが外れてしまうため、
+    // input イベントでは refreshFiltered()（部分再描画）のみを呼ぶ。
+    const filterWrap = toolbar.createDiv({ cls: "nn-stats-filter-wrap" });
+    const filterInput = filterWrap.createEl("input", {
+      type: "text",
+      placeholder: "ファイル名・フォルダ名で絞り込み",
+      cls: "nn-stats-filter-input",
+    });
+    filterInput.value = this.filterText;
+
+    const clearBtn = filterWrap.createEl("button", {
+      cls: "nn-stats-filter-clear",
+      title: "絞り込みをクリア",
+      text: "✕",
+    });
+    clearBtn.toggleClass("nn-hidden", !this.filterText);
+
+    filterInput.addEventListener("input", () => {
+      this.filterText = filterInput.value;
+      clearBtn.toggleClass("nn-hidden", !this.filterText);
+      this.refreshFiltered();
+    });
+
+    clearBtn.addEventListener("click", () => {
+      filterInput.value = "";
+      this.filterText = "";
+      clearBtn.addClass("nn-hidden");
+      filterInput.focus();
+      this.refreshFiltered();
+    });
   }
 
   // ─────────────────────────────────────────
   // スクロール領域：ファイル単位カードの一覧
+  // entries は呼び出し側（renderBody）で絞り込み済みのエントリ一覧
   // ─────────────────────────────────────────
-  private renderList(container: HTMLElement): void {
-    const sorted = this.getSortedEntries();
+  private renderList(container: HTMLElement, entries: WritingStatsEntry[]): void {
+    const sorted = this.getSortedEntries(entries);
 
     const list = container.createDiv({ cls: "nn-stats-list" });
 
@@ -390,9 +497,10 @@ export class WritingStatsView extends ItemView {
   // 原稿間の分量差を比較できるようにする。目盛り軸の最大値を
   // 基準にバーの幅（%）を算出し、setCssProps() でCSSカスタム
   // プロパティとして渡す（.style への直接代入は行わない）。
+  // entries は呼び出し側（renderBody）で絞り込み済みのエントリ一覧
   // ─────────────────────────────────────────
-  private renderChart(container: HTMLElement): void {
-    const sorted = this.getSortedEntries();
+  private renderChart(container: HTMLElement, entries: WritingStatsEntry[]): void {
+    const sorted = this.getSortedEntries(entries);
     const maxTotal = Math.max(0, ...sorted.map(e => e.totalChars));
     const scale = computeNiceScale(maxTotal);
 

@@ -2,9 +2,19 @@
 // Novels Note JP — 設定タブ
 // ─────────────────────────────────────────
 
-import { App, PluginSettingTab, Setting, Platform, Notice, Modal } from "obsidian";
+import {
+  App, PluginSettingTab, Setting, Platform, Notice, ConfirmationModal,
+  SettingDefinitionItem, SettingGroupItem,
+} from "obsidian";
 import NovelsNoteJP from "../main";
-import { GLOSSARY_PALETTE_FORBIDDEN_TRIGGERS, GlossaryPaletteScope } from "../settings";
+import {
+  GLOSSARY_PALETTE_FORBIDDEN_TRIGGERS,
+  NovelsNoteSettings, DEFAULT_SETTINGS,
+} from "../settings";
+
+// 宣言的設定APIの control.key に渡すキー名を NovelsNoteSettings の
+// プロパティ名に制限し、タイプミスを型エラーとして検出できるようにする。
+type SettingKey = keyof NovelsNoteSettings & string;
 
 // ─────────────────────────────────────────
 // 説明文（setDesc）を複数行に分けて表示するためのヘルパー
@@ -27,45 +37,13 @@ function descLines(...lines: string[]): DocumentFragment {
 // ─────────────────────────────────────────
 // 汎用の確認ダイアログ
 //
-// Obsidian 1.13.0 以降には標準の ConfirmationModal があるが、
-// minAppVersion（1.8.7）との互換性のため、独自に軽量な実装を用意する。
+// 以前は Obsidian 標準の ConfirmationModal が @since 1.13.0 で
+// minAppVersion（1.8.7）と互換性がなかったため、独自に軽量な実装
+// （ConfirmDialog クラス）を用意していた。minAppVersion を 1.13.0 に
+// 引き上げたことに伴い、標準の ConfirmationModal に置き換える
+// （用語入力パレット「最近使った」履歴クリアの確認ダイアログの
+// み利用箇所のため、呼び出し側で直接組み立てる）。
 // ─────────────────────────────────────────
-class ConfirmDialog extends Modal {
-  constructor(
-    app: App,
-    private message: string,
-    // 呼び出し側で async コールバック（履歴削除など await を伴う処理）を
-    // 渡せるように、戻り値の型として void | Promise<void> の両方を許容する。
-    private onConfirm: () => void | Promise<void>
-  ) {
-    super(app);
-  }
-
-  onOpen(): void {
-    const { contentEl } = this;
-    contentEl.empty();
-    contentEl.createEl("p", { text: this.message });
-
-    const btnRow = contentEl.createDiv({ cls: "nn-confirm-dialog-buttons" });
-
-    const yesBtn = btnRow.createEl("button", { text: "はい", cls: "mod-warning" });
-    yesBtn.addEventListener("click", () => {
-      this.close();
-      // onConfirm が Promise を返す場合でも、このイベントハンドラ自体は
-      // void を返せば良いため、意図的に await せず切り離す
-      // （no-misused-promises 対策）。エラーハンドリングは呼び出し側の
-      // 各コールバック内で行う。
-      void this.onConfirm();
-    });
-
-    const noBtn = btnRow.createEl("button", { text: "いいえ" });
-    noBtn.addEventListener("click", () => this.close());
-  }
-
-  onClose(): void {
-    this.contentEl.empty();
-  }
-}
 
 export class NovelsNoteSettingTab extends PluginSettingTab {
   plugin: NovelsNoteJP;
@@ -75,278 +53,316 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
     this.plugin = plugin;
   }
 
-  display(): void {
-    this.refresh();
+  // ─────────────────────────────────────────
+  // 宣言的設定API（@since 1.13.0）の値の読み書き
+  //
+  // control 系の定義（type: 'toggle' 等）には onChange に相当する
+  // プロパティが無く、値の変更は必ずここ（setControlValue）を
+  // 経由する一本道になっている。そのため「保存後に
+  // applyEditorStyles()・refreshEditors() 等の副作用を呼ぶ」という
+  // 従来 onChange 内で行っていた処理は、key 名で分岐する
+  // ディスパッチテーブルとしてここにまとめる。
+  //
+  // デフォルト実装は this.app.vault.getConfig を読むため、
+  // プラグイン設定（this.plugin.settings）を読み書きするよう
+  // オーバーライドする。
+  // ─────────────────────────────────────────
+  getControlValue(key: string): unknown {
+    return (this.plugin.settings as unknown as Record<string, unknown>)[key];
   }
 
-  private refresh(): void {
-    const { containerEl } = this;
+  async setControlValue(key: string, value: unknown): Promise<void> {
+    const settings = this.plugin.settings as unknown as Record<string, unknown>;
 
-    // containerEl.empty() で画面全体を作り直すため、何もしないと
-    // スクロール位置が先頭にリセットされてしまう（除外フォルダ・
-    // カテゴリ定義・括弧定義などの追加/削除のたびに毎回スクロール
-    // し直す必要があり手間だった）。再描画前後でスクロール位置を
-    // 保存・復元することで、編集中の場所に留まれるようにする。
-    const scrollTop = containerEl.scrollTop;
+    // 用語入力パレットのトリガー文字だけは、保存前にトリムする
+    // （前後の空白を含んだまま保存されるのを防ぐ。1文字チェック等の
+    // 検証自体は control.validate 側で行う）。
+    settings[key] = key === "glossaryPaletteTrigger" ? String(value).trim() : value;
 
-    containerEl.empty();
+    await this.plugin.saveSettings();
 
-    this.renderEditorSection(containerEl);
-    this.renderRulerSection(containerEl);
-    this.renderRubySection(containerEl);
-    this.renderVerticalPreviewSection(containerEl);
-    this.renderFullWidthSpaceSection(containerEl);
-    this.renderWordCountSection(containerEl);
-    this.renderExcludeFoldersSection(containerEl);
-    this.renderStatsExcludeFoldersSection(containerEl);
-    this.renderReadingSpeedSection(containerEl);
-    this.renderHighlightSection(containerEl);
-    this.renderTagSection(containerEl);
-    this.renderBracketSection(containerEl);
-    this.renderGlossaryPaletteSection(containerEl);
+    switch (key) {
+      case "fontSize":
+      case "lineHeight":
+        this.plugin.applyEditorStyles();
+        break;
+      case "wrapColumn":
+        this.plugin.applyEditorStyles();
+        this.plugin.refreshEditors();
+        break;
+      case "showRuler":
+      case "rulerStyle":
+        this.plugin.refreshEditors();
+        break;
+      case "rulerColor":
+      case "rulerOpacity":
+        this.plugin.applyEditorStyles();
+        break;
+      case "verticalCursorHighlightEnabled":
+      case "verticalCursorHighlightColor":
+        this.plugin.applyEditorStyles();
+        break;
+      case "showFullWidthSpace":
+      case "fullWidthSpaceStyle":
+      case "fullWidthSpaceColor":
+        this.plugin.applyEditorStyles();
+        this.plugin.refreshEditors();
+        break;
+      case "highlightEnabled":
+        this.plugin.applyEditorStyles();
+        this.plugin.refreshEditors();
+        break;
+      case "termHoverPreviewEnabled":
+        this.plugin.applyEditorStyles();
+        break;
+      case "rubyStyle":
+        // 縦書きプレビューを開いていれば即時反映
+        this.plugin.refreshVerticalPreview();
+        break;
+      case "countMode":
+      case "countFullWidthSpace":
+      case "countEmptyLines":
+      case "countHashtags":
+        this.plugin.updateWordCount();
+        break;
+      case "glossaryPaletteEnabled":
+      case "glossaryPaletteScope":
+      case "glossaryPaletteTrigger":
+        this.plugin.refreshEditors();
+        break;
+      // readingSpeedCharsPerMinute・excludeFolders・statsExcludeFolders・
+      // tagDefinitions・bracketDefinitions は保存のみ、または
+      // 各動的リストの render コールバック側で個別に副作用を扱う。
+      default:
+        break;
+    }
+  }
 
-    // 再描画直後のレイアウト確定タイミングによっては、同期的な
-    // 代入だけでは反映されない場合があるため、次のフレームでも
-    // 念のため設定し直す。
-    containerEl.scrollTop = scrollTop;
-    window.requestAnimationFrame(() => {
-      containerEl.scrollTop = scrollTop;
-    });
+  // ─────────────────────────────────────────
+  // 設定タブ本体（宣言的定義）
+  //
+  // getSettingDefinitions() を実装したことで display() は完全に
+  // 撤去済み（Obsidian側の仕様上、この配列が空でない限り display() は
+  // 一切呼ばれなくなるため、以前は動的リスト系セクションを
+  // render コールバックで暫定的に包んでいたが、全セクションを
+  // 正式な宣言的表現へ移行済み。minAppVersion: 1.13.0）。
+  // ─────────────────────────────────────────
+  getSettingDefinitions(): SettingDefinitionItem<SettingKey>[] {
+    return [
+      this.buildEditorSection(),
+      this.buildRulerSection(),
+      this.buildRubySection(),
+      this.buildVerticalPreviewSection(),
+      this.buildFullWidthSpaceSection(),
+      this.buildWordCountSection(),
+      this.buildExcludeFoldersGroup(),
+      this.buildStatsExcludeFoldersGroup(),
+      this.buildReadingSpeedSection(),
+      this.buildHighlightSection(),
+      this.buildTagGroup(),
+      this.buildBracketGroup(),
+      this.buildGlossaryPaletteSection(),
+    ];
   }
 
   // ─────────────────────────────────────────
   // エディタ表示セクション
   // ─────────────────────────────────────────
-  private renderEditorSection(containerEl: HTMLElement): void {
-    new Setting(containerEl).setName("エディタ表示").setHeading();
-
-    new Setting(containerEl)
-      .setName("フォントサイズ（px）")
-      .setDesc("小説本文エディタのフォントサイズ。")
-      .addText(text =>
-        text.setValue(String(this.plugin.settings.fontSize))
-          .onChange(async value => {
-            const n = parseInt(value, 10);
-            if (!isNaN(n) && n > 0) {
-              this.plugin.settings.fontSize = n;
-              await this.plugin.saveSettings();
-              this.plugin.applyEditorStyles();
-            }
-          })
-      );
-
-    new Setting(containerEl)
-      .setName("行間")
-      .setDesc("行の高さを倍率で指定します（例：2.0）。")
-      .addText(text =>
-        text.setValue(String(this.plugin.settings.lineHeight))
-          .onChange(async value => {
-            const n = parseFloat(value);
-            if (!isNaN(n) && n > 0) {
-              this.plugin.settings.lineHeight = n;
-              await this.plugin.saveSettings();
-              this.plugin.applyEditorStyles();
-            }
-          })
-      );
-
-    new Setting(containerEl)
-      .setName("折り返し文字数")
-      .setDesc("1行に表示する全角文字数（例：40）。")
-      .addText(text =>
-        text.setValue(String(this.plugin.settings.wrapColumn))
-          .onChange(async value => {
-            const n = parseInt(value, 10);
-            if (!isNaN(n) && n > 0) {
-              this.plugin.settings.wrapColumn = n;
-              await this.plugin.saveSettings();
-              this.plugin.applyEditorStyles();
-              this.plugin.refreshEditors();
-            }
-          })
-      );
+  private buildEditorSection(): SettingDefinitionItem<SettingKey> {
+    return {
+      type: "group",
+      heading: "エディタ表示",
+      items: [
+        {
+          name: "フォントサイズ（px）",
+          desc: "小説本文エディタのフォントサイズ。",
+          control: { type: "number", key: "fontSize", min: 1, step: 1, defaultValue: DEFAULT_SETTINGS.fontSize },
+        },
+        {
+          name: "行間",
+          desc: "行の高さを倍率で指定します（例：2.0）。",
+          control: { type: "number", key: "lineHeight", min: 0.1, step: 0.1, defaultValue: DEFAULT_SETTINGS.lineHeight },
+        },
+        {
+          name: "折り返し文字数",
+          desc: "1行に表示する全角文字数（例：40）。",
+          control: { type: "number", key: "wrapColumn", min: 1, step: 1, defaultValue: DEFAULT_SETTINGS.wrapColumn },
+        },
+      ],
+    };
   }
 
   // ─────────────────────────────────────────
   // 折り返しガイドラインセクション
   // ─────────────────────────────────────────
-  private renderRulerSection(containerEl: HTMLElement): void {
-    new Setting(containerEl).setName("折り返しガイドライン").setHeading();
-
-    new Setting(containerEl)
-      .setName("ガイドラインを表示する")
-      .addToggle(toggle =>
-        toggle.setValue(this.plugin.settings.showRuler)
-          .onChange(async value => {
-            this.plugin.settings.showRuler = value;
-            await this.plugin.saveSettings();
-            this.plugin.refreshEditors();
-          })
-      );
-
-    new Setting(containerEl)
-      .setName("ガイドライン色")
-      .addColorPicker(picker =>
-        picker.setValue(this.plugin.settings.rulerColor)
-          .onChange(async value => {
-            this.plugin.settings.rulerColor = value;
-            await this.plugin.saveSettings();
-            this.plugin.applyEditorStyles();
-          })
-      );
-
-    new Setting(containerEl)
-      .setName("ガイドライン透明度")
-      .setDesc("0.0（透明）〜 1.0（不透明）。")
-      .addText(text =>
-        text.setValue(String(this.plugin.settings.rulerOpacity))
-          .onChange(async value => {
-            const n = parseFloat(value);
-            if (!isNaN(n) && n >= 0 && n <= 1) {
-              this.plugin.settings.rulerOpacity = n;
-              await this.plugin.saveSettings();
-              this.plugin.applyEditorStyles();
-            }
-          })
-      );
-
-    new Setting(containerEl)
-      .setName("ガイドラインスタイル")
-      .addDropdown(drop =>
-        drop.addOption("solid", "実線").addOption("dashed", "破線")
-          .setValue(this.plugin.settings.rulerStyle)
-          .onChange(async value => {
-            this.plugin.settings.rulerStyle = value as "solid" | "dashed";
-            await this.plugin.saveSettings();
-            this.plugin.applyEditorStyles();
-          })
-      );
+  private buildRulerSection(): SettingDefinitionItem<SettingKey> {
+    return {
+      type: "group",
+      heading: "折り返しガイドライン",
+      items: [
+        {
+          name: "ガイドラインを表示する",
+          control: { type: "toggle", key: "showRuler", defaultValue: DEFAULT_SETTINGS.showRuler },
+        },
+        {
+          name: "ガイドライン色",
+          control: { type: "color", key: "rulerColor", defaultValue: DEFAULT_SETTINGS.rulerColor },
+        },
+        {
+          name: "ガイドライン透明度",
+          desc: "0.0（透明）〜 1.0（不透明）。",
+          control: { type: "number", key: "rulerOpacity", min: 0, max: 1, step: 0.05, defaultValue: DEFAULT_SETTINGS.rulerOpacity },
+        },
+        {
+          name: "ガイドラインスタイル",
+          control: {
+            type: "dropdown", key: "rulerStyle",
+            options: { solid: "実線", dashed: "破線" },
+            defaultValue: DEFAULT_SETTINGS.rulerStyle,
+          },
+        },
+      ],
+    };
   }
-
 
   // ─────────────────────────────────────────
   // 縦書きプレビュー設定セクション
+  //
+  // カーソル行ハイライトは「エディタと縦書きプレビューを同時に見ながら
+  // 執筆する」ことが前提の機能。モバイルではエディタと縦書きプレビュー
+  // （独立タブ）を同時に表示できず機能自体が意味を持たないため、
+  // verticalPreview.ts 側で強制的に無効化している。
+  //
+  // ここでは項目自体を非表示にはしない。設定を非表示にすると、
+  // PC版との見た目の不整合（この設定が存在すること自体が
+  // 分からなくなる）が生じるため、項目は表示したまま
+  // disabled で無効化し、理由を明記する。
   // ─────────────────────────────────────────
-  private renderVerticalPreviewSection(containerEl: HTMLElement): void {
-    new Setting(containerEl).setName("縦書きプレビュー").setHeading();
-
-    // カーソル行ハイライトは「エディタと縦書きプレビューを同時に見ながら
-    // 執筆する」ことが前提の機能。モバイルではエディタと縦書きプレビュー
-    // （独立タブ）を同時に表示できず機能自体が意味を持たないため、
-    // verticalPreview.ts 側で強制的に無効化している。
-    //
-    // ここでは項目自体を非表示にはしない。設定を非表示にすると、
-    // PC版との見た目の不整合（この設定が存在すること自体が
-    // 分からなくなる）が生じるため、項目は表示したまま
-    // トグル・カラーピッカーを無効化し、理由を明記する。
+  private buildVerticalPreviewSection(): SettingDefinitionItem<SettingKey> {
     const isMobile = Platform.isMobile;
-
-    new Setting(containerEl)
-      .setName("カーソル行のハイライトを有効にする")
-      .setDesc(
-        isMobile
-          ? "モバイルでは使用できません。"
-          : "縦書きプレビューでエディタのカーソル行を背景色で強調します。"
-      )
-      .addToggle(toggle => {
-        toggle.setValue(isMobile ? false : this.plugin.settings.verticalCursorHighlightEnabled);
-        toggle.setDisabled(isMobile);
-        if (!isMobile) {
-          toggle.onChange(async value => {
-            this.plugin.settings.verticalCursorHighlightEnabled = value;
-            await this.plugin.saveSettings();
-            this.plugin.applyEditorStyles();
-          });
-        }
-      });
-
-    new Setting(containerEl)
-      .setName("カーソル行の背景色")
-      .setDesc(
-        isMobile
-          ? "モバイルでは使用できません。"
-          : "縦書きプレビューでカーソル位置の行に付ける背景色。"
-      )
-      .addColorPicker(picker => {
-        picker.setValue(this.plugin.settings.verticalCursorHighlightColor);
-        picker.setDisabled(isMobile);
-        if (!isMobile) {
-          picker.onChange(async value => {
-            this.plugin.settings.verticalCursorHighlightColor = value;
-            await this.plugin.saveSettings();
-            this.plugin.applyEditorStyles();
-          });
-        }
-      });
+    return {
+      type: "group",
+      heading: "縦書きプレビュー",
+      items: [
+        {
+          name: "カーソル行のハイライトを有効にする",
+          desc: isMobile
+            ? "モバイルでは使用できません。"
+            : "縦書きプレビューでエディタのカーソル行を背景色で強調します。",
+          control: {
+            type: "toggle", key: "verticalCursorHighlightEnabled",
+            defaultValue: DEFAULT_SETTINGS.verticalCursorHighlightEnabled,
+            disabled: isMobile,
+          },
+        },
+        {
+          name: "カーソル行の背景色",
+          desc: isMobile
+            ? "モバイルでは使用できません。"
+            : "縦書きプレビューでカーソル位置の行に付ける背景色。",
+          control: {
+            type: "color", key: "verticalCursorHighlightColor",
+            defaultValue: DEFAULT_SETTINGS.verticalCursorHighlightColor,
+            disabled: isMobile,
+          },
+        },
+      ],
+    };
   }
 
   // ─────────────────────────────────────────
   // 全角スペース可視化セクション
   // ─────────────────────────────────────────
-  private renderFullWidthSpaceSection(containerEl: HTMLElement): void {
-    new Setting(containerEl).setName("全角スペースと改行記号の表示").setHeading();
-    containerEl.createEl("p", {
-      text: "段落先頭の全角スペースと、行末の改行位置を目視で確認できます。",
-      cls: "setting-item-description",
-    });
-
-    new Setting(containerEl)
-      .setName("全角スペースを可視化する")
-      .setDesc(descLines(
-        "オンにすると全角スペース（\u3000）の位置を記号で表示します。",
-        "あわせて行末に改行記号（↵）も表示します（オフにすると両方とも非表示になります）。",
-        "※改行記号は幅を持たないため、折り返し位置には影響しません。"
-      ))
-      .addToggle(toggle =>
-        toggle.setValue(this.plugin.settings.showFullWidthSpace)
-          .onChange(async value => {
-            this.plugin.settings.showFullWidthSpace = value;
-            await this.plugin.saveSettings();
-            this.plugin.applyEditorStyles();
-            this.plugin.refreshEditors();
-          })
-      );
-
-    new Setting(containerEl)
-      .setName("全角スペースの表示スタイル")
-      .setDesc(descLines(
-        "全角スペースの表示方法を選べます（改行記号の見た目には影響しません）。",
-        "・ドット： 中央に薄いドットを重ねる",
-        "・下線：アンダーラインで幅を示す",
-        "・枠線： 薄い線で枠を囲む"
-      ))
-      .addDropdown(drop =>
-        drop
-          .addOption("dot",       "ドット（中央の点）")
-          .addOption("underline", "下線")
-          .addOption("box",       "枠線")
-          .setValue(this.plugin.settings.fullWidthSpaceStyle === "none"
-            ? "dot"
-            : this.plugin.settings.fullWidthSpaceStyle)
-          .onChange(async value => {
-            this.plugin.settings.fullWidthSpaceStyle =
-              value as "dot" | "underline" | "box";
-            await this.plugin.saveSettings();
-            this.plugin.applyEditorStyles();
-            this.plugin.refreshEditors();
-          })
-      );
-
-    new Setting(containerEl)
-      .setName("表示色")
-      .setDesc("全角スペースの記号・改行記号の色（エディタのテーマに合わせて調整してください）。")
-      .addColorPicker(picker =>
-        picker.setValue(this.plugin.settings.fullWidthSpaceColor)
-          .onChange(async value => {
-            this.plugin.settings.fullWidthSpaceColor = value;
-            await this.plugin.saveSettings();
-            this.plugin.applyEditorStyles();
-            this.plugin.refreshEditors();
-          })
-      );
+  private buildFullWidthSpaceSection(): SettingDefinitionItem<SettingKey> {
+    return {
+      type: "group",
+      heading: "全角スペースと改行記号の表示",
+      items: [
+        {
+          name: "全角スペースを可視化する",
+          desc: descLines(
+            "段落先頭の全角スペースと、行末の改行位置を目視で確認できます。",
+            "オンにすると全角スペース（\u3000）の位置を記号で表示します。",
+            "あわせて行末に改行記号（↵）も表示します（オフにすると両方とも非表示になります）。",
+            "※改行記号は幅を持たないため、折り返し位置には影響しません。"
+          ),
+          control: { type: "toggle", key: "showFullWidthSpace", defaultValue: DEFAULT_SETTINGS.showFullWidthSpace },
+        },
+        {
+          name: "全角スペースの表示スタイル",
+          desc: descLines(
+            "全角スペースの表示方法を選べます（改行記号の見た目には影響しません）。",
+            "・ドット： 中央に薄いドットを重ねる",
+            "・下線：アンダーラインで幅を示す",
+            "・枠線： 薄い線で枠を囲む"
+          ),
+          control: {
+            type: "dropdown", key: "fullWidthSpaceStyle",
+            options: { dot: "ドット（中央の点）", underline: "下線", box: "枠線" },
+            // "none"（旧・機能オフ用の値）は現在UIから選べないため、
+            // 万一そのまま残っていた場合は表示上 "dot" にフォールバックする。
+            defaultValue: DEFAULT_SETTINGS.fullWidthSpaceStyle === "none"
+              ? "dot"
+              : DEFAULT_SETTINGS.fullWidthSpaceStyle,
+          },
+        },
+        {
+          name: "表示色",
+          desc: "全角スペースの記号・改行記号の色（エディタのテーマに合わせて調整してください）。",
+          control: { type: "color", key: "fullWidthSpaceColor", defaultValue: DEFAULT_SETTINGS.fullWidthSpaceColor },
+        },
+      ],
+    };
   }
 
-
+  // ─────────────────────────────────────────
+  // フォルダパス追加モーダル（用語インデックス／執筆情報一覧の
+  // 除外フォルダで共用する）
+  //
+  // SettingDefinitionList の addItem は「＋」ボタン（または
+  // モバイルでの「＋ 追加」行）のクリックハンドラを渡せるのみで、
+  // テキスト入力欄そのものは提供されない。そのため、クリック時に
+  // 標準の ConfirmationModal 上へ Setting + addText で入力欄を
+  // 組み立てて表示する。
+  // ─────────────────────────────────────────
+  private promptForFolderPath(title: string, onSubmit: (value: string) => void): void {
+    let value = "";
+    const modal = new ConfirmationModal(this.app);
+    modal.setTitle(title);
+    modal.setContent(createFragment(frag => {
+      const el = frag.createDiv();
+      new Setting(el)
+        .setName("フォルダパス")
+        .setDesc(descLines(
+          "Vault ルートからの相対パスを入力してください。",
+          "（例：templates、characters/templates）"
+        ))
+        .addText(text => {
+          text.setPlaceholder("フォルダパスを入力…");
+          text.onChange(v => { value = v; });
+          window.setTimeout(() => text.inputEl.focus());
+          // Enter キーでも追加できる
+          text.inputEl.addEventListener("keydown", (e: KeyboardEvent) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              modal.close();
+              onSubmit(value);
+            }
+          });
+        });
+    }));
+    modal.addButton(b => b.setButtonText("キャンセル").setCancel());
+    modal.addButton(b =>
+      b.setButtonText("追加").setCta()
+        .onClick(() => {
+          // onSubmit は非同期（保存＋再集計）だが、ConfirmationModal の
+          // ボタンは「ハンドラが truthy を返すとモーダルを閉じない」
+          // 仕様のため、Promise をそのまま返さないよう void で切り離す。
+          void onSubmit(value);
+        })
+    );
+    modal.open();
+  }
 
   // ─────────────────────────────────────────
   // 用語インデックス除外フォルダ セクション
@@ -355,95 +371,13 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
   // フォルダパスのプレフィックス一致で除外する。
   // 例）"_templates" を指定すると
   //     "_templates/character.md" が除外される。
+  //
+  // Round 2：SettingDefinitionList（onDelete・addItem）へ正式移行。
+  // 削除ボタン・並べ替えUIは自前実装をやめ、フレームワークの
+  // 標準アフォーダンスに委ねる（このリストは並べ替え不要のため
+  // onReorder は指定しない）。
   // ─────────────────────────────────────────
-  private renderExcludeFoldersSection(containerEl: HTMLElement): void {
-    new Setting(containerEl).setName("用語インデックス — 除外フォルダ").setHeading();
-    containerEl.createEl("p", {
-      text:
-        "指定したフォルダ内のファイルを用語インデックスから除外します。" +
-        "テンプレートフォルダなどを指定してください。" +
-        "フォルダパスは Vault ルートからの相対パスで入力します（例：_templates）。",
-      cls: "setting-item-description",
-    });
-
-    // 現在の除外フォルダリストを描画
-    this.renderExcludeFolderList(containerEl);
-
-    // 追加フォーム：addText + addButton を並べる（Obsidian 標準方式）
-    let folderInput = "";
-    new Setting(containerEl)
-      .setName("フォルダを追加")
-      .setDesc(descLines(
-        "Vault ルートからの相対パスを入力してください。",
-        "（例：templates、characters/templates）"
-        )
-      )
-      .addText(text => {
-        text.setPlaceholder("フォルダパスを入力…");
-        text.inputEl.addClass("nn-folder-path-input");
-        text.onChange(value => { folderInput = value; });
-        // Enter キーでも追加できる
-        text.inputEl.addEventListener("keydown", (e: KeyboardEvent) => {
-          if (e.key === "Enter") {
-            void this.addExcludeFolder(folderInput, containerEl).then(() => {
-              text.setValue("");
-              folderInput = "";
-            });
-          }
-        });
-      })
-      .addButton(btn =>
-        btn.setButtonText("追加").setCta()
-          .onClick(() => {
-            void this.addExcludeFolder(folderInput, containerEl).then(() => {
-              folderInput = "";
-              // テキストフィールドをクリア（再描画で反映）
-              this.refresh();
-            });
-          })
-      );
-  }
-
-  private renderExcludeFolderList(containerEl: HTMLElement): void {
-    // 既存リストを削除して再描画
-    containerEl.querySelectorAll(".nn-exclude-folder-row").forEach(el => el.remove());
-
-    const folders = this.plugin.settings.excludeFolders ?? [];
-    if (folders.length === 0) {
-      const empty = containerEl.createEl("p", {
-        text: "除外フォルダは設定されていません。",
-        cls: "nn-exclude-folder-empty setting-item-description",
-      });
-      empty.addClass("nn-exclude-folder-row");
-      return;
-    }
-
-    for (let i = 0; i < folders.length; i++) {
-      const row = containerEl.createDiv({
-        cls: "setting-item nn-exclude-folder-row",
-      });
-      row.addClass("nn-exclude-folder-item-row");
-
-      // フォルダアイコン＋パス
-      const label = row.createSpan({ cls: "setting-item-name nn-folder-label" });
-      label.createSpan({ cls: "nn-folder-icon", text: "📁" });
-      label.createEl("code", { text: folders[i] });
-
-      // 削除ボタン
-      const delBtn = row.createEl("button", { text: "削除", cls: "mod-warning nn-folder-del-btn" });
-      delBtn.addEventListener("click", () => {
-        this.plugin.settings.excludeFolders.splice(i, 1);
-        void this.plugin.saveSettings().then(() => {
-          void this.plugin.buildTermIndex();
-          this.plugin.updateSidebar();
-          this.plugin.refreshEditors();
-          this.refresh();
-        });
-      });
-    }
-  }
-
-  private async addExcludeFolder(value: string, _containerEl: HTMLElement): Promise<void> {
+  private async addExcludeFolder(value: string): Promise<void> {
     const folder = value.trim().replace(/\/+$/, ""); // 末尾スラッシュを除去
     if (!folder) return;
 
@@ -459,122 +393,89 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
     await this.plugin.buildTermIndex();
     this.plugin.updateSidebar();
     this.plugin.refreshEditors();
-    this.refresh(); // セクション全体を再描画
+    this.update(); // セクション全体を再描画
+  }
+
+  private buildExcludeFoldersGroup(): SettingDefinitionItem<SettingKey> {
+    const folders = this.plugin.settings.excludeFolders ?? [];
+    return {
+      type: "list",
+      heading: "用語インデックス — 除外フォルダ",
+      // SettingDefinitionList には group の desc に相当するフィールドが
+      // 無いため、常時表示の説明文は持たせられない。最もガイダンスが
+      // 必要な「まだ1件も無い」タイミングに表示されるよう、
+      // emptyState に説明文を持たせる。
+      emptyState: createFragment(el => {
+        el.createEl("p", {
+          text:
+            "指定したフォルダ内のファイルを用語インデックスから除外します。" +
+            "テンプレートフォルダなどを指定してください。" +
+            "フォルダパスは Vault ルートからの相対パスで入力します（例：_templates）。",
+        });
+      }),
+      items: folders.map((folder): SettingGroupItem<SettingKey> => ({
+        name: folder,
+        searchable: false,
+        render: (setting) => {
+          setting.setName(createFragment(el => {
+            el.createSpan({ cls: "nn-folder-icon", text: "📁" });
+            el.createEl("code", { text: folder });
+          }));
+        },
+      })),
+      onDelete: (index) => {
+        void (async () => {
+          this.plugin.settings.excludeFolders.splice(index, 1);
+          await this.plugin.saveSettings();
+          await this.plugin.buildTermIndex();
+          this.plugin.updateSidebar();
+          this.plugin.refreshEditors();
+          this.update();
+        })();
+      },
+      addItem: {
+        name: "フォルダを追加",
+        action: () => {
+          this.promptForFolderPath(
+            "除外フォルダを追加（用語インデックス）",
+            (value) => this.addExcludeFolder(value)
+          );
+        },
+      },
+    };
   }
 
   // ─────────────────────────────────────────
   // 執筆情報一覧 — 推定読了時間の読了速度設定
   // ─────────────────────────────────────────
-  private renderReadingSpeedSection(containerEl: HTMLElement): void {
-    new Setting(containerEl).setName("執筆情報一覧 — 推定読了時間").setHeading();
-
-    new Setting(containerEl)
-      .setName("読了速度（字/分）")
-      .setDesc(
-        "「執筆情報一覧」に表示する推定読了時間の計算に使う読書速度の目安です。" +
-        "小説換算文字数（全角1・半角0.5換算）を基準に計算します。" +
-        "あくまで目安のため、実際の読了時間とは差が生じます。" +
-        "変更後は「執筆情報一覧」タブの「再集計」（または開き直し）で反映されます。"
-      )
-      .addText(text =>
-        text.setValue(String(this.plugin.settings.readingSpeedCharsPerMinute))
-          .onChange(async value => {
-            const n = parseInt(value, 10);
-            if (!isNaN(n) && n > 0) {
-              this.plugin.settings.readingSpeedCharsPerMinute = n;
-              await this.plugin.saveSettings();
-            }
-          })
-      );
+  private buildReadingSpeedSection(): SettingDefinitionItem<SettingKey> {
+    return {
+      type: "group",
+      heading: "執筆情報一覧 — 推定読了時間",
+      items: [
+        {
+          name: "読了速度（字/分）",
+          desc:
+            "「執筆情報一覧」に表示する推定読了時間の計算に使う読書速度の目安です。" +
+            "小説換算文字数（全角1・半角0.5換算）を基準に計算します。" +
+            "あくまで目安のため、実際の読了時間とは差が生じます。" +
+            "変更後は「執筆情報一覧」タブの「再集計」（または開き直し）で反映されます。",
+          control: {
+            type: "number", key: "readingSpeedCharsPerMinute",
+            min: 1, step: 10,
+            defaultValue: DEFAULT_SETTINGS.readingSpeedCharsPerMinute,
+          },
+        },
+      ],
+    };
   }
 
   // ─────────────────────────────────────────
   // 執筆情報一覧 — 除外フォルダ設定
+  //
+  // Round 2：buildExcludeFoldersGroup() と同じ方針で
+  // SettingDefinitionList へ正式移行。
   // ─────────────────────────────────────────
-  private renderStatsExcludeFoldersSection(containerEl: HTMLElement): void {
-    new Setting(containerEl).setName("執筆情報一覧 — 除外フォルダ").setHeading();
-    containerEl.createEl("p", {
-      text:
-        "指定したフォルダ内のファイルを「執筆情報一覧」の集計対象から除外します。" +
-        "テンプレートフォルダなどを指定してください。" +
-        "フォルダパスは Vault ルートからの相対パスで入力します（例：_templates）。" +
-        "用語インデックスの除外フォルダとは別に管理されます。",
-      cls: "setting-item-description",
-    });
-
-    // 現在の除外フォルダリストを描画
-    this.renderStatsExcludeFolderList(containerEl);
-
-    // 追加フォーム：addText + addButton を並べる（Obsidian 標準方式）
-    let folderInput = "";
-    new Setting(containerEl)
-      .setName("フォルダを追加")
-      .setDesc(descLines(
-        "Vault ルートからの相対パスを入力してください。",
-        "（例：templates、characters/templates）"
-        )
-      )
-      .addText(text => {
-        text.setPlaceholder("フォルダパスを入力…");
-        text.inputEl.addClass("nn-folder-path-input");
-        text.onChange(value => { folderInput = value; });
-        // Enter キーでも追加できる
-        text.inputEl.addEventListener("keydown", (e: KeyboardEvent) => {
-          if (e.key === "Enter") {
-            void this.addStatsExcludeFolder(folderInput).then(() => {
-              text.setValue("");
-              folderInput = "";
-            });
-          }
-        });
-      })
-      .addButton(btn =>
-        btn.setButtonText("追加").setCta()
-          .onClick(() => {
-            void this.addStatsExcludeFolder(folderInput).then(() => {
-              folderInput = "";
-              this.refresh();
-            });
-          })
-      );
-  }
-
-  private renderStatsExcludeFolderList(containerEl: HTMLElement): void {
-    // 既存リストを削除して再描画
-    containerEl.querySelectorAll(".nn-stats-exclude-folder-row").forEach(el => el.remove());
-
-    const folders = this.plugin.settings.statsExcludeFolders ?? [];
-    if (folders.length === 0) {
-      const empty = containerEl.createEl("p", {
-        text: "除外フォルダは設定されていません。",
-        cls: "nn-stats-exclude-folder-empty setting-item-description",
-      });
-      empty.addClass("nn-stats-exclude-folder-row");
-      return;
-    }
-
-    for (let i = 0; i < folders.length; i++) {
-      const row = containerEl.createDiv({
-        cls: "setting-item nn-stats-exclude-folder-row",
-      });
-      row.addClass("nn-exclude-folder-item-row");
-
-      // フォルダアイコン＋パス
-      const label = row.createSpan({ cls: "setting-item-name nn-folder-label" });
-      label.createSpan({ cls: "nn-folder-icon", text: "📁" });
-      label.createEl("code", { text: folders[i] });
-
-      // 削除ボタン
-      const delBtn = row.createEl("button", { text: "削除", cls: "mod-warning nn-folder-del-btn" });
-      delBtn.addEventListener("click", () => {
-        this.plugin.settings.statsExcludeFolders.splice(i, 1);
-        void this.plugin.saveSettings().then(() => {
-          this.refresh();
-        });
-      });
-    }
-  }
-
   private async addStatsExcludeFolder(value: string): Promise<void> {
     const folder = value.trim().replace(/\/+$/, ""); // 末尾スラッシュを除去
     if (!folder) return;
@@ -588,74 +489,90 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
 
     this.plugin.settings.statsExcludeFolders.push(folder);
     await this.plugin.saveSettings();
-    this.refresh(); // セクション全体を再描画
+    this.update(); // セクション全体を再描画
+  }
+
+  private buildStatsExcludeFoldersGroup(): SettingDefinitionItem<SettingKey> {
+    const folders = this.plugin.settings.statsExcludeFolders ?? [];
+    return {
+      type: "list",
+      heading: "執筆情報一覧 — 除外フォルダ",
+      emptyState: createFragment(el => {
+        el.createEl("p", {
+          text:
+            "指定したフォルダ内のファイルを「執筆情報一覧」の集計対象から除外します。" +
+            "テンプレートフォルダなどを指定してください。" +
+            "フォルダパスは Vault ルートからの相対パスで入力します（例：_templates）。" +
+            "用語インデックスの除外フォルダとは別に管理されます。",
+        });
+      }),
+      items: folders.map((folder): SettingGroupItem<SettingKey> => ({
+        name: folder,
+        searchable: false,
+        render: (setting) => {
+          setting.setName(createFragment(el => {
+            el.createSpan({ cls: "nn-folder-icon", text: "📁" });
+            el.createEl("code", { text: folder });
+          }));
+        },
+      })),
+      onDelete: (index) => {
+        void (async () => {
+          this.plugin.settings.statsExcludeFolders.splice(index, 1);
+          await this.plugin.saveSettings();
+          this.update();
+        })();
+      },
+      addItem: {
+        name: "フォルダを追加",
+        action: () => {
+          this.promptForFolderPath(
+            "除外フォルダを追加（執筆情報一覧）",
+            (value) => this.addStatsExcludeFolder(value)
+          );
+        },
+      },
+    };
   }
 
   // ─────────────────────────────────────────
   // ハイライト全体のオン/オフセクション
   // ─────────────────────────────────────────
-  private renderHighlightSection(containerEl: HTMLElement): void {
-    new Setting(containerEl).setName("ハイライト").setHeading();
-
-    new Setting(containerEl)
-      .setName("ハイライトを有効にする")
-      .setDesc("オフにするとすべてのハイライトが無効になります。")
-      .addToggle(toggle =>
-        toggle.setValue(this.plugin.settings.highlightEnabled)
-          .onChange(async value => {
-            this.plugin.settings.highlightEnabled = value;
-            await this.plugin.saveSettings();
-            this.plugin.applyEditorStyles();
-            this.plugin.refreshEditors();
-          })
-      );
-
-    new Setting(containerEl)
-      .setName("用語ハイライトのホバープレビュー")
-      .setDesc(descLines(
-        "エディタ上でハイライトされた用語にマウスを合わせると、対応する用語ノートを" +
-        "Obsidian標準のページプレビュー（Hover Preview）で表示します。" ,
-        "※WikiLinkを書く必要はありません。")
-      )
-      .addToggle(toggle =>
-        toggle.setValue(this.plugin.settings.termHoverPreviewEnabled)
-          .onChange(async value => {
-            this.plugin.settings.termHoverPreviewEnabled = value;
-            await this.plugin.saveSettings();
-            this.plugin.applyEditorStyles();
-          })
-      );
+  private buildHighlightSection(): SettingDefinitionItem<SettingKey> {
+    return {
+      type: "group",
+      heading: "ハイライト",
+      items: [
+        {
+          name: "ハイライトを有効にする",
+          desc: "オフにするとすべてのハイライトが無効になります。",
+          control: { type: "toggle", key: "highlightEnabled", defaultValue: DEFAULT_SETTINGS.highlightEnabled },
+        },
+        {
+          name: "用語ハイライトのホバープレビュー",
+          desc: descLines(
+            "エディタ上でハイライトされた用語にマウスを合わせると、対応する用語ノートを" +
+            "Obsidian標準のページプレビュー（Hover Preview）で表示します。",
+            "※WikiLinkを書く必要はありません。"
+          ),
+          control: { type: "toggle", key: "termHoverPreviewEnabled", defaultValue: DEFAULT_SETTINGS.termHoverPreviewEnabled },
+        },
+      ],
+    };
   }
 
   // ─────────────────────────────────────────
   // カテゴリ定義セクション
+  //
+  // Round 3：SettingDefinitionList（onReorder・onDelete）へ正式移行。
+  // onReorder を指定すると各行にドラッグハンドルが自動で付き、
+  // ドラッグ&ドロップによる並べ替えが有効になるため、自前の
+  // HTML5 Drag & Drop実装（dragstart/dragover/drop等）は不要になり
+  // 削除した。精密な移動がしやすいよう、上下移動ボタンは
+  // ドラッグと併用できる形でそのまま残している。
   // ─────────────────────────────────────────
-  private renderTagSection(containerEl: HTMLElement): void {
-    new Setting(containerEl).setName("カテゴリ定義").setHeading();
-    containerEl.createEl("p", {
-      text: "用語ノートに付けるカテゴリ名・表示名・色・オン/オフを設定します。",
-      cls: "setting-item-description",
-    });
-    this.renderTagList(containerEl);
-    new Setting(containerEl)
-      .addButton(btn =>
-        btn.setButtonText("＋ カテゴリを追加").setCta()
-          .onClick(async () => {
-            this.plugin.settings.tagDefinitions.push({
-              tag: "new-tag", label: "新しいカテゴリ", color: "#aaaaaa", enabled: true,
-            });
-            await this.plugin.saveSettings();
-            this.plugin.applyEditorStyles();
-            this.refresh();
-          })
-      );
-  }
-
-  private renderTagList(containerEl: HTMLElement): void {
+  private buildTagGroup(): SettingDefinitionItem<SettingKey> {
     const defs = this.plugin.settings.tagDefinitions;
-
-    // ─── ドラッグ状態管理 ───
-    let dragSrcIdx = -1;
 
     const saveAndRefresh = async () => {
       await this.plugin.saveSettings();
@@ -665,448 +582,376 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
       this.plugin.refreshEditors();
     };
 
-    for (let i = 0; i < defs.length; i++) {
-      const td = defs[i];
+    return {
+      type: "list",
+      heading: "カテゴリ定義",
+      emptyState: createFragment(el => {
+        el.createEl("p", { text: "用語ノートに付けるカテゴリ名・表示名・色・オン/オフを設定します。" });
+      }),
+      items: defs.map((td, i): SettingGroupItem<SettingKey> => ({
+        // 行の「名前」表示は使わず、カテゴリ名自体を編集可能な
+        // テキスト欄として render 側で組み立てるため、検索対象からは外す。
+        name: td.tag || "（無題のカテゴリ）",
+        searchable: false,
+        render: (setting) => {
+          setting.settingEl.addClass("nn-tag-setting-row");
+          // name ラベルは使わないため空にしておく
+          // （カテゴリ名自体は addText の1つ目として編集する）。
+          setting.setName("");
 
-      // ── 行コンテナ（draggable） ─────────────────────
-      const rowEl = containerEl.createDiv({ cls: "novels-note-tag-row nn-drag-row" });
-      rowEl.setAttribute("draggable", "true");
-      rowEl.dataset.idx = String(i);
+          const capturedI = i; // クロージャ用
 
-      // ── ドラッグハンドル ────────────────────────────
-      const handle = rowEl.createSpan({ cls: "nn-drag-handle", title: "ドラッグして並べ替え" });
-      const svg = handle.createSvg("svg", { attr: { viewBox: "0 0 16 16", width: "16", height: "16" } });
-      for (const [cx, cy] of [[5,4],[11,4],[5,8],[11,8],[5,12],[11,12]]) {
-        svg.createSvg("circle", { attr: { cx, cy, r: "1.2", fill: "currentColor" } });
-      }
+          setting.addText(text =>
+            text.setPlaceholder("カテゴリ名").setValue(td.tag)
+              .onChange(async value => {
+                defs[capturedI].tag = value.trim();
+                await saveAndRefresh();
+              })
+          );
+          setting.addText(text =>
+            text.setPlaceholder("表示名").setValue(td.label)
+              .onChange(async value => {
+                defs[capturedI].label = value;
+                await this.plugin.saveSettings();
+                this.plugin.updateSidebar();
+              })
+          );
 
-      // ── Setting をこの rowEl の中に作る ────────────
-      const setting = new Setting(rowEl);
-      setting.settingEl.addClass("nn-tag-setting-row");
+          // 狭い画面では「カテゴリ名・表示名」を1行目、
+          // 「カラー・トグル・上下移動」を2行目にまとめて
+          // 折り返したいので、ここに強制改行用のスペーサーを挟む。
+          // 通常幅では flex-basis: 0 で何も影響しない（styles.css参照）。
+          setting.controlEl.createDiv({ cls: "nn-row-break" });
 
-      const capturedI = i; // クロージャ用
+          setting.addColorPicker(picker =>
+            picker.setValue(td.color)
+              .onChange(async value => {
+                defs[capturedI].color = value;
+                await this.plugin.saveSettings();
+                this.plugin.applyEditorStyles();
+                this.plugin.refreshEditors();
+              })
+          );
+          setting.addToggle(toggle =>
+            toggle.setTooltip("ハイライトのオン/オフ").setValue(td.enabled)
+              .onChange(async value => {
+                defs[capturedI].enabled = value;
+                await this.plugin.saveSettings();
+                this.plugin.refreshEditors();
+              })
+          );
 
-      setting.addText(text =>
-        text.setPlaceholder("カテゴリ名").setValue(td.tag)
-          .onChange(async value => {
-            defs[capturedI].tag = value.trim();
-            await saveAndRefresh();
-          })
-      );
-      setting.addText(text =>
-        text.setPlaceholder("表示名").setValue(td.label)
-          .onChange(async value => {
-            defs[capturedI].label = value;
-            await this.plugin.saveSettings();
-            this.plugin.updateSidebar();
-          })
-      );
-
-      // 狭い画面では「カテゴリ名・表示名」を1行目、
-      // 「カラー・トグル・上下移動・削除」を2行目にまとめて
-      // 折り返したいので、ここに強制改行用のスペーサーを挟む。
-      // 通常幅では flex-basis: 0 で何も影響しない（styles.css参照）。
-      setting.controlEl.createDiv({ cls: "nn-row-break" });
-
-      setting.addColorPicker(picker =>
-        picker.setValue(td.color)
-          .onChange(async value => {
-            defs[capturedI].color = value;
-            await this.plugin.saveSettings();
+          // ── 上下移動ボタン（ドラッグ&ドロップと併用可能） ──────
+          setting.addExtraButton(btn =>
+            btn.setIcon("arrow-up").setTooltip("上へ移動")
+              .onClick(async () => {
+                if (capturedI === 0) return;
+                [defs[capturedI - 1], defs[capturedI]] = [defs[capturedI], defs[capturedI - 1]];
+                await saveAndRefresh();
+                this.update();
+              })
+          );
+          setting.addExtraButton(btn =>
+            btn.setIcon("arrow-down").setTooltip("下へ移動")
+              .onClick(async () => {
+                if (capturedI === defs.length - 1) return;
+                [defs[capturedI], defs[capturedI + 1]] = [defs[capturedI + 1], defs[capturedI]];
+                await saveAndRefresh();
+                this.update();
+              })
+          );
+        },
+      })),
+      onReorder: (oldIndex, newIndex) => {
+        const [removed] = defs.splice(oldIndex, 1);
+        defs.splice(newIndex, 0, removed);
+        void saveAndRefresh().then(() => this.update());
+      },
+      onDelete: (index) => {
+        defs.splice(index, 1);
+        void saveAndRefresh().then(() => this.update());
+      },
+      addItem: {
+        name: "カテゴリを追加",
+        action: () => {
+          defs.push({ tag: "new-tag", label: "新しいカテゴリ", color: "#aaaaaa", enabled: true });
+          void this.plugin.saveSettings().then(() => {
             this.plugin.applyEditorStyles();
-            this.plugin.refreshEditors();
-          })
-      );
-      setting.addToggle(toggle =>
-        toggle.setTooltip("ハイライトのオン/オフ").setValue(td.enabled)
-          .onChange(async value => {
-            defs[capturedI].enabled = value;
-            await this.plugin.saveSettings();
-            this.plugin.refreshEditors();
-          })
-      );
-
-      // ── 上下移動ボタン ──────────────────────────────
-      setting.addExtraButton(btn =>
-        btn.setIcon("arrow-up").setTooltip("上へ移動")
-          .onClick(async () => {
-            if (capturedI === 0) return;
-            [defs[capturedI - 1], defs[capturedI]] = [defs[capturedI], defs[capturedI - 1]];
-            await saveAndRefresh();
-            this.refresh();
-          })
-      );
-      setting.addExtraButton(btn =>
-        btn.setIcon("arrow-down").setTooltip("下へ移動")
-          .onClick(async () => {
-            if (capturedI === defs.length - 1) return;
-            [defs[capturedI], defs[capturedI + 1]] = [defs[capturedI + 1], defs[capturedI]];
-            await saveAndRefresh();
-            this.refresh();
-          })
-      );
-      setting.addExtraButton(btn =>
-        btn.setIcon("trash").setTooltip("このカテゴリを削除")
-          .onClick(async () => {
-            defs.splice(capturedI, 1);
-            await saveAndRefresh();
-            this.refresh();
-          })
-      );
-
-      // ── HTML5 Drag & Drop ───────────────────────────
-      rowEl.addEventListener("dragstart", (e: DragEvent) => {
-        dragSrcIdx = capturedI;
-        rowEl.addClass("nn-drag-dragging");
-        if (e.dataTransfer) {
-          e.dataTransfer.effectAllowed = "move";
-          e.dataTransfer.setData("text/plain", String(capturedI));
-        }
-      });
-
-      rowEl.addEventListener("dragend", () => {
-        rowEl.removeClass("nn-drag-dragging");
-        // ドロップ先のハイライトを全消去
-        containerEl.querySelectorAll(".nn-drag-over").forEach(el =>
-          el.removeClass("nn-drag-over")
-        );
-      });
-
-      rowEl.addEventListener("dragover", (e: DragEvent) => {
-        e.preventDefault();
-        if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
-        // 自分以外にホバー表示
-        containerEl.querySelectorAll(".nn-drag-over").forEach(el =>
-          el.removeClass("nn-drag-over")
-        );
-        if (dragSrcIdx !== capturedI) rowEl.addClass("nn-drag-over");
-      });
-
-      rowEl.addEventListener("dragleave", () => {
-        rowEl.removeClass("nn-drag-over");
-      });
-
-      rowEl.addEventListener("drop", (e: DragEvent) => {
-        e.preventDefault();
-        rowEl.removeClass("nn-drag-over");
-        const src = dragSrcIdx;
-        const dst = capturedI;
-        if (src === dst || src < 0) return;
-
-        // src を dst の位置に移動
-        const [removed] = defs.splice(src, 1);
-        defs.splice(dst, 0, removed);
-        dragSrcIdx = -1;
-
-        void saveAndRefresh().then(() => this.refresh());
-      });
-    }
+            this.update();
+          });
+        },
+      },
+    };
   }
 
   // ─────────────────────────────────────────
   // カッコハイライトセクション
+  //
+  // Round 3：buildTagGroup() と同じ方針で SettingDefinitionList へ
+  // 正式移行。並べ替え機能は元々無かったため onReorder は指定しない。
   // ─────────────────────────────────────────
-  private renderBracketSection(containerEl: HTMLElement): void {
-    new Setting(containerEl).setName("カッコハイライト").setHeading();
-    containerEl.createEl("p", {
-      text: "内側のカッコが外側より優先されます。用語の強調表示はすべてのカッコより優先されます。",
-      cls: "setting-item-description",
-    });
-    this.renderBracketList(containerEl);
-    new Setting(containerEl)
-      .addButton(btn =>
-        btn.setButtonText("＋ カッコを追加").setCta()
-          .onClick(async () => {
-            const newId = `bracket-${Date.now()}`;
-            this.plugin.settings.bracketDefinitions.push({
-              id: newId, label: "新しいカッコ",
-              open: "〔", close: "〕", color: "#aaaaaa", enabled: false,
-            });
-            await this.plugin.saveSettings();
-            this.plugin.applyEditorStyles();
-            this.refresh();
-          })
-      );
-  }
-
-  private renderBracketList(containerEl: HTMLElement): void {
+  private buildBracketGroup(): SettingDefinitionItem<SettingKey> {
     const defs = this.plugin.settings.bracketDefinitions;
-    for (let i = 0; i < defs.length; i++) {
-      const bd = defs[i];
-      const setting = new Setting(containerEl);
-      setting.settingEl.addClass("novels-note-bracket-row");
-      setting.addText(text => {
-        text.inputEl.addClass("nn-bracket-label-input");
-        text.setPlaceholder("表示名").setValue(bd.label)
-          .onChange(async value => {
-            defs[i].label = value;
-            await this.plugin.saveSettings();
-          });
-      });
-      setting.addText(text => {
-        text.inputEl.addClass("nn-bracket-char-input");
-        text.setPlaceholder("開").setValue(bd.open)
-          .onChange(async value => {
-            defs[i].open = value;
-            await this.plugin.saveSettings();
-            this.plugin.refreshEditors();
-          });
-      });
-      setting.addText(text => {
-        text.inputEl.addClass("nn-bracket-char-input");
-        text.setPlaceholder("閉").setValue(bd.close)
-          .onChange(async value => {
-            defs[i].close = value;
-            await this.plugin.saveSettings();
-            this.plugin.refreshEditors();
-          });
-      });
 
-      // カテゴリ定義行と同様、狭い画面では「表示名・開始カッコ・
-      // 終了カッコ」を1行目、「カラー・トグル・削除」を2行目に
-      // まとめて折り返したいので、強制改行用のスペーサーを挟む。
-      setting.controlEl.createDiv({ cls: "nn-row-break" });
+    return {
+      type: "list",
+      heading: "カッコハイライト",
+      emptyState: createFragment(el => {
+        el.createEl("p", { text: "内側のカッコが外側より優先されます。用語の強調表示はすべてのカッコより優先されます。" });
+      }),
+      items: defs.map((bd, i): SettingGroupItem<SettingKey> => ({
+        name: bd.label || "（無題のカッコ）",
+        searchable: false,
+        render: (setting) => {
+          setting.settingEl.addClass("novels-note-bracket-row");
+          setting.setName("");
 
-      setting.addColorPicker(picker =>
-        picker.setValue(bd.color)
-          .onChange(async value => {
-            defs[i].color = value;
-            await this.plugin.saveSettings();
+          const capturedI = i; // クロージャ用
+
+          setting.addText(text => {
+            text.inputEl.addClass("nn-bracket-label-input");
+            text.setPlaceholder("表示名").setValue(bd.label)
+              .onChange(async value => {
+                defs[capturedI].label = value;
+                await this.plugin.saveSettings();
+              });
+          });
+          setting.addText(text => {
+            text.inputEl.addClass("nn-bracket-char-input");
+            text.setPlaceholder("開").setValue(bd.open)
+              .onChange(async value => {
+                defs[capturedI].open = value;
+                await this.plugin.saveSettings();
+                this.plugin.refreshEditors();
+              });
+          });
+          setting.addText(text => {
+            text.inputEl.addClass("nn-bracket-char-input");
+            text.setPlaceholder("閉").setValue(bd.close)
+              .onChange(async value => {
+                defs[capturedI].close = value;
+                await this.plugin.saveSettings();
+                this.plugin.refreshEditors();
+              });
+          });
+
+          // カテゴリ定義行と同様、狭い画面では「表示名・開始カッコ・
+          // 終了カッコ」を1行目、「カラー・トグル」を2行目に
+          // まとめて折り返したいので、強制改行用のスペーサーを挟む。
+          setting.controlEl.createDiv({ cls: "nn-row-break" });
+
+          setting.addColorPicker(picker =>
+            picker.setValue(bd.color)
+              .onChange(async value => {
+                defs[capturedI].color = value;
+                await this.plugin.saveSettings();
+                this.plugin.applyEditorStyles();
+                this.plugin.refreshEditors();
+              })
+          );
+          setting.addToggle(toggle =>
+            toggle.setTooltip("ハイライトのオン/オフ").setValue(bd.enabled)
+              .onChange(async value => {
+                defs[capturedI].enabled = value;
+                await this.plugin.saveSettings();
+                this.plugin.refreshEditors();
+              })
+          );
+        },
+      })),
+      onDelete: (index) => {
+        defs.splice(index, 1);
+        void this.plugin.saveSettings().then(() => {
+          this.plugin.applyEditorStyles();
+          this.plugin.refreshEditors();
+          this.update();
+        });
+      },
+      addItem: {
+        name: "カッコを追加",
+        action: () => {
+          const newId = `bracket-${Date.now()}`;
+          defs.push({
+            id: newId, label: "新しいカッコ",
+            open: "〔", close: "〕", color: "#aaaaaa", enabled: false,
+          });
+          void this.plugin.saveSettings().then(() => {
             this.plugin.applyEditorStyles();
-            this.plugin.refreshEditors();
-          })
-      );
-      setting.addToggle(toggle =>
-        toggle.setTooltip("ハイライトのオン/オフ").setValue(bd.enabled)
-          .onChange(async value => {
-            defs[i].enabled = value;
-            await this.plugin.saveSettings();
-            this.plugin.refreshEditors();
-          })
-      );
-      setting.addExtraButton(btn =>
-        btn.setIcon("trash").setTooltip("このカッコを削除")
-          .onClick(async () => {
-            defs.splice(i, 1);
-            await this.plugin.saveSettings();
-            this.plugin.applyEditorStyles();
-            this.plugin.refreshEditors();
-            this.refresh();
-          })
-      );
-    }
+            this.update();
+          });
+        },
+      },
+    };
   }
 
   // ─────────────────────────────────────────
   // ルビ設定セクション
   // ─────────────────────────────────────────
-  private renderRubySection(containerEl: HTMLElement): void {
-    new Setting(containerEl).setName("ルビ設定").setHeading();
-    containerEl.createEl("p", {
-      text: "縦書きプレビューおよびExportで使用するルビの記法を選択してください。",
-      cls: "setting-item-description",
-    });
-
-    new Setting(containerEl)
-      .setName("ルビの記法")
-      .setDesc(descLines(
-        "・なろう式：漢字《ルビ》 または |漢字《ルビ》（半角縦棒）",
-        "・青空文庫式：漢字《ルビ》 または ｜漢字《ルビ》（全角縦棒）",
-        "・でんでん式：{漢字|ルビ}",
-        "・HTMLタグ：<ruby>漢字<rt>ルビ</rt></ruby>"
-      ))
-      .addDropdown(drop =>
-        drop
-          .addOption("narou",  "なろう式（漢字《ルビ》 / |漢字《ルビ》）")
-          .addOption("aozora", "青空文庫式（漢字《ルビ》 / ｜漢字《ルビ》）")
-          .addOption("denden", "でんでん式（{漢字|ルビ}）")
-          .addOption("html",   "HTMLタグ（<ruby>）")
-          .setValue(this.plugin.settings.rubyStyle)
-          .onChange(async value => {
-            this.plugin.settings.rubyStyle = value as "narou" | "aozora" | "denden" | "html";
-            await this.plugin.saveSettings();
-            // 縦書きプレビューを開いていれば即時反映
-            this.plugin.refreshVerticalPreview();
-          })
-      );
+  private buildRubySection(): SettingDefinitionItem<SettingKey> {
+    return {
+      type: "group",
+      heading: "ルビ設定",
+      items: [
+        {
+          name: "ルビの記法",
+          desc: descLines(
+            "縦書きプレビューおよびExportで使用するルビの記法を選択してください。",
+            "・なろう式：漢字《ルビ》 または |漢字《ルビ》（半角縦棒）",
+            "・青空文庫式：漢字《ルビ》 または ｜漢字《ルビ》（全角縦棒）",
+            "・でんでん式：{漢字|ルビ}",
+            "・HTMLタグ：<ruby>漢字<rt>ルビ</rt></ruby>"
+          ),
+          control: {
+            type: "dropdown", key: "rubyStyle",
+            options: {
+              narou: "なろう式（漢字《ルビ》 / |漢字《ルビ》）",
+              aozora: "青空文庫式（漢字《ルビ》 / ｜漢字《ルビ》）",
+              denden: "でんでん式（{漢字|ルビ}）",
+              html: "HTMLタグ（<ruby>）",
+            },
+            defaultValue: DEFAULT_SETTINGS.rubyStyle,
+          },
+        },
+      ],
+    };
   }
 
   // ─────────────────────────────────────────
   // 文字数カウントセクション
   // ─────────────────────────────────────────
-  private renderWordCountSection(containerEl: HTMLElement): void {
-    new Setting(containerEl).setName("文字数カウント").setHeading();
-    containerEl.createEl("p", {
-      text: "ステータスバー（画面下部）に原稿の文字数を表示します。クリックでモードを切り替えられます。",
-      cls: "setting-item-description",
-    });
-
-    new Setting(containerEl)
-      .setName("カウントモード")
-      .setDesc(descLines(
-        "raw: 文字数そのまま",
-        "novel: 全角1字・半角0.5字で換算",
-        "manuscript: 400字詰め原稿用紙の枚数"
-      ))
-      .addDropdown(drop =>
-        drop
-          .addOption("raw",        "raw（文字数）")
-          .addOption("novel",      "novel（小説換算）")
-          .addOption("manuscript", "manuscript（原稿用紙換算）")
-          .setValue(this.plugin.settings.countMode)
-          .onChange(async value => {
-            this.plugin.settings.countMode = value as "raw" | "novel" | "manuscript";
-            await this.plugin.saveSettings();
-            this.plugin.updateWordCount();
-          })
-      );
-
-    new Setting(containerEl)
-      .setName("全角スペースを文字数に含める")
-      .setDesc(descLines(
-        "オンにすると段落先頭などの全角スペース（　）も1文字としてカウントします。",
-        "オフ（デフォルト）にすると除外します。"
-      ))
-      .addToggle(toggle =>
-        toggle.setValue(this.plugin.settings.countFullWidthSpace)
-          .onChange(async value => {
-            this.plugin.settings.countFullWidthSpace = value;
-            await this.plugin.saveSettings();
-            this.plugin.updateWordCount();
-          })
-      );
-
-    new Setting(containerEl)
-      .setName("空行を文字数に含める")
-      .setDesc(descLines(
-        "オンにすると内容のない行（空行）の改行文字もカウント対象にします。",
-        "通常はオフ（デフォルト）のままで構いません。"
-      ))
-      .addToggle(toggle =>
-        toggle.setValue(this.plugin.settings.countEmptyLines)
-          .onChange(async value => {
-            this.plugin.settings.countEmptyLines = value;
-            await this.plugin.saveSettings();
-            this.plugin.updateWordCount();
-          })
-      );
-
-    new Setting(containerEl)
-      .setName("#tag を文字数に含める")
-      .setDesc(descLines(
-        "オンにすると原稿中に書いた #tag（キャラクター登録などの目印）も文字数としてカウントします。",
-        "オフ（デフォルト）にすると #tag を除外します（エクスポート時の除去と同じ扱いになります）。"
-      ))
-      .addToggle(toggle =>
-        toggle.setValue(this.plugin.settings.countHashtags)
-          .onChange(async value => {
-            this.plugin.settings.countHashtags = value;
-            await this.plugin.saveSettings();
-            this.plugin.updateWordCount();
-          })
-      );
+  private buildWordCountSection(): SettingDefinitionItem<SettingKey> {
+    return {
+      type: "group",
+      heading: "文字数カウント",
+      items: [
+        {
+          name: "カウントモード",
+          desc: descLines(
+            "ステータスバー（画面下部）に原稿の文字数を表示します。クリックでモードを切り替えられます。",
+            "raw: 文字数そのまま",
+            "novel: 全角1字・半角0.5字で換算",
+            "manuscript: 400字詰め原稿用紙の枚数"
+          ),
+          control: {
+            type: "dropdown", key: "countMode",
+            options: { raw: "raw（文字数）", novel: "novel（小説換算）", manuscript: "manuscript（原稿用紙換算）" },
+            defaultValue: DEFAULT_SETTINGS.countMode,
+          },
+        },
+        {
+          name: "全角スペースを文字数に含める",
+          desc: descLines(
+            "オンにすると段落先頭などの全角スペース（　）も1文字としてカウントします。",
+            "オフ（デフォルト）にすると除外します。"
+          ),
+          control: { type: "toggle", key: "countFullWidthSpace", defaultValue: DEFAULT_SETTINGS.countFullWidthSpace },
+        },
+        {
+          name: "空行を文字数に含める",
+          desc: descLines(
+            "オンにすると内容のない行（空行）の改行文字もカウント対象にします。",
+            "通常はオフ（デフォルト）のままで構いません。"
+          ),
+          control: { type: "toggle", key: "countEmptyLines", defaultValue: DEFAULT_SETTINGS.countEmptyLines },
+        },
+        {
+          name: "#tag を文字数に含める",
+          desc: descLines(
+            "オンにすると原稿中に書いた #tag（キャラクター登録などの目印）も文字数としてカウントします。",
+            "オフ（デフォルト）にすると #tag を除外します（エクスポート時の除去と同じ扱いになります）。"
+          ),
+          control: { type: "toggle", key: "countHashtags", defaultValue: DEFAULT_SETTINGS.countHashtags },
+        },
+      ],
+    };
   }
 
   // ─────────────────────────────────────────
   // 用語入力パレットセクション
   // ─────────────────────────────────────────
-  private renderGlossaryPaletteSection(containerEl: HTMLElement): void {
-    new Setting(containerEl).setName("用語入力パレット").setHeading();
-    containerEl.createEl("p", {
-      text: "執筆中にトリガー文字を入力すると、用語インデックスから用語を検索・入力できるパレットを開きます。",
-      cls: "setting-item-description",
-    });
-
-    new Setting(containerEl)
-      .setName("用語入力パレットを有効にする")
-      .addToggle(toggle =>
-        toggle.setValue(this.plugin.settings.glossaryPaletteEnabled)
-          .onChange(async value => {
-            this.plugin.settings.glossaryPaletteEnabled = value;
-            await this.plugin.saveSettings();
-            this.plugin.refreshEditors();
-          })
-      );
-
-    new Setting(containerEl)
-      .setName("起動範囲")
-      .setDesc(descLines(
-        "・原稿ノートのみ：mode: novel が設定されたノートでのみ起動します。",
-        "・原稿ノート＋用語ノート（デフォルト）：原稿ノートに加えて、用語ノート（キャラクター・場所などのタグを持つノート）でも起動します。",
-        "・すべてのノート：全てのMarkdownノートで起動します。メモ等で普段からトリガー文字を書く場合は誤爆しやすいのでご注意ください。"
-      ))
-      .addDropdown(drop =>
-        drop
-          .addOption("novelOnly", "原稿ノートのみ")
-          .addOption("novelAndGlossary", "原稿ノート＋用語ノート")
-          .addOption("all", "すべてのノート")
-          .setValue(this.plugin.settings.glossaryPaletteScope)
-          .onChange(async value => {
-            this.plugin.settings.glossaryPaletteScope = value as GlossaryPaletteScope;
-            await this.plugin.saveSettings();
-            this.plugin.refreshEditors();
-          })
-      );
-
-    new Setting(containerEl)
-      .setName("起動トリガー文字")
-      .setDesc(descLines(
-        "パレットを開くための1文字を指定してください（例： / @ $ : ;）。",
-        `Markdownで一般的に使われる ${GLOSSARY_PALETTE_FORBIDDEN_TRIGGERS.join(" ")} は指定できません。`
-      ))
-      .addText(text =>
-        text.setValue(this.plugin.settings.glossaryPaletteTrigger)
-          .setPlaceholder("/")
-          .onChange(async value => {
-            const trimmed = value.trim();
-
-            // 入力途中（削除中など）で空文字になった瞬間は
-            // 何もせず待つ（通知を出すと入力操作のたびにうるさい）
-            if (trimmed.length === 0) return;
-
-            if (trimmed.length !== 1) {
-              new Notice("トリガー文字は1文字で指定してください。");
-              return;
-            }
-            if (GLOSSARY_PALETTE_FORBIDDEN_TRIGGERS.includes(trimmed)) {
-              new Notice(`「${trimmed}」はMarkdown記法と衝突するため使用できません。`);
-              return;
-            }
-
-            this.plugin.settings.glossaryPaletteTrigger = trimmed;
-            await this.plugin.saveSettings();
-            this.plugin.refreshEditors();
-          })
-      );
-
-    new Setting(containerEl)
-      .setName("「最近使った」履歴をクリア")
-      .setDesc("用語入力パレットの「最近使った」に表示される履歴をすべて削除します。この操作は取り消せません。")
-      .addButton(btn =>
-        btn.setButtonText("クリア")
-          // setDestructive() は @since 1.13.0 のAPIであり、実行時に
-          // typeof で存在チェックするガードを書いても、Obsidianの
-          // コミュニティプラグイン審査の静的解析（obsidianmd/no-unsupported-api）
-          // はソースコード上の API 参照そのものを検出してエラーとするため
-          // 通過できない（実際に obsidianmd/no-unsupported-api で
-          // エラーになることを確認済み）。
-          // minAppVersion（1.8.7）を引き上げない方針である以上、
-          // setDestructive() への参照自体をコードに含めることができない。
-          // setWarning() は非推奨だが廃止はされておらず動作するため、
-          // こちらのみを使用する（審査では「警告」扱いに留まり、
-          // 登録のブロッカーにはならない）。
-          .setWarning()
-          .onClick(() => {
-            new ConfirmDialog(
-              this.app,
-              "「最近使った」履歴をすべて削除します。よろしいですか？",
-              async () => {
-                await this.plugin.clearGlossaryPaletteHistory();
-                new Notice("「最近使った」履歴をクリアしました。");
+  private buildGlossaryPaletteSection(): SettingDefinitionItem<SettingKey> {
+    return {
+      type: "group",
+      heading: "用語入力パレット",
+      items: [
+        {
+          name: "用語入力パレットを有効にする",
+          desc: "執筆中にトリガー文字を入力すると、用語インデックスから用語を検索・入力できるパレットを開きます。",
+          control: { type: "toggle", key: "glossaryPaletteEnabled", defaultValue: DEFAULT_SETTINGS.glossaryPaletteEnabled },
+        },
+        {
+          name: "起動範囲",
+          desc: descLines(
+            "・原稿ノートのみ：mode: novel が設定されたノートでのみ起動します。",
+            "・原稿ノート＋用語ノート（デフォルト）：原稿ノートに加えて、用語ノート（キャラクター・場所などのタグを持つノート）でも起動します。",
+            "・すべてのノート：全てのMarkdownノートで起動します。メモ等で普段からトリガー文字を書く場合は誤爆しやすいのでご注意ください。"
+          ),
+          control: {
+            type: "dropdown", key: "glossaryPaletteScope",
+            options: { novelOnly: "原稿ノートのみ", novelAndGlossary: "原稿ノート＋用語ノート", all: "すべてのノート" },
+            defaultValue: DEFAULT_SETTINGS.glossaryPaletteScope,
+          },
+        },
+        {
+          name: "起動トリガー文字",
+          desc: descLines(
+            "パレットを開くための1文字を指定してください（例： / @ $ : ;）。",
+            `Markdownで一般的に使われる ${GLOSSARY_PALETTE_FORBIDDEN_TRIGGERS.join(" ")} は指定できません。`
+          ),
+          control: {
+            type: "text", key: "glossaryPaletteTrigger",
+            placeholder: "/",
+            defaultValue: DEFAULT_SETTINGS.glossaryPaletteTrigger,
+            // 空文字・2文字以上・使用禁止記号は保存前に拒否する
+            // （拒否時は元の値のまま維持され、入力欄にはインラインで
+            // エラーメッセージが表示される）。
+            validate: (value: string) => {
+              const trimmed = value.trim();
+              if (trimmed.length !== 1) {
+                return "トリガー文字は1文字で指定してください。";
               }
-            ).open();
-          })
-      );
+              if (GLOSSARY_PALETTE_FORBIDDEN_TRIGGERS.includes(trimmed)) {
+                return `「${trimmed}」はMarkdown記法と衝突するため使用できません。`;
+              }
+              return;
+            },
+          },
+        },
+        {
+          name: "「最近使った」履歴をクリア",
+          desc: "用語入力パレットの「最近使った」に表示される履歴をすべて削除します。この操作は取り消せません。",
+          // SettingDefinitionAction は行全体がクリック可能になるだけで
+          // ボタン文言（「クリア」）や setDestructive() のスタイルを
+          // 指定できないため、従来通り addButton() を使った render で
+          // 表現する。
+          render: (setting) => {
+            setting
+              .addButton(btn =>
+                btn.setButtonText("クリア")
+                  .setDestructive()
+                  .onClick(() => {
+                    // 標準の ConfirmationModal（@since 1.13.0）を使用する。
+                    // 誤操作防止のため、キャンセル側に初期フォーカスを
+                    // 当てる（破壊的な「クリア」側をデフォルトフォーカス
+                    // にしない）。
+                    new ConfirmationModal(this.app)
+                      .setTitle("「最近使った」履歴のクリア")
+                      .setContent("「最近使った」履歴をすべて削除します。よろしいですか？")
+                      .addButton(b => b.setButtonText("キャンセル").setCancel().setInitialFocus())
+                      .addButton(b =>
+                        b.setButtonText("クリア")
+                          .setDestructive()
+                          .onClick(async () => {
+                            await this.plugin.clearGlossaryPaletteHistory();
+                            new Notice("「最近使った」履歴をクリアしました。");
+                          })
+                      )
+                      .open();
+                  })
+              );
+          },
+        },
+      ],
+    };
   }
-
 }

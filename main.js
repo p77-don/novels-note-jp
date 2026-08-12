@@ -253,19 +253,36 @@ function findTermMatches(docText, terms, settings) {
 
 // src/editor/rubyWidget.ts
 var RubyWidget = class extends import_view.WidgetType {
-  constructor(base, ruby, highlightClass) {
+  constructor(base, ruby, highlightSegments) {
     super();
     this.base = base;
     this.ruby = ruby;
-    this.highlightClass = highlightClass;
+    this.highlightSegments = highlightSegments;
   }
   eq(other) {
-    return this.base === other.base && this.ruby === other.ruby && this.highlightClass === other.highlightClass;
+    if (this.base !== other.base || this.ruby !== other.ruby) return false;
+    if (this.highlightSegments.length !== other.highlightSegments.length) return false;
+    for (let i = 0; i < this.highlightSegments.length; i++) {
+      const a = this.highlightSegments[i];
+      const b = other.highlightSegments[i];
+      if (a.start !== b.start || a.end !== b.end || a.cssClass !== b.cssClass) return false;
+    }
+    return true;
   }
   toDOM() {
     const rubyEl = createEl("ruby", { cls: "nn-editor-ruby" });
-    if (this.highlightClass) {
-      rubyEl.createSpan({ cls: this.highlightClass, text: this.base });
+    if (this.highlightSegments.length > 0) {
+      let pos = 0;
+      for (const seg of this.highlightSegments) {
+        if (seg.start > pos) {
+          rubyEl.appendText(this.base.slice(pos, seg.start));
+        }
+        rubyEl.createSpan({ cls: seg.cssClass, text: this.base.slice(seg.start, seg.end) });
+        pos = seg.end;
+      }
+      if (pos < this.base.length) {
+        rubyEl.appendText(this.base.slice(pos));
+      }
     } else {
       rubyEl.appendText(this.base);
     }
@@ -318,11 +335,19 @@ function buildRubyExtension(getSettings, getTerms) {
         const docText = view.state.doc.toString();
         const terms = getTerms();
         const termMatches = settings.highlightEnabled && terms.length > 0 ? findTermMatches(docText, terms, settings) : [];
-        const findHighlightClass = (baseFrom, baseTo) => {
+        const findHighlightSegments = (baseFrom, baseTo) => {
+          const segments = [];
           for (const t of termMatches) {
-            if (t.start < baseTo && t.end > baseFrom) return t.cssClass;
+            if (t.start < baseTo && t.end > baseFrom) {
+              segments.push({
+                start: Math.max(t.start, baseFrom) - baseFrom,
+                end: Math.min(t.end, baseTo) - baseFrom,
+                cssClass: t.cssClass
+              });
+            }
           }
-          return null;
+          segments.sort((a, b) => a.start - b.start);
+          return segments;
         };
         const allMatches = [];
         for (const { from: vFrom, to: vTo } of view.visibleRanges) {
@@ -355,12 +380,12 @@ function buildRubyExtension(getSettings, getTerms) {
             ranges.some((r) => r.from < m.to && r.to > m.from)
           );
           if (cursorTouches) continue;
-          const highlightClass = findHighlightClass(m.baseFrom, m.baseTo);
+          const highlightSegments = findHighlightSegments(m.baseFrom, m.baseTo);
           builder.add(
             m.from,
             m.to,
             import_view.Decoration.replace({
-              widget: new RubyWidget(m.base, m.ruby, highlightClass),
+              widget: new RubyWidget(m.base, m.ruby, highlightSegments),
               inclusive: false
             })
           );
@@ -1585,208 +1610,295 @@ function descLines(...lines) {
     });
   });
 }
-var ConfirmDialog = class extends import_obsidian4.Modal {
-  constructor(app, message, onConfirm) {
-    super(app);
-    this.message = message;
-    this.onConfirm = onConfirm;
-  }
-  onOpen() {
-    const { contentEl } = this;
-    contentEl.empty();
-    contentEl.createEl("p", { text: this.message });
-    const btnRow = contentEl.createDiv({ cls: "nn-confirm-dialog-buttons" });
-    const yesBtn = btnRow.createEl("button", { text: "\u306F\u3044", cls: "mod-warning" });
-    yesBtn.addEventListener("click", () => {
-      this.close();
-      void this.onConfirm();
-    });
-    const noBtn = btnRow.createEl("button", { text: "\u3044\u3044\u3048" });
-    noBtn.addEventListener("click", () => this.close());
-  }
-  onClose() {
-    this.contentEl.empty();
-  }
-};
 var NovelsNoteSettingTab = class extends import_obsidian4.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
     this.plugin = plugin;
   }
-  display() {
-    this.refresh();
+  // ─────────────────────────────────────────
+  // 宣言的設定API（@since 1.13.0）の値の読み書き
+  //
+  // control 系の定義（type: 'toggle' 等）には onChange に相当する
+  // プロパティが無く、値の変更は必ずここ（setControlValue）を
+  // 経由する一本道になっている。そのため「保存後に
+  // applyEditorStyles()・refreshEditors() 等の副作用を呼ぶ」という
+  // 従来 onChange 内で行っていた処理は、key 名で分岐する
+  // ディスパッチテーブルとしてここにまとめる。
+  //
+  // デフォルト実装は this.app.vault.getConfig を読むため、
+  // プラグイン設定（this.plugin.settings）を読み書きするよう
+  // オーバーライドする。
+  // ─────────────────────────────────────────
+  getControlValue(key) {
+    return this.plugin.settings[key];
   }
-  refresh() {
-    const { containerEl } = this;
-    const scrollTop = containerEl.scrollTop;
-    containerEl.empty();
-    this.renderEditorSection(containerEl);
-    this.renderRulerSection(containerEl);
-    this.renderRubySection(containerEl);
-    this.renderVerticalPreviewSection(containerEl);
-    this.renderFullWidthSpaceSection(containerEl);
-    this.renderWordCountSection(containerEl);
-    this.renderExcludeFoldersSection(containerEl);
-    this.renderStatsExcludeFoldersSection(containerEl);
-    this.renderReadingSpeedSection(containerEl);
-    this.renderHighlightSection(containerEl);
-    this.renderTagSection(containerEl);
-    this.renderBracketSection(containerEl);
-    this.renderGlossaryPaletteSection(containerEl);
-    containerEl.scrollTop = scrollTop;
-    window.requestAnimationFrame(() => {
-      containerEl.scrollTop = scrollTop;
-    });
+  async setControlValue(key, value) {
+    const settings = this.plugin.settings;
+    settings[key] = key === "glossaryPaletteTrigger" ? String(value).trim() : value;
+    await this.plugin.saveSettings();
+    switch (key) {
+      case "fontSize":
+      case "lineHeight":
+        this.plugin.applyEditorStyles();
+        break;
+      case "wrapColumn":
+        this.plugin.applyEditorStyles();
+        this.plugin.refreshEditors();
+        break;
+      case "showRuler":
+      case "rulerStyle":
+        this.plugin.refreshEditors();
+        break;
+      case "rulerColor":
+      case "rulerOpacity":
+        this.plugin.applyEditorStyles();
+        break;
+      case "verticalCursorHighlightEnabled":
+      case "verticalCursorHighlightColor":
+        this.plugin.applyEditorStyles();
+        break;
+      case "showFullWidthSpace":
+      case "fullWidthSpaceStyle":
+      case "fullWidthSpaceColor":
+        this.plugin.applyEditorStyles();
+        this.plugin.refreshEditors();
+        break;
+      case "highlightEnabled":
+        this.plugin.applyEditorStyles();
+        this.plugin.refreshEditors();
+        break;
+      case "termHoverPreviewEnabled":
+        this.plugin.applyEditorStyles();
+        break;
+      case "rubyStyle":
+        this.plugin.refreshVerticalPreview();
+        break;
+      case "countMode":
+      case "countFullWidthSpace":
+      case "countEmptyLines":
+      case "countHashtags":
+        this.plugin.updateWordCount();
+        break;
+      case "glossaryPaletteEnabled":
+      case "glossaryPaletteScope":
+      case "glossaryPaletteTrigger":
+        this.plugin.refreshEditors();
+        break;
+      default:
+        break;
+    }
+  }
+  // ─────────────────────────────────────────
+  // 設定タブ本体（宣言的定義）
+  //
+  // getSettingDefinitions() を実装したことで display() は完全に
+  // 撤去済み（Obsidian側の仕様上、この配列が空でない限り display() は
+  // 一切呼ばれなくなるため、以前は動的リスト系セクションを
+  // render コールバックで暫定的に包んでいたが、全セクションを
+  // 正式な宣言的表現へ移行済み。minAppVersion: 1.13.0）。
+  // ─────────────────────────────────────────
+  getSettingDefinitions() {
+    return [
+      this.buildEditorSection(),
+      this.buildRulerSection(),
+      this.buildRubySection(),
+      this.buildVerticalPreviewSection(),
+      this.buildFullWidthSpaceSection(),
+      this.buildWordCountSection(),
+      this.buildExcludeFoldersGroup(),
+      this.buildStatsExcludeFoldersGroup(),
+      this.buildReadingSpeedSection(),
+      this.buildHighlightSection(),
+      this.buildTagGroup(),
+      this.buildBracketGroup(),
+      this.buildGlossaryPaletteSection()
+    ];
   }
   // ─────────────────────────────────────────
   // エディタ表示セクション
   // ─────────────────────────────────────────
-  renderEditorSection(containerEl) {
-    new import_obsidian4.Setting(containerEl).setName("\u30A8\u30C7\u30A3\u30BF\u8868\u793A").setHeading();
-    new import_obsidian4.Setting(containerEl).setName("\u30D5\u30A9\u30F3\u30C8\u30B5\u30A4\u30BA\uFF08px\uFF09").setDesc("\u5C0F\u8AAC\u672C\u6587\u30A8\u30C7\u30A3\u30BF\u306E\u30D5\u30A9\u30F3\u30C8\u30B5\u30A4\u30BA\u3002").addText(
-      (text) => text.setValue(String(this.plugin.settings.fontSize)).onChange(async (value) => {
-        const n = parseInt(value, 10);
-        if (!isNaN(n) && n > 0) {
-          this.plugin.settings.fontSize = n;
-          await this.plugin.saveSettings();
-          this.plugin.applyEditorStyles();
+  buildEditorSection() {
+    return {
+      type: "group",
+      heading: "\u30A8\u30C7\u30A3\u30BF\u8868\u793A",
+      items: [
+        {
+          name: "\u30D5\u30A9\u30F3\u30C8\u30B5\u30A4\u30BA\uFF08px\uFF09",
+          desc: "\u5C0F\u8AAC\u672C\u6587\u30A8\u30C7\u30A3\u30BF\u306E\u30D5\u30A9\u30F3\u30C8\u30B5\u30A4\u30BA\u3002",
+          control: { type: "number", key: "fontSize", min: 1, step: 1, defaultValue: DEFAULT_SETTINGS.fontSize }
+        },
+        {
+          name: "\u884C\u9593",
+          desc: "\u884C\u306E\u9AD8\u3055\u3092\u500D\u7387\u3067\u6307\u5B9A\u3057\u307E\u3059\uFF08\u4F8B\uFF1A2.0\uFF09\u3002",
+          control: { type: "number", key: "lineHeight", min: 0.1, step: 0.1, defaultValue: DEFAULT_SETTINGS.lineHeight }
+        },
+        {
+          name: "\u6298\u308A\u8FD4\u3057\u6587\u5B57\u6570",
+          desc: "1\u884C\u306B\u8868\u793A\u3059\u308B\u5168\u89D2\u6587\u5B57\u6570\uFF08\u4F8B\uFF1A40\uFF09\u3002",
+          control: { type: "number", key: "wrapColumn", min: 1, step: 1, defaultValue: DEFAULT_SETTINGS.wrapColumn }
         }
-      })
-    );
-    new import_obsidian4.Setting(containerEl).setName("\u884C\u9593").setDesc("\u884C\u306E\u9AD8\u3055\u3092\u500D\u7387\u3067\u6307\u5B9A\u3057\u307E\u3059\uFF08\u4F8B\uFF1A2.0\uFF09\u3002").addText(
-      (text) => text.setValue(String(this.plugin.settings.lineHeight)).onChange(async (value) => {
-        const n = parseFloat(value);
-        if (!isNaN(n) && n > 0) {
-          this.plugin.settings.lineHeight = n;
-          await this.plugin.saveSettings();
-          this.plugin.applyEditorStyles();
-        }
-      })
-    );
-    new import_obsidian4.Setting(containerEl).setName("\u6298\u308A\u8FD4\u3057\u6587\u5B57\u6570").setDesc("1\u884C\u306B\u8868\u793A\u3059\u308B\u5168\u89D2\u6587\u5B57\u6570\uFF08\u4F8B\uFF1A40\uFF09\u3002").addText(
-      (text) => text.setValue(String(this.plugin.settings.wrapColumn)).onChange(async (value) => {
-        const n = parseInt(value, 10);
-        if (!isNaN(n) && n > 0) {
-          this.plugin.settings.wrapColumn = n;
-          await this.plugin.saveSettings();
-          this.plugin.applyEditorStyles();
-          this.plugin.refreshEditors();
-        }
-      })
-    );
+      ]
+    };
   }
   // ─────────────────────────────────────────
   // 折り返しガイドラインセクション
   // ─────────────────────────────────────────
-  renderRulerSection(containerEl) {
-    new import_obsidian4.Setting(containerEl).setName("\u6298\u308A\u8FD4\u3057\u30AC\u30A4\u30C9\u30E9\u30A4\u30F3").setHeading();
-    new import_obsidian4.Setting(containerEl).setName("\u30AC\u30A4\u30C9\u30E9\u30A4\u30F3\u3092\u8868\u793A\u3059\u308B").addToggle(
-      (toggle) => toggle.setValue(this.plugin.settings.showRuler).onChange(async (value) => {
-        this.plugin.settings.showRuler = value;
-        await this.plugin.saveSettings();
-        this.plugin.refreshEditors();
-      })
-    );
-    new import_obsidian4.Setting(containerEl).setName("\u30AC\u30A4\u30C9\u30E9\u30A4\u30F3\u8272").addColorPicker(
-      (picker) => picker.setValue(this.plugin.settings.rulerColor).onChange(async (value) => {
-        this.plugin.settings.rulerColor = value;
-        await this.plugin.saveSettings();
-        this.plugin.applyEditorStyles();
-      })
-    );
-    new import_obsidian4.Setting(containerEl).setName("\u30AC\u30A4\u30C9\u30E9\u30A4\u30F3\u900F\u660E\u5EA6").setDesc("0.0\uFF08\u900F\u660E\uFF09\u301C 1.0\uFF08\u4E0D\u900F\u660E\uFF09\u3002").addText(
-      (text) => text.setValue(String(this.plugin.settings.rulerOpacity)).onChange(async (value) => {
-        const n = parseFloat(value);
-        if (!isNaN(n) && n >= 0 && n <= 1) {
-          this.plugin.settings.rulerOpacity = n;
-          await this.plugin.saveSettings();
-          this.plugin.applyEditorStyles();
+  buildRulerSection() {
+    return {
+      type: "group",
+      heading: "\u6298\u308A\u8FD4\u3057\u30AC\u30A4\u30C9\u30E9\u30A4\u30F3",
+      items: [
+        {
+          name: "\u30AC\u30A4\u30C9\u30E9\u30A4\u30F3\u3092\u8868\u793A\u3059\u308B",
+          control: { type: "toggle", key: "showRuler", defaultValue: DEFAULT_SETTINGS.showRuler }
+        },
+        {
+          name: "\u30AC\u30A4\u30C9\u30E9\u30A4\u30F3\u8272",
+          control: { type: "color", key: "rulerColor", defaultValue: DEFAULT_SETTINGS.rulerColor }
+        },
+        {
+          name: "\u30AC\u30A4\u30C9\u30E9\u30A4\u30F3\u900F\u660E\u5EA6",
+          desc: "0.0\uFF08\u900F\u660E\uFF09\u301C 1.0\uFF08\u4E0D\u900F\u660E\uFF09\u3002",
+          control: { type: "number", key: "rulerOpacity", min: 0, max: 1, step: 0.05, defaultValue: DEFAULT_SETTINGS.rulerOpacity }
+        },
+        {
+          name: "\u30AC\u30A4\u30C9\u30E9\u30A4\u30F3\u30B9\u30BF\u30A4\u30EB",
+          control: {
+            type: "dropdown",
+            key: "rulerStyle",
+            options: { solid: "\u5B9F\u7DDA", dashed: "\u7834\u7DDA" },
+            defaultValue: DEFAULT_SETTINGS.rulerStyle
+          }
         }
-      })
-    );
-    new import_obsidian4.Setting(containerEl).setName("\u30AC\u30A4\u30C9\u30E9\u30A4\u30F3\u30B9\u30BF\u30A4\u30EB").addDropdown(
-      (drop) => drop.addOption("solid", "\u5B9F\u7DDA").addOption("dashed", "\u7834\u7DDA").setValue(this.plugin.settings.rulerStyle).onChange(async (value) => {
-        this.plugin.settings.rulerStyle = value;
-        await this.plugin.saveSettings();
-        this.plugin.applyEditorStyles();
-      })
-    );
+      ]
+    };
   }
   // ─────────────────────────────────────────
   // 縦書きプレビュー設定セクション
+  //
+  // カーソル行ハイライトは「エディタと縦書きプレビューを同時に見ながら
+  // 執筆する」ことが前提の機能。モバイルではエディタと縦書きプレビュー
+  // （独立タブ）を同時に表示できず機能自体が意味を持たないため、
+  // verticalPreview.ts 側で強制的に無効化している。
+  //
+  // ここでは項目自体を非表示にはしない。設定を非表示にすると、
+  // PC版との見た目の不整合（この設定が存在すること自体が
+  // 分からなくなる）が生じるため、項目は表示したまま
+  // disabled で無効化し、理由を明記する。
   // ─────────────────────────────────────────
-  renderVerticalPreviewSection(containerEl) {
-    new import_obsidian4.Setting(containerEl).setName("\u7E26\u66F8\u304D\u30D7\u30EC\u30D3\u30E5\u30FC").setHeading();
+  buildVerticalPreviewSection() {
     const isMobile = import_obsidian4.Platform.isMobile;
-    new import_obsidian4.Setting(containerEl).setName("\u30AB\u30FC\u30BD\u30EB\u884C\u306E\u30CF\u30A4\u30E9\u30A4\u30C8\u3092\u6709\u52B9\u306B\u3059\u308B").setDesc(
-      isMobile ? "\u30E2\u30D0\u30A4\u30EB\u3067\u306F\u4F7F\u7528\u3067\u304D\u307E\u305B\u3093\u3002" : "\u7E26\u66F8\u304D\u30D7\u30EC\u30D3\u30E5\u30FC\u3067\u30A8\u30C7\u30A3\u30BF\u306E\u30AB\u30FC\u30BD\u30EB\u884C\u3092\u80CC\u666F\u8272\u3067\u5F37\u8ABF\u3057\u307E\u3059\u3002"
-    ).addToggle((toggle) => {
-      toggle.setValue(isMobile ? false : this.plugin.settings.verticalCursorHighlightEnabled);
-      toggle.setDisabled(isMobile);
-      if (!isMobile) {
-        toggle.onChange(async (value) => {
-          this.plugin.settings.verticalCursorHighlightEnabled = value;
-          await this.plugin.saveSettings();
-          this.plugin.applyEditorStyles();
-        });
-      }
-    });
-    new import_obsidian4.Setting(containerEl).setName("\u30AB\u30FC\u30BD\u30EB\u884C\u306E\u80CC\u666F\u8272").setDesc(
-      isMobile ? "\u30E2\u30D0\u30A4\u30EB\u3067\u306F\u4F7F\u7528\u3067\u304D\u307E\u305B\u3093\u3002" : "\u7E26\u66F8\u304D\u30D7\u30EC\u30D3\u30E5\u30FC\u3067\u30AB\u30FC\u30BD\u30EB\u4F4D\u7F6E\u306E\u884C\u306B\u4ED8\u3051\u308B\u80CC\u666F\u8272\u3002"
-    ).addColorPicker((picker) => {
-      picker.setValue(this.plugin.settings.verticalCursorHighlightColor);
-      picker.setDisabled(isMobile);
-      if (!isMobile) {
-        picker.onChange(async (value) => {
-          this.plugin.settings.verticalCursorHighlightColor = value;
-          await this.plugin.saveSettings();
-          this.plugin.applyEditorStyles();
-        });
-      }
-    });
+    return {
+      type: "group",
+      heading: "\u7E26\u66F8\u304D\u30D7\u30EC\u30D3\u30E5\u30FC",
+      items: [
+        {
+          name: "\u30AB\u30FC\u30BD\u30EB\u884C\u306E\u30CF\u30A4\u30E9\u30A4\u30C8\u3092\u6709\u52B9\u306B\u3059\u308B",
+          desc: isMobile ? "\u30E2\u30D0\u30A4\u30EB\u3067\u306F\u4F7F\u7528\u3067\u304D\u307E\u305B\u3093\u3002" : "\u7E26\u66F8\u304D\u30D7\u30EC\u30D3\u30E5\u30FC\u3067\u30A8\u30C7\u30A3\u30BF\u306E\u30AB\u30FC\u30BD\u30EB\u884C\u3092\u80CC\u666F\u8272\u3067\u5F37\u8ABF\u3057\u307E\u3059\u3002",
+          control: {
+            type: "toggle",
+            key: "verticalCursorHighlightEnabled",
+            defaultValue: DEFAULT_SETTINGS.verticalCursorHighlightEnabled,
+            disabled: isMobile
+          }
+        },
+        {
+          name: "\u30AB\u30FC\u30BD\u30EB\u884C\u306E\u80CC\u666F\u8272",
+          desc: isMobile ? "\u30E2\u30D0\u30A4\u30EB\u3067\u306F\u4F7F\u7528\u3067\u304D\u307E\u305B\u3093\u3002" : "\u7E26\u66F8\u304D\u30D7\u30EC\u30D3\u30E5\u30FC\u3067\u30AB\u30FC\u30BD\u30EB\u4F4D\u7F6E\u306E\u884C\u306B\u4ED8\u3051\u308B\u80CC\u666F\u8272\u3002",
+          control: {
+            type: "color",
+            key: "verticalCursorHighlightColor",
+            defaultValue: DEFAULT_SETTINGS.verticalCursorHighlightColor,
+            disabled: isMobile
+          }
+        }
+      ]
+    };
   }
   // ─────────────────────────────────────────
   // 全角スペース可視化セクション
   // ─────────────────────────────────────────
-  renderFullWidthSpaceSection(containerEl) {
-    new import_obsidian4.Setting(containerEl).setName("\u5168\u89D2\u30B9\u30DA\u30FC\u30B9\u3068\u6539\u884C\u8A18\u53F7\u306E\u8868\u793A").setHeading();
-    containerEl.createEl("p", {
-      text: "\u6BB5\u843D\u5148\u982D\u306E\u5168\u89D2\u30B9\u30DA\u30FC\u30B9\u3068\u3001\u884C\u672B\u306E\u6539\u884C\u4F4D\u7F6E\u3092\u76EE\u8996\u3067\u78BA\u8A8D\u3067\u304D\u307E\u3059\u3002",
-      cls: "setting-item-description"
-    });
-    new import_obsidian4.Setting(containerEl).setName("\u5168\u89D2\u30B9\u30DA\u30FC\u30B9\u3092\u53EF\u8996\u5316\u3059\u308B").setDesc(descLines(
-      "\u30AA\u30F3\u306B\u3059\u308B\u3068\u5168\u89D2\u30B9\u30DA\u30FC\u30B9\uFF08\u3000\uFF09\u306E\u4F4D\u7F6E\u3092\u8A18\u53F7\u3067\u8868\u793A\u3057\u307E\u3059\u3002",
-      "\u3042\u308F\u305B\u3066\u884C\u672B\u306B\u6539\u884C\u8A18\u53F7\uFF08\u21B5\uFF09\u3082\u8868\u793A\u3057\u307E\u3059\uFF08\u30AA\u30D5\u306B\u3059\u308B\u3068\u4E21\u65B9\u3068\u3082\u975E\u8868\u793A\u306B\u306A\u308A\u307E\u3059\uFF09\u3002",
-      "\u203B\u6539\u884C\u8A18\u53F7\u306F\u5E45\u3092\u6301\u305F\u306A\u3044\u305F\u3081\u3001\u6298\u308A\u8FD4\u3057\u4F4D\u7F6E\u306B\u306F\u5F71\u97FF\u3057\u307E\u305B\u3093\u3002"
-    )).addToggle(
-      (toggle) => toggle.setValue(this.plugin.settings.showFullWidthSpace).onChange(async (value) => {
-        this.plugin.settings.showFullWidthSpace = value;
-        await this.plugin.saveSettings();
-        this.plugin.applyEditorStyles();
-        this.plugin.refreshEditors();
+  buildFullWidthSpaceSection() {
+    return {
+      type: "group",
+      heading: "\u5168\u89D2\u30B9\u30DA\u30FC\u30B9\u3068\u6539\u884C\u8A18\u53F7\u306E\u8868\u793A",
+      items: [
+        {
+          name: "\u5168\u89D2\u30B9\u30DA\u30FC\u30B9\u3092\u53EF\u8996\u5316\u3059\u308B",
+          desc: descLines(
+            "\u6BB5\u843D\u5148\u982D\u306E\u5168\u89D2\u30B9\u30DA\u30FC\u30B9\u3068\u3001\u884C\u672B\u306E\u6539\u884C\u4F4D\u7F6E\u3092\u76EE\u8996\u3067\u78BA\u8A8D\u3067\u304D\u307E\u3059\u3002",
+            "\u30AA\u30F3\u306B\u3059\u308B\u3068\u5168\u89D2\u30B9\u30DA\u30FC\u30B9\uFF08\u3000\uFF09\u306E\u4F4D\u7F6E\u3092\u8A18\u53F7\u3067\u8868\u793A\u3057\u307E\u3059\u3002",
+            "\u3042\u308F\u305B\u3066\u884C\u672B\u306B\u6539\u884C\u8A18\u53F7\uFF08\u21B5\uFF09\u3082\u8868\u793A\u3057\u307E\u3059\uFF08\u30AA\u30D5\u306B\u3059\u308B\u3068\u4E21\u65B9\u3068\u3082\u975E\u8868\u793A\u306B\u306A\u308A\u307E\u3059\uFF09\u3002",
+            "\u203B\u6539\u884C\u8A18\u53F7\u306F\u5E45\u3092\u6301\u305F\u306A\u3044\u305F\u3081\u3001\u6298\u308A\u8FD4\u3057\u4F4D\u7F6E\u306B\u306F\u5F71\u97FF\u3057\u307E\u305B\u3093\u3002"
+          ),
+          control: { type: "toggle", key: "showFullWidthSpace", defaultValue: DEFAULT_SETTINGS.showFullWidthSpace }
+        },
+        {
+          name: "\u5168\u89D2\u30B9\u30DA\u30FC\u30B9\u306E\u8868\u793A\u30B9\u30BF\u30A4\u30EB",
+          desc: descLines(
+            "\u5168\u89D2\u30B9\u30DA\u30FC\u30B9\u306E\u8868\u793A\u65B9\u6CD5\u3092\u9078\u3079\u307E\u3059\uFF08\u6539\u884C\u8A18\u53F7\u306E\u898B\u305F\u76EE\u306B\u306F\u5F71\u97FF\u3057\u307E\u305B\u3093\uFF09\u3002",
+            "\u30FB\u30C9\u30C3\u30C8\uFF1A \u4E2D\u592E\u306B\u8584\u3044\u30C9\u30C3\u30C8\u3092\u91CD\u306D\u308B",
+            "\u30FB\u4E0B\u7DDA\uFF1A\u30A2\u30F3\u30C0\u30FC\u30E9\u30A4\u30F3\u3067\u5E45\u3092\u793A\u3059",
+            "\u30FB\u67A0\u7DDA\uFF1A \u8584\u3044\u7DDA\u3067\u67A0\u3092\u56F2\u3080"
+          ),
+          control: {
+            type: "dropdown",
+            key: "fullWidthSpaceStyle",
+            options: { dot: "\u30C9\u30C3\u30C8\uFF08\u4E2D\u592E\u306E\u70B9\uFF09", underline: "\u4E0B\u7DDA", box: "\u67A0\u7DDA" },
+            // "none"（旧・機能オフ用の値）は現在UIから選べないため、
+            // 万一そのまま残っていた場合は表示上 "dot" にフォールバックする。
+            defaultValue: DEFAULT_SETTINGS.fullWidthSpaceStyle === "none" ? "dot" : DEFAULT_SETTINGS.fullWidthSpaceStyle
+          }
+        },
+        {
+          name: "\u8868\u793A\u8272",
+          desc: "\u5168\u89D2\u30B9\u30DA\u30FC\u30B9\u306E\u8A18\u53F7\u30FB\u6539\u884C\u8A18\u53F7\u306E\u8272\uFF08\u30A8\u30C7\u30A3\u30BF\u306E\u30C6\u30FC\u30DE\u306B\u5408\u308F\u305B\u3066\u8ABF\u6574\u3057\u3066\u304F\u3060\u3055\u3044\uFF09\u3002",
+          control: { type: "color", key: "fullWidthSpaceColor", defaultValue: DEFAULT_SETTINGS.fullWidthSpaceColor }
+        }
+      ]
+    };
+  }
+  // ─────────────────────────────────────────
+  // フォルダパス追加モーダル（用語インデックス／執筆情報一覧の
+  // 除外フォルダで共用する）
+  //
+  // SettingDefinitionList の addItem は「＋」ボタン（または
+  // モバイルでの「＋ 追加」行）のクリックハンドラを渡せるのみで、
+  // テキスト入力欄そのものは提供されない。そのため、クリック時に
+  // 標準の ConfirmationModal 上へ Setting + addText で入力欄を
+  // 組み立てて表示する。
+  // ─────────────────────────────────────────
+  promptForFolderPath(title, onSubmit) {
+    let value = "";
+    const modal = new import_obsidian4.ConfirmationModal(this.app);
+    modal.setTitle(title);
+    modal.setContent(createFragment((frag) => {
+      const el = frag.createDiv();
+      new import_obsidian4.Setting(el).setName("\u30D5\u30A9\u30EB\u30C0\u30D1\u30B9").setDesc(descLines(
+        "Vault \u30EB\u30FC\u30C8\u304B\u3089\u306E\u76F8\u5BFE\u30D1\u30B9\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044\u3002",
+        "\uFF08\u4F8B\uFF1Atemplates\u3001characters/templates\uFF09"
+      )).addText((text) => {
+        text.setPlaceholder("\u30D5\u30A9\u30EB\u30C0\u30D1\u30B9\u3092\u5165\u529B\u2026");
+        text.onChange((v) => {
+          value = v;
+        });
+        window.setTimeout(() => text.inputEl.focus());
+        text.inputEl.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            modal.close();
+            onSubmit(value);
+          }
+        });
+      });
+    }));
+    modal.addButton((b) => b.setButtonText("\u30AD\u30E3\u30F3\u30BB\u30EB").setCancel());
+    modal.addButton(
+      (b) => b.setButtonText("\u8FFD\u52A0").setCta().onClick(() => {
+        void onSubmit(value);
       })
     );
-    new import_obsidian4.Setting(containerEl).setName("\u5168\u89D2\u30B9\u30DA\u30FC\u30B9\u306E\u8868\u793A\u30B9\u30BF\u30A4\u30EB").setDesc(descLines(
-      "\u5168\u89D2\u30B9\u30DA\u30FC\u30B9\u306E\u8868\u793A\u65B9\u6CD5\u3092\u9078\u3079\u307E\u3059\uFF08\u6539\u884C\u8A18\u53F7\u306E\u898B\u305F\u76EE\u306B\u306F\u5F71\u97FF\u3057\u307E\u305B\u3093\uFF09\u3002",
-      "\u30FB\u30C9\u30C3\u30C8\uFF1A \u4E2D\u592E\u306B\u8584\u3044\u30C9\u30C3\u30C8\u3092\u91CD\u306D\u308B",
-      "\u30FB\u4E0B\u7DDA\uFF1A\u30A2\u30F3\u30C0\u30FC\u30E9\u30A4\u30F3\u3067\u5E45\u3092\u793A\u3059",
-      "\u30FB\u67A0\u7DDA\uFF1A \u8584\u3044\u7DDA\u3067\u67A0\u3092\u56F2\u3080"
-    )).addDropdown(
-      (drop) => drop.addOption("dot", "\u30C9\u30C3\u30C8\uFF08\u4E2D\u592E\u306E\u70B9\uFF09").addOption("underline", "\u4E0B\u7DDA").addOption("box", "\u67A0\u7DDA").setValue(this.plugin.settings.fullWidthSpaceStyle === "none" ? "dot" : this.plugin.settings.fullWidthSpaceStyle).onChange(async (value) => {
-        this.plugin.settings.fullWidthSpaceStyle = value;
-        await this.plugin.saveSettings();
-        this.plugin.applyEditorStyles();
-        this.plugin.refreshEditors();
-      })
-    );
-    new import_obsidian4.Setting(containerEl).setName("\u8868\u793A\u8272").setDesc("\u5168\u89D2\u30B9\u30DA\u30FC\u30B9\u306E\u8A18\u53F7\u30FB\u6539\u884C\u8A18\u53F7\u306E\u8272\uFF08\u30A8\u30C7\u30A3\u30BF\u306E\u30C6\u30FC\u30DE\u306B\u5408\u308F\u305B\u3066\u8ABF\u6574\u3057\u3066\u304F\u3060\u3055\u3044\uFF09\u3002").addColorPicker(
-      (picker) => picker.setValue(this.plugin.settings.fullWidthSpaceColor).onChange(async (value) => {
-        this.plugin.settings.fullWidthSpaceColor = value;
-        await this.plugin.saveSettings();
-        this.plugin.applyEditorStyles();
-        this.plugin.refreshEditors();
-      })
-    );
+    modal.open();
   }
   // ─────────────────────────────────────────
   // 用語インデックス除外フォルダ セクション
@@ -1795,76 +1907,13 @@ var NovelsNoteSettingTab = class extends import_obsidian4.PluginSettingTab {
   // フォルダパスのプレフィックス一致で除外する。
   // 例）"_templates" を指定すると
   //     "_templates/character.md" が除外される。
+  //
+  // Round 2：SettingDefinitionList（onDelete・addItem）へ正式移行。
+  // 削除ボタン・並べ替えUIは自前実装をやめ、フレームワークの
+  // 標準アフォーダンスに委ねる（このリストは並べ替え不要のため
+  // onReorder は指定しない）。
   // ─────────────────────────────────────────
-  renderExcludeFoldersSection(containerEl) {
-    new import_obsidian4.Setting(containerEl).setName("\u7528\u8A9E\u30A4\u30F3\u30C7\u30C3\u30AF\u30B9 \u2014 \u9664\u5916\u30D5\u30A9\u30EB\u30C0").setHeading();
-    containerEl.createEl("p", {
-      text: "\u6307\u5B9A\u3057\u305F\u30D5\u30A9\u30EB\u30C0\u5185\u306E\u30D5\u30A1\u30A4\u30EB\u3092\u7528\u8A9E\u30A4\u30F3\u30C7\u30C3\u30AF\u30B9\u304B\u3089\u9664\u5916\u3057\u307E\u3059\u3002\u30C6\u30F3\u30D7\u30EC\u30FC\u30C8\u30D5\u30A9\u30EB\u30C0\u306A\u3069\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044\u3002\u30D5\u30A9\u30EB\u30C0\u30D1\u30B9\u306F Vault \u30EB\u30FC\u30C8\u304B\u3089\u306E\u76F8\u5BFE\u30D1\u30B9\u3067\u5165\u529B\u3057\u307E\u3059\uFF08\u4F8B\uFF1A_templates\uFF09\u3002",
-      cls: "setting-item-description"
-    });
-    this.renderExcludeFolderList(containerEl);
-    let folderInput = "";
-    new import_obsidian4.Setting(containerEl).setName("\u30D5\u30A9\u30EB\u30C0\u3092\u8FFD\u52A0").setDesc(
-      descLines(
-        "Vault \u30EB\u30FC\u30C8\u304B\u3089\u306E\u76F8\u5BFE\u30D1\u30B9\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044\u3002",
-        "\uFF08\u4F8B\uFF1Atemplates\u3001characters/templates\uFF09"
-      )
-    ).addText((text) => {
-      text.setPlaceholder("\u30D5\u30A9\u30EB\u30C0\u30D1\u30B9\u3092\u5165\u529B\u2026");
-      text.inputEl.addClass("nn-folder-path-input");
-      text.onChange((value) => {
-        folderInput = value;
-      });
-      text.inputEl.addEventListener("keydown", (e) => {
-        if (e.key === "Enter") {
-          void this.addExcludeFolder(folderInput, containerEl).then(() => {
-            text.setValue("");
-            folderInput = "";
-          });
-        }
-      });
-    }).addButton(
-      (btn) => btn.setButtonText("\u8FFD\u52A0").setCta().onClick(() => {
-        void this.addExcludeFolder(folderInput, containerEl).then(() => {
-          folderInput = "";
-          this.refresh();
-        });
-      })
-    );
-  }
-  renderExcludeFolderList(containerEl) {
-    var _a;
-    containerEl.querySelectorAll(".nn-exclude-folder-row").forEach((el) => el.remove());
-    const folders = (_a = this.plugin.settings.excludeFolders) != null ? _a : [];
-    if (folders.length === 0) {
-      const empty = containerEl.createEl("p", {
-        text: "\u9664\u5916\u30D5\u30A9\u30EB\u30C0\u306F\u8A2D\u5B9A\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002",
-        cls: "nn-exclude-folder-empty setting-item-description"
-      });
-      empty.addClass("nn-exclude-folder-row");
-      return;
-    }
-    for (let i = 0; i < folders.length; i++) {
-      const row = containerEl.createDiv({
-        cls: "setting-item nn-exclude-folder-row"
-      });
-      row.addClass("nn-exclude-folder-item-row");
-      const label = row.createSpan({ cls: "setting-item-name nn-folder-label" });
-      label.createSpan({ cls: "nn-folder-icon", text: "\u{1F4C1}" });
-      label.createEl("code", { text: folders[i] });
-      const delBtn = row.createEl("button", { text: "\u524A\u9664", cls: "mod-warning nn-folder-del-btn" });
-      delBtn.addEventListener("click", () => {
-        this.plugin.settings.excludeFolders.splice(i, 1);
-        void this.plugin.saveSettings().then(() => {
-          void this.plugin.buildTermIndex();
-          this.plugin.updateSidebar();
-          this.plugin.refreshEditors();
-          this.refresh();
-        });
-      });
-    }
-  }
-  async addExcludeFolder(value, _containerEl) {
+  async addExcludeFolder(value) {
     const folder = value.trim().replace(/\/+$/, "");
     if (!folder) return;
     if (!this.plugin.settings.excludeFolders) {
@@ -1876,93 +1925,82 @@ var NovelsNoteSettingTab = class extends import_obsidian4.PluginSettingTab {
     await this.plugin.buildTermIndex();
     this.plugin.updateSidebar();
     this.plugin.refreshEditors();
-    this.refresh();
+    this.update();
+  }
+  buildExcludeFoldersGroup() {
+    var _a;
+    const folders = (_a = this.plugin.settings.excludeFolders) != null ? _a : [];
+    return {
+      type: "list",
+      heading: "\u7528\u8A9E\u30A4\u30F3\u30C7\u30C3\u30AF\u30B9 \u2014 \u9664\u5916\u30D5\u30A9\u30EB\u30C0",
+      // SettingDefinitionList には group の desc に相当するフィールドが
+      // 無いため、常時表示の説明文は持たせられない。最もガイダンスが
+      // 必要な「まだ1件も無い」タイミングに表示されるよう、
+      // emptyState に説明文を持たせる。
+      emptyState: createFragment((el) => {
+        el.createEl("p", {
+          text: "\u6307\u5B9A\u3057\u305F\u30D5\u30A9\u30EB\u30C0\u5185\u306E\u30D5\u30A1\u30A4\u30EB\u3092\u7528\u8A9E\u30A4\u30F3\u30C7\u30C3\u30AF\u30B9\u304B\u3089\u9664\u5916\u3057\u307E\u3059\u3002\u30C6\u30F3\u30D7\u30EC\u30FC\u30C8\u30D5\u30A9\u30EB\u30C0\u306A\u3069\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044\u3002\u30D5\u30A9\u30EB\u30C0\u30D1\u30B9\u306F Vault \u30EB\u30FC\u30C8\u304B\u3089\u306E\u76F8\u5BFE\u30D1\u30B9\u3067\u5165\u529B\u3057\u307E\u3059\uFF08\u4F8B\uFF1A_templates\uFF09\u3002"
+        });
+      }),
+      items: folders.map((folder) => ({
+        name: folder,
+        searchable: false,
+        render: (setting) => {
+          setting.setName(createFragment((el) => {
+            el.createSpan({ cls: "nn-folder-icon", text: "\u{1F4C1}" });
+            el.createEl("code", { text: folder });
+          }));
+        }
+      })),
+      onDelete: (index) => {
+        void (async () => {
+          this.plugin.settings.excludeFolders.splice(index, 1);
+          await this.plugin.saveSettings();
+          await this.plugin.buildTermIndex();
+          this.plugin.updateSidebar();
+          this.plugin.refreshEditors();
+          this.update();
+        })();
+      },
+      addItem: {
+        name: "\u30D5\u30A9\u30EB\u30C0\u3092\u8FFD\u52A0",
+        action: () => {
+          this.promptForFolderPath(
+            "\u9664\u5916\u30D5\u30A9\u30EB\u30C0\u3092\u8FFD\u52A0\uFF08\u7528\u8A9E\u30A4\u30F3\u30C7\u30C3\u30AF\u30B9\uFF09",
+            (value) => this.addExcludeFolder(value)
+          );
+        }
+      }
+    };
   }
   // ─────────────────────────────────────────
   // 執筆情報一覧 — 推定読了時間の読了速度設定
   // ─────────────────────────────────────────
-  renderReadingSpeedSection(containerEl) {
-    new import_obsidian4.Setting(containerEl).setName("\u57F7\u7B46\u60C5\u5831\u4E00\u89A7 \u2014 \u63A8\u5B9A\u8AAD\u4E86\u6642\u9593").setHeading();
-    new import_obsidian4.Setting(containerEl).setName("\u8AAD\u4E86\u901F\u5EA6\uFF08\u5B57/\u5206\uFF09").setDesc(
-      "\u300C\u57F7\u7B46\u60C5\u5831\u4E00\u89A7\u300D\u306B\u8868\u793A\u3059\u308B\u63A8\u5B9A\u8AAD\u4E86\u6642\u9593\u306E\u8A08\u7B97\u306B\u4F7F\u3046\u8AAD\u66F8\u901F\u5EA6\u306E\u76EE\u5B89\u3067\u3059\u3002\u5C0F\u8AAC\u63DB\u7B97\u6587\u5B57\u6570\uFF08\u5168\u89D21\u30FB\u534A\u89D20.5\u63DB\u7B97\uFF09\u3092\u57FA\u6E96\u306B\u8A08\u7B97\u3057\u307E\u3059\u3002\u3042\u304F\u307E\u3067\u76EE\u5B89\u306E\u305F\u3081\u3001\u5B9F\u969B\u306E\u8AAD\u4E86\u6642\u9593\u3068\u306F\u5DEE\u304C\u751F\u3058\u307E\u3059\u3002\u5909\u66F4\u5F8C\u306F\u300C\u57F7\u7B46\u60C5\u5831\u4E00\u89A7\u300D\u30BF\u30D6\u306E\u300C\u518D\u96C6\u8A08\u300D\uFF08\u307E\u305F\u306F\u958B\u304D\u76F4\u3057\uFF09\u3067\u53CD\u6620\u3055\u308C\u307E\u3059\u3002"
-    ).addText(
-      (text) => text.setValue(String(this.plugin.settings.readingSpeedCharsPerMinute)).onChange(async (value) => {
-        const n = parseInt(value, 10);
-        if (!isNaN(n) && n > 0) {
-          this.plugin.settings.readingSpeedCharsPerMinute = n;
-          await this.plugin.saveSettings();
+  buildReadingSpeedSection() {
+    return {
+      type: "group",
+      heading: "\u57F7\u7B46\u60C5\u5831\u4E00\u89A7 \u2014 \u63A8\u5B9A\u8AAD\u4E86\u6642\u9593",
+      items: [
+        {
+          name: "\u8AAD\u4E86\u901F\u5EA6\uFF08\u5B57/\u5206\uFF09",
+          desc: "\u300C\u57F7\u7B46\u60C5\u5831\u4E00\u89A7\u300D\u306B\u8868\u793A\u3059\u308B\u63A8\u5B9A\u8AAD\u4E86\u6642\u9593\u306E\u8A08\u7B97\u306B\u4F7F\u3046\u8AAD\u66F8\u901F\u5EA6\u306E\u76EE\u5B89\u3067\u3059\u3002\u5C0F\u8AAC\u63DB\u7B97\u6587\u5B57\u6570\uFF08\u5168\u89D21\u30FB\u534A\u89D20.5\u63DB\u7B97\uFF09\u3092\u57FA\u6E96\u306B\u8A08\u7B97\u3057\u307E\u3059\u3002\u3042\u304F\u307E\u3067\u76EE\u5B89\u306E\u305F\u3081\u3001\u5B9F\u969B\u306E\u8AAD\u4E86\u6642\u9593\u3068\u306F\u5DEE\u304C\u751F\u3058\u307E\u3059\u3002\u5909\u66F4\u5F8C\u306F\u300C\u57F7\u7B46\u60C5\u5831\u4E00\u89A7\u300D\u30BF\u30D6\u306E\u300C\u518D\u96C6\u8A08\u300D\uFF08\u307E\u305F\u306F\u958B\u304D\u76F4\u3057\uFF09\u3067\u53CD\u6620\u3055\u308C\u307E\u3059\u3002",
+          control: {
+            type: "number",
+            key: "readingSpeedCharsPerMinute",
+            min: 1,
+            step: 10,
+            defaultValue: DEFAULT_SETTINGS.readingSpeedCharsPerMinute
+          }
         }
-      })
-    );
+      ]
+    };
   }
   // ─────────────────────────────────────────
   // 執筆情報一覧 — 除外フォルダ設定
+  //
+  // Round 2：buildExcludeFoldersGroup() と同じ方針で
+  // SettingDefinitionList へ正式移行。
   // ─────────────────────────────────────────
-  renderStatsExcludeFoldersSection(containerEl) {
-    new import_obsidian4.Setting(containerEl).setName("\u57F7\u7B46\u60C5\u5831\u4E00\u89A7 \u2014 \u9664\u5916\u30D5\u30A9\u30EB\u30C0").setHeading();
-    containerEl.createEl("p", {
-      text: "\u6307\u5B9A\u3057\u305F\u30D5\u30A9\u30EB\u30C0\u5185\u306E\u30D5\u30A1\u30A4\u30EB\u3092\u300C\u57F7\u7B46\u60C5\u5831\u4E00\u89A7\u300D\u306E\u96C6\u8A08\u5BFE\u8C61\u304B\u3089\u9664\u5916\u3057\u307E\u3059\u3002\u30C6\u30F3\u30D7\u30EC\u30FC\u30C8\u30D5\u30A9\u30EB\u30C0\u306A\u3069\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044\u3002\u30D5\u30A9\u30EB\u30C0\u30D1\u30B9\u306F Vault \u30EB\u30FC\u30C8\u304B\u3089\u306E\u76F8\u5BFE\u30D1\u30B9\u3067\u5165\u529B\u3057\u307E\u3059\uFF08\u4F8B\uFF1A_templates\uFF09\u3002\u7528\u8A9E\u30A4\u30F3\u30C7\u30C3\u30AF\u30B9\u306E\u9664\u5916\u30D5\u30A9\u30EB\u30C0\u3068\u306F\u5225\u306B\u7BA1\u7406\u3055\u308C\u307E\u3059\u3002",
-      cls: "setting-item-description"
-    });
-    this.renderStatsExcludeFolderList(containerEl);
-    let folderInput = "";
-    new import_obsidian4.Setting(containerEl).setName("\u30D5\u30A9\u30EB\u30C0\u3092\u8FFD\u52A0").setDesc(
-      descLines(
-        "Vault \u30EB\u30FC\u30C8\u304B\u3089\u306E\u76F8\u5BFE\u30D1\u30B9\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044\u3002",
-        "\uFF08\u4F8B\uFF1Atemplates\u3001characters/templates\uFF09"
-      )
-    ).addText((text) => {
-      text.setPlaceholder("\u30D5\u30A9\u30EB\u30C0\u30D1\u30B9\u3092\u5165\u529B\u2026");
-      text.inputEl.addClass("nn-folder-path-input");
-      text.onChange((value) => {
-        folderInput = value;
-      });
-      text.inputEl.addEventListener("keydown", (e) => {
-        if (e.key === "Enter") {
-          void this.addStatsExcludeFolder(folderInput).then(() => {
-            text.setValue("");
-            folderInput = "";
-          });
-        }
-      });
-    }).addButton(
-      (btn) => btn.setButtonText("\u8FFD\u52A0").setCta().onClick(() => {
-        void this.addStatsExcludeFolder(folderInput).then(() => {
-          folderInput = "";
-          this.refresh();
-        });
-      })
-    );
-  }
-  renderStatsExcludeFolderList(containerEl) {
-    var _a;
-    containerEl.querySelectorAll(".nn-stats-exclude-folder-row").forEach((el) => el.remove());
-    const folders = (_a = this.plugin.settings.statsExcludeFolders) != null ? _a : [];
-    if (folders.length === 0) {
-      const empty = containerEl.createEl("p", {
-        text: "\u9664\u5916\u30D5\u30A9\u30EB\u30C0\u306F\u8A2D\u5B9A\u3055\u308C\u3066\u3044\u307E\u305B\u3093\u3002",
-        cls: "nn-stats-exclude-folder-empty setting-item-description"
-      });
-      empty.addClass("nn-stats-exclude-folder-row");
-      return;
-    }
-    for (let i = 0; i < folders.length; i++) {
-      const row = containerEl.createDiv({
-        cls: "setting-item nn-stats-exclude-folder-row"
-      });
-      row.addClass("nn-exclude-folder-item-row");
-      const label = row.createSpan({ cls: "setting-item-name nn-folder-label" });
-      label.createSpan({ cls: "nn-folder-icon", text: "\u{1F4C1}" });
-      label.createEl("code", { text: folders[i] });
-      const delBtn = row.createEl("button", { text: "\u524A\u9664", cls: "mod-warning nn-folder-del-btn" });
-      delBtn.addEventListener("click", () => {
-        this.plugin.settings.statsExcludeFolders.splice(i, 1);
-        void this.plugin.saveSettings().then(() => {
-          this.refresh();
-        });
-      });
-    }
-  }
   async addStatsExcludeFolder(value) {
     const folder = value.trim().replace(/\/+$/, "");
     if (!folder) return;
@@ -1972,61 +2010,83 @@ var NovelsNoteSettingTab = class extends import_obsidian4.PluginSettingTab {
     if (this.plugin.settings.statsExcludeFolders.includes(folder)) return;
     this.plugin.settings.statsExcludeFolders.push(folder);
     await this.plugin.saveSettings();
-    this.refresh();
+    this.update();
+  }
+  buildStatsExcludeFoldersGroup() {
+    var _a;
+    const folders = (_a = this.plugin.settings.statsExcludeFolders) != null ? _a : [];
+    return {
+      type: "list",
+      heading: "\u57F7\u7B46\u60C5\u5831\u4E00\u89A7 \u2014 \u9664\u5916\u30D5\u30A9\u30EB\u30C0",
+      emptyState: createFragment((el) => {
+        el.createEl("p", {
+          text: "\u6307\u5B9A\u3057\u305F\u30D5\u30A9\u30EB\u30C0\u5185\u306E\u30D5\u30A1\u30A4\u30EB\u3092\u300C\u57F7\u7B46\u60C5\u5831\u4E00\u89A7\u300D\u306E\u96C6\u8A08\u5BFE\u8C61\u304B\u3089\u9664\u5916\u3057\u307E\u3059\u3002\u30C6\u30F3\u30D7\u30EC\u30FC\u30C8\u30D5\u30A9\u30EB\u30C0\u306A\u3069\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044\u3002\u30D5\u30A9\u30EB\u30C0\u30D1\u30B9\u306F Vault \u30EB\u30FC\u30C8\u304B\u3089\u306E\u76F8\u5BFE\u30D1\u30B9\u3067\u5165\u529B\u3057\u307E\u3059\uFF08\u4F8B\uFF1A_templates\uFF09\u3002\u7528\u8A9E\u30A4\u30F3\u30C7\u30C3\u30AF\u30B9\u306E\u9664\u5916\u30D5\u30A9\u30EB\u30C0\u3068\u306F\u5225\u306B\u7BA1\u7406\u3055\u308C\u307E\u3059\u3002"
+        });
+      }),
+      items: folders.map((folder) => ({
+        name: folder,
+        searchable: false,
+        render: (setting) => {
+          setting.setName(createFragment((el) => {
+            el.createSpan({ cls: "nn-folder-icon", text: "\u{1F4C1}" });
+            el.createEl("code", { text: folder });
+          }));
+        }
+      })),
+      onDelete: (index) => {
+        void (async () => {
+          this.plugin.settings.statsExcludeFolders.splice(index, 1);
+          await this.plugin.saveSettings();
+          this.update();
+        })();
+      },
+      addItem: {
+        name: "\u30D5\u30A9\u30EB\u30C0\u3092\u8FFD\u52A0",
+        action: () => {
+          this.promptForFolderPath(
+            "\u9664\u5916\u30D5\u30A9\u30EB\u30C0\u3092\u8FFD\u52A0\uFF08\u57F7\u7B46\u60C5\u5831\u4E00\u89A7\uFF09",
+            (value) => this.addStatsExcludeFolder(value)
+          );
+        }
+      }
+    };
   }
   // ─────────────────────────────────────────
   // ハイライト全体のオン/オフセクション
   // ─────────────────────────────────────────
-  renderHighlightSection(containerEl) {
-    new import_obsidian4.Setting(containerEl).setName("\u30CF\u30A4\u30E9\u30A4\u30C8").setHeading();
-    new import_obsidian4.Setting(containerEl).setName("\u30CF\u30A4\u30E9\u30A4\u30C8\u3092\u6709\u52B9\u306B\u3059\u308B").setDesc("\u30AA\u30D5\u306B\u3059\u308B\u3068\u3059\u3079\u3066\u306E\u30CF\u30A4\u30E9\u30A4\u30C8\u304C\u7121\u52B9\u306B\u306A\u308A\u307E\u3059\u3002").addToggle(
-      (toggle) => toggle.setValue(this.plugin.settings.highlightEnabled).onChange(async (value) => {
-        this.plugin.settings.highlightEnabled = value;
-        await this.plugin.saveSettings();
-        this.plugin.applyEditorStyles();
-        this.plugin.refreshEditors();
-      })
-    );
-    new import_obsidian4.Setting(containerEl).setName("\u7528\u8A9E\u30CF\u30A4\u30E9\u30A4\u30C8\u306E\u30DB\u30D0\u30FC\u30D7\u30EC\u30D3\u30E5\u30FC").setDesc(
-      descLines(
-        "\u30A8\u30C7\u30A3\u30BF\u4E0A\u3067\u30CF\u30A4\u30E9\u30A4\u30C8\u3055\u308C\u305F\u7528\u8A9E\u306B\u30DE\u30A6\u30B9\u3092\u5408\u308F\u305B\u308B\u3068\u3001\u5BFE\u5FDC\u3059\u308B\u7528\u8A9E\u30CE\u30FC\u30C8\u3092Obsidian\u6A19\u6E96\u306E\u30DA\u30FC\u30B8\u30D7\u30EC\u30D3\u30E5\u30FC\uFF08Hover Preview\uFF09\u3067\u8868\u793A\u3057\u307E\u3059\u3002",
-        "\u203BWikiLink\u3092\u66F8\u304F\u5FC5\u8981\u306F\u3042\u308A\u307E\u305B\u3093\u3002"
-      )
-    ).addToggle(
-      (toggle) => toggle.setValue(this.plugin.settings.termHoverPreviewEnabled).onChange(async (value) => {
-        this.plugin.settings.termHoverPreviewEnabled = value;
-        await this.plugin.saveSettings();
-        this.plugin.applyEditorStyles();
-      })
-    );
+  buildHighlightSection() {
+    return {
+      type: "group",
+      heading: "\u30CF\u30A4\u30E9\u30A4\u30C8",
+      items: [
+        {
+          name: "\u30CF\u30A4\u30E9\u30A4\u30C8\u3092\u6709\u52B9\u306B\u3059\u308B",
+          desc: "\u30AA\u30D5\u306B\u3059\u308B\u3068\u3059\u3079\u3066\u306E\u30CF\u30A4\u30E9\u30A4\u30C8\u304C\u7121\u52B9\u306B\u306A\u308A\u307E\u3059\u3002",
+          control: { type: "toggle", key: "highlightEnabled", defaultValue: DEFAULT_SETTINGS.highlightEnabled }
+        },
+        {
+          name: "\u7528\u8A9E\u30CF\u30A4\u30E9\u30A4\u30C8\u306E\u30DB\u30D0\u30FC\u30D7\u30EC\u30D3\u30E5\u30FC",
+          desc: descLines(
+            "\u30A8\u30C7\u30A3\u30BF\u4E0A\u3067\u30CF\u30A4\u30E9\u30A4\u30C8\u3055\u308C\u305F\u7528\u8A9E\u306B\u30DE\u30A6\u30B9\u3092\u5408\u308F\u305B\u308B\u3068\u3001\u5BFE\u5FDC\u3059\u308B\u7528\u8A9E\u30CE\u30FC\u30C8\u3092Obsidian\u6A19\u6E96\u306E\u30DA\u30FC\u30B8\u30D7\u30EC\u30D3\u30E5\u30FC\uFF08Hover Preview\uFF09\u3067\u8868\u793A\u3057\u307E\u3059\u3002",
+            "\u203BWikiLink\u3092\u66F8\u304F\u5FC5\u8981\u306F\u3042\u308A\u307E\u305B\u3093\u3002"
+          ),
+          control: { type: "toggle", key: "termHoverPreviewEnabled", defaultValue: DEFAULT_SETTINGS.termHoverPreviewEnabled }
+        }
+      ]
+    };
   }
   // ─────────────────────────────────────────
   // カテゴリ定義セクション
+  //
+  // Round 3：SettingDefinitionList（onReorder・onDelete）へ正式移行。
+  // onReorder を指定すると各行にドラッグハンドルが自動で付き、
+  // ドラッグ&ドロップによる並べ替えが有効になるため、自前の
+  // HTML5 Drag & Drop実装（dragstart/dragover/drop等）は不要になり
+  // 削除した。精密な移動がしやすいよう、上下移動ボタンは
+  // ドラッグと併用できる形でそのまま残している。
   // ─────────────────────────────────────────
-  renderTagSection(containerEl) {
-    new import_obsidian4.Setting(containerEl).setName("\u30AB\u30C6\u30B4\u30EA\u5B9A\u7FA9").setHeading();
-    containerEl.createEl("p", {
-      text: "\u7528\u8A9E\u30CE\u30FC\u30C8\u306B\u4ED8\u3051\u308B\u30AB\u30C6\u30B4\u30EA\u540D\u30FB\u8868\u793A\u540D\u30FB\u8272\u30FB\u30AA\u30F3/\u30AA\u30D5\u3092\u8A2D\u5B9A\u3057\u307E\u3059\u3002",
-      cls: "setting-item-description"
-    });
-    this.renderTagList(containerEl);
-    new import_obsidian4.Setting(containerEl).addButton(
-      (btn) => btn.setButtonText("\uFF0B \u30AB\u30C6\u30B4\u30EA\u3092\u8FFD\u52A0").setCta().onClick(async () => {
-        this.plugin.settings.tagDefinitions.push({
-          tag: "new-tag",
-          label: "\u65B0\u3057\u3044\u30AB\u30C6\u30B4\u30EA",
-          color: "#aaaaaa",
-          enabled: true
-        });
-        await this.plugin.saveSettings();
-        this.plugin.applyEditorStyles();
-        this.refresh();
-      })
-    );
-  }
-  renderTagList(containerEl) {
+  buildTagGroup() {
     const defs = this.plugin.settings.tagDefinitions;
-    let dragSrcIdx = -1;
     const saveAndRefresh = async () => {
       await this.plugin.saveSettings();
       this.plugin.applyEditorStyles();
@@ -2034,324 +2094,336 @@ var NovelsNoteSettingTab = class extends import_obsidian4.PluginSettingTab {
       this.plugin.updateSidebar();
       this.plugin.refreshEditors();
     };
-    for (let i = 0; i < defs.length; i++) {
-      const td = defs[i];
-      const rowEl = containerEl.createDiv({ cls: "novels-note-tag-row nn-drag-row" });
-      rowEl.setAttribute("draggable", "true");
-      rowEl.dataset.idx = String(i);
-      const handle = rowEl.createSpan({ cls: "nn-drag-handle", title: "\u30C9\u30E9\u30C3\u30B0\u3057\u3066\u4E26\u3079\u66FF\u3048" });
-      const svg = handle.createSvg("svg", { attr: { viewBox: "0 0 16 16", width: "16", height: "16" } });
-      for (const [cx, cy] of [[5, 4], [11, 4], [5, 8], [11, 8], [5, 12], [11, 12]]) {
-        svg.createSvg("circle", { attr: { cx, cy, r: "1.2", fill: "currentColor" } });
-      }
-      const setting = new import_obsidian4.Setting(rowEl);
-      setting.settingEl.addClass("nn-tag-setting-row");
-      const capturedI = i;
-      setting.addText(
-        (text) => text.setPlaceholder("\u30AB\u30C6\u30B4\u30EA\u540D").setValue(td.tag).onChange(async (value) => {
-          defs[capturedI].tag = value.trim();
-          await saveAndRefresh();
-        })
-      );
-      setting.addText(
-        (text) => text.setPlaceholder("\u8868\u793A\u540D").setValue(td.label).onChange(async (value) => {
-          defs[capturedI].label = value;
-          await this.plugin.saveSettings();
-          this.plugin.updateSidebar();
-        })
-      );
-      setting.controlEl.createDiv({ cls: "nn-row-break" });
-      setting.addColorPicker(
-        (picker) => picker.setValue(td.color).onChange(async (value) => {
-          defs[capturedI].color = value;
-          await this.plugin.saveSettings();
-          this.plugin.applyEditorStyles();
-          this.plugin.refreshEditors();
-        })
-      );
-      setting.addToggle(
-        (toggle) => toggle.setTooltip("\u30CF\u30A4\u30E9\u30A4\u30C8\u306E\u30AA\u30F3/\u30AA\u30D5").setValue(td.enabled).onChange(async (value) => {
-          defs[capturedI].enabled = value;
-          await this.plugin.saveSettings();
-          this.plugin.refreshEditors();
-        })
-      );
-      setting.addExtraButton(
-        (btn) => btn.setIcon("arrow-up").setTooltip("\u4E0A\u3078\u79FB\u52D5").onClick(async () => {
-          if (capturedI === 0) return;
-          [defs[capturedI - 1], defs[capturedI]] = [defs[capturedI], defs[capturedI - 1]];
-          await saveAndRefresh();
-          this.refresh();
-        })
-      );
-      setting.addExtraButton(
-        (btn) => btn.setIcon("arrow-down").setTooltip("\u4E0B\u3078\u79FB\u52D5").onClick(async () => {
-          if (capturedI === defs.length - 1) return;
-          [defs[capturedI], defs[capturedI + 1]] = [defs[capturedI + 1], defs[capturedI]];
-          await saveAndRefresh();
-          this.refresh();
-        })
-      );
-      setting.addExtraButton(
-        (btn) => btn.setIcon("trash").setTooltip("\u3053\u306E\u30AB\u30C6\u30B4\u30EA\u3092\u524A\u9664").onClick(async () => {
-          defs.splice(capturedI, 1);
-          await saveAndRefresh();
-          this.refresh();
-        })
-      );
-      rowEl.addEventListener("dragstart", (e) => {
-        dragSrcIdx = capturedI;
-        rowEl.addClass("nn-drag-dragging");
-        if (e.dataTransfer) {
-          e.dataTransfer.effectAllowed = "move";
-          e.dataTransfer.setData("text/plain", String(capturedI));
+    return {
+      type: "list",
+      heading: "\u30AB\u30C6\u30B4\u30EA\u5B9A\u7FA9",
+      emptyState: createFragment((el) => {
+        el.createEl("p", { text: "\u7528\u8A9E\u30CE\u30FC\u30C8\u306B\u4ED8\u3051\u308B\u30AB\u30C6\u30B4\u30EA\u540D\u30FB\u8868\u793A\u540D\u30FB\u8272\u30FB\u30AA\u30F3/\u30AA\u30D5\u3092\u8A2D\u5B9A\u3057\u307E\u3059\u3002" });
+      }),
+      items: defs.map((td, i) => ({
+        // 行の「名前」表示は使わず、カテゴリ名自体を編集可能な
+        // テキスト欄として render 側で組み立てるため、検索対象からは外す。
+        name: td.tag || "\uFF08\u7121\u984C\u306E\u30AB\u30C6\u30B4\u30EA\uFF09",
+        searchable: false,
+        render: (setting) => {
+          setting.settingEl.addClass("nn-tag-setting-row");
+          setting.setName("");
+          const capturedI = i;
+          setting.addText(
+            (text) => text.setPlaceholder("\u30AB\u30C6\u30B4\u30EA\u540D").setValue(td.tag).onChange(async (value) => {
+              defs[capturedI].tag = value.trim();
+              await saveAndRefresh();
+            })
+          );
+          setting.addText(
+            (text) => text.setPlaceholder("\u8868\u793A\u540D").setValue(td.label).onChange(async (value) => {
+              defs[capturedI].label = value;
+              await this.plugin.saveSettings();
+              this.plugin.updateSidebar();
+            })
+          );
+          setting.controlEl.createDiv({ cls: "nn-row-break" });
+          setting.addColorPicker(
+            (picker) => picker.setValue(td.color).onChange(async (value) => {
+              defs[capturedI].color = value;
+              await this.plugin.saveSettings();
+              this.plugin.applyEditorStyles();
+              this.plugin.refreshEditors();
+            })
+          );
+          setting.addToggle(
+            (toggle) => toggle.setTooltip("\u30CF\u30A4\u30E9\u30A4\u30C8\u306E\u30AA\u30F3/\u30AA\u30D5").setValue(td.enabled).onChange(async (value) => {
+              defs[capturedI].enabled = value;
+              await this.plugin.saveSettings();
+              this.plugin.refreshEditors();
+            })
+          );
+          setting.addExtraButton(
+            (btn) => btn.setIcon("arrow-up").setTooltip("\u4E0A\u3078\u79FB\u52D5").onClick(async () => {
+              if (capturedI === 0) return;
+              [defs[capturedI - 1], defs[capturedI]] = [defs[capturedI], defs[capturedI - 1]];
+              await saveAndRefresh();
+              this.update();
+            })
+          );
+          setting.addExtraButton(
+            (btn) => btn.setIcon("arrow-down").setTooltip("\u4E0B\u3078\u79FB\u52D5").onClick(async () => {
+              if (capturedI === defs.length - 1) return;
+              [defs[capturedI], defs[capturedI + 1]] = [defs[capturedI + 1], defs[capturedI]];
+              await saveAndRefresh();
+              this.update();
+            })
+          );
         }
-      });
-      rowEl.addEventListener("dragend", () => {
-        rowEl.removeClass("nn-drag-dragging");
-        containerEl.querySelectorAll(".nn-drag-over").forEach(
-          (el) => el.removeClass("nn-drag-over")
-        );
-      });
-      rowEl.addEventListener("dragover", (e) => {
-        e.preventDefault();
-        if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
-        containerEl.querySelectorAll(".nn-drag-over").forEach(
-          (el) => el.removeClass("nn-drag-over")
-        );
-        if (dragSrcIdx !== capturedI) rowEl.addClass("nn-drag-over");
-      });
-      rowEl.addEventListener("dragleave", () => {
-        rowEl.removeClass("nn-drag-over");
-      });
-      rowEl.addEventListener("drop", (e) => {
-        e.preventDefault();
-        rowEl.removeClass("nn-drag-over");
-        const src = dragSrcIdx;
-        const dst = capturedI;
-        if (src === dst || src < 0) return;
-        const [removed] = defs.splice(src, 1);
-        defs.splice(dst, 0, removed);
-        dragSrcIdx = -1;
-        void saveAndRefresh().then(() => this.refresh());
-      });
-    }
+      })),
+      onReorder: (oldIndex, newIndex) => {
+        const [removed] = defs.splice(oldIndex, 1);
+        defs.splice(newIndex, 0, removed);
+        void saveAndRefresh().then(() => this.update());
+      },
+      onDelete: (index) => {
+        defs.splice(index, 1);
+        void saveAndRefresh().then(() => this.update());
+      },
+      addItem: {
+        name: "\u30AB\u30C6\u30B4\u30EA\u3092\u8FFD\u52A0",
+        action: () => {
+          defs.push({ tag: "new-tag", label: "\u65B0\u3057\u3044\u30AB\u30C6\u30B4\u30EA", color: "#aaaaaa", enabled: true });
+          void this.plugin.saveSettings().then(() => {
+            this.plugin.applyEditorStyles();
+            this.update();
+          });
+        }
+      }
+    };
   }
   // ─────────────────────────────────────────
   // カッコハイライトセクション
+  //
+  // Round 3：buildTagGroup() と同じ方針で SettingDefinitionList へ
+  // 正式移行。並べ替え機能は元々無かったため onReorder は指定しない。
   // ─────────────────────────────────────────
-  renderBracketSection(containerEl) {
-    new import_obsidian4.Setting(containerEl).setName("\u30AB\u30C3\u30B3\u30CF\u30A4\u30E9\u30A4\u30C8").setHeading();
-    containerEl.createEl("p", {
-      text: "\u5185\u5074\u306E\u30AB\u30C3\u30B3\u304C\u5916\u5074\u3088\u308A\u512A\u5148\u3055\u308C\u307E\u3059\u3002\u7528\u8A9E\u306E\u5F37\u8ABF\u8868\u793A\u306F\u3059\u3079\u3066\u306E\u30AB\u30C3\u30B3\u3088\u308A\u512A\u5148\u3055\u308C\u307E\u3059\u3002",
-      cls: "setting-item-description"
-    });
-    this.renderBracketList(containerEl);
-    new import_obsidian4.Setting(containerEl).addButton(
-      (btn) => btn.setButtonText("\uFF0B \u30AB\u30C3\u30B3\u3092\u8FFD\u52A0").setCta().onClick(async () => {
-        const newId = `bracket-${Date.now()}`;
-        this.plugin.settings.bracketDefinitions.push({
-          id: newId,
-          label: "\u65B0\u3057\u3044\u30AB\u30C3\u30B3",
-          open: "\u3014",
-          close: "\u3015",
-          color: "#aaaaaa",
-          enabled: false
-        });
-        await this.plugin.saveSettings();
-        this.plugin.applyEditorStyles();
-        this.refresh();
-      })
-    );
-  }
-  renderBracketList(containerEl) {
+  buildBracketGroup() {
     const defs = this.plugin.settings.bracketDefinitions;
-    for (let i = 0; i < defs.length; i++) {
-      const bd = defs[i];
-      const setting = new import_obsidian4.Setting(containerEl);
-      setting.settingEl.addClass("novels-note-bracket-row");
-      setting.addText((text) => {
-        text.inputEl.addClass("nn-bracket-label-input");
-        text.setPlaceholder("\u8868\u793A\u540D").setValue(bd.label).onChange(async (value) => {
-          defs[i].label = value;
-          await this.plugin.saveSettings();
-        });
-      });
-      setting.addText((text) => {
-        text.inputEl.addClass("nn-bracket-char-input");
-        text.setPlaceholder("\u958B").setValue(bd.open).onChange(async (value) => {
-          defs[i].open = value;
-          await this.plugin.saveSettings();
-          this.plugin.refreshEditors();
-        });
-      });
-      setting.addText((text) => {
-        text.inputEl.addClass("nn-bracket-char-input");
-        text.setPlaceholder("\u9589").setValue(bd.close).onChange(async (value) => {
-          defs[i].close = value;
-          await this.plugin.saveSettings();
-          this.plugin.refreshEditors();
-        });
-      });
-      setting.controlEl.createDiv({ cls: "nn-row-break" });
-      setting.addColorPicker(
-        (picker) => picker.setValue(bd.color).onChange(async (value) => {
-          defs[i].color = value;
-          await this.plugin.saveSettings();
+    return {
+      type: "list",
+      heading: "\u30AB\u30C3\u30B3\u30CF\u30A4\u30E9\u30A4\u30C8",
+      emptyState: createFragment((el) => {
+        el.createEl("p", { text: "\u5185\u5074\u306E\u30AB\u30C3\u30B3\u304C\u5916\u5074\u3088\u308A\u512A\u5148\u3055\u308C\u307E\u3059\u3002\u7528\u8A9E\u306E\u5F37\u8ABF\u8868\u793A\u306F\u3059\u3079\u3066\u306E\u30AB\u30C3\u30B3\u3088\u308A\u512A\u5148\u3055\u308C\u307E\u3059\u3002" });
+      }),
+      items: defs.map((bd, i) => ({
+        name: bd.label || "\uFF08\u7121\u984C\u306E\u30AB\u30C3\u30B3\uFF09",
+        searchable: false,
+        render: (setting) => {
+          setting.settingEl.addClass("novels-note-bracket-row");
+          setting.setName("");
+          const capturedI = i;
+          setting.addText((text) => {
+            text.inputEl.addClass("nn-bracket-label-input");
+            text.setPlaceholder("\u8868\u793A\u540D").setValue(bd.label).onChange(async (value) => {
+              defs[capturedI].label = value;
+              await this.plugin.saveSettings();
+            });
+          });
+          setting.addText((text) => {
+            text.inputEl.addClass("nn-bracket-char-input");
+            text.setPlaceholder("\u958B").setValue(bd.open).onChange(async (value) => {
+              defs[capturedI].open = value;
+              await this.plugin.saveSettings();
+              this.plugin.refreshEditors();
+            });
+          });
+          setting.addText((text) => {
+            text.inputEl.addClass("nn-bracket-char-input");
+            text.setPlaceholder("\u9589").setValue(bd.close).onChange(async (value) => {
+              defs[capturedI].close = value;
+              await this.plugin.saveSettings();
+              this.plugin.refreshEditors();
+            });
+          });
+          setting.controlEl.createDiv({ cls: "nn-row-break" });
+          setting.addColorPicker(
+            (picker) => picker.setValue(bd.color).onChange(async (value) => {
+              defs[capturedI].color = value;
+              await this.plugin.saveSettings();
+              this.plugin.applyEditorStyles();
+              this.plugin.refreshEditors();
+            })
+          );
+          setting.addToggle(
+            (toggle) => toggle.setTooltip("\u30CF\u30A4\u30E9\u30A4\u30C8\u306E\u30AA\u30F3/\u30AA\u30D5").setValue(bd.enabled).onChange(async (value) => {
+              defs[capturedI].enabled = value;
+              await this.plugin.saveSettings();
+              this.plugin.refreshEditors();
+            })
+          );
+        }
+      })),
+      onDelete: (index) => {
+        defs.splice(index, 1);
+        void this.plugin.saveSettings().then(() => {
           this.plugin.applyEditorStyles();
           this.plugin.refreshEditors();
-        })
-      );
-      setting.addToggle(
-        (toggle) => toggle.setTooltip("\u30CF\u30A4\u30E9\u30A4\u30C8\u306E\u30AA\u30F3/\u30AA\u30D5").setValue(bd.enabled).onChange(async (value) => {
-          defs[i].enabled = value;
-          await this.plugin.saveSettings();
-          this.plugin.refreshEditors();
-        })
-      );
-      setting.addExtraButton(
-        (btn) => btn.setIcon("trash").setTooltip("\u3053\u306E\u30AB\u30C3\u30B3\u3092\u524A\u9664").onClick(async () => {
-          defs.splice(i, 1);
-          await this.plugin.saveSettings();
-          this.plugin.applyEditorStyles();
-          this.plugin.refreshEditors();
-          this.refresh();
-        })
-      );
-    }
+          this.update();
+        });
+      },
+      addItem: {
+        name: "\u30AB\u30C3\u30B3\u3092\u8FFD\u52A0",
+        action: () => {
+          const newId = `bracket-${Date.now()}`;
+          defs.push({
+            id: newId,
+            label: "\u65B0\u3057\u3044\u30AB\u30C3\u30B3",
+            open: "\u3014",
+            close: "\u3015",
+            color: "#aaaaaa",
+            enabled: false
+          });
+          void this.plugin.saveSettings().then(() => {
+            this.plugin.applyEditorStyles();
+            this.update();
+          });
+        }
+      }
+    };
   }
   // ─────────────────────────────────────────
   // ルビ設定セクション
   // ─────────────────────────────────────────
-  renderRubySection(containerEl) {
-    new import_obsidian4.Setting(containerEl).setName("\u30EB\u30D3\u8A2D\u5B9A").setHeading();
-    containerEl.createEl("p", {
-      text: "\u7E26\u66F8\u304D\u30D7\u30EC\u30D3\u30E5\u30FC\u304A\u3088\u3073Export\u3067\u4F7F\u7528\u3059\u308B\u30EB\u30D3\u306E\u8A18\u6CD5\u3092\u9078\u629E\u3057\u3066\u304F\u3060\u3055\u3044\u3002",
-      cls: "setting-item-description"
-    });
-    new import_obsidian4.Setting(containerEl).setName("\u30EB\u30D3\u306E\u8A18\u6CD5").setDesc(descLines(
-      "\u30FB\u306A\u308D\u3046\u5F0F\uFF1A\u6F22\u5B57\u300A\u30EB\u30D3\u300B \u307E\u305F\u306F |\u6F22\u5B57\u300A\u30EB\u30D3\u300B\uFF08\u534A\u89D2\u7E26\u68D2\uFF09",
-      "\u30FB\u9752\u7A7A\u6587\u5EAB\u5F0F\uFF1A\u6F22\u5B57\u300A\u30EB\u30D3\u300B \u307E\u305F\u306F \uFF5C\u6F22\u5B57\u300A\u30EB\u30D3\u300B\uFF08\u5168\u89D2\u7E26\u68D2\uFF09",
-      "\u30FB\u3067\u3093\u3067\u3093\u5F0F\uFF1A{\u6F22\u5B57|\u30EB\u30D3}",
-      "\u30FBHTML\u30BF\u30B0\uFF1A<ruby>\u6F22\u5B57<rt>\u30EB\u30D3</rt></ruby>"
-    )).addDropdown(
-      (drop) => drop.addOption("narou", "\u306A\u308D\u3046\u5F0F\uFF08\u6F22\u5B57\u300A\u30EB\u30D3\u300B / |\u6F22\u5B57\u300A\u30EB\u30D3\u300B\uFF09").addOption("aozora", "\u9752\u7A7A\u6587\u5EAB\u5F0F\uFF08\u6F22\u5B57\u300A\u30EB\u30D3\u300B / \uFF5C\u6F22\u5B57\u300A\u30EB\u30D3\u300B\uFF09").addOption("denden", "\u3067\u3093\u3067\u3093\u5F0F\uFF08{\u6F22\u5B57|\u30EB\u30D3}\uFF09").addOption("html", "HTML\u30BF\u30B0\uFF08<ruby>\uFF09").setValue(this.plugin.settings.rubyStyle).onChange(async (value) => {
-        this.plugin.settings.rubyStyle = value;
-        await this.plugin.saveSettings();
-        this.plugin.refreshVerticalPreview();
-      })
-    );
+  buildRubySection() {
+    return {
+      type: "group",
+      heading: "\u30EB\u30D3\u8A2D\u5B9A",
+      items: [
+        {
+          name: "\u30EB\u30D3\u306E\u8A18\u6CD5",
+          desc: descLines(
+            "\u7E26\u66F8\u304D\u30D7\u30EC\u30D3\u30E5\u30FC\u304A\u3088\u3073Export\u3067\u4F7F\u7528\u3059\u308B\u30EB\u30D3\u306E\u8A18\u6CD5\u3092\u9078\u629E\u3057\u3066\u304F\u3060\u3055\u3044\u3002",
+            "\u30FB\u306A\u308D\u3046\u5F0F\uFF1A\u6F22\u5B57\u300A\u30EB\u30D3\u300B \u307E\u305F\u306F |\u6F22\u5B57\u300A\u30EB\u30D3\u300B\uFF08\u534A\u89D2\u7E26\u68D2\uFF09",
+            "\u30FB\u9752\u7A7A\u6587\u5EAB\u5F0F\uFF1A\u6F22\u5B57\u300A\u30EB\u30D3\u300B \u307E\u305F\u306F \uFF5C\u6F22\u5B57\u300A\u30EB\u30D3\u300B\uFF08\u5168\u89D2\u7E26\u68D2\uFF09",
+            "\u30FB\u3067\u3093\u3067\u3093\u5F0F\uFF1A{\u6F22\u5B57|\u30EB\u30D3}",
+            "\u30FBHTML\u30BF\u30B0\uFF1A<ruby>\u6F22\u5B57<rt>\u30EB\u30D3</rt></ruby>"
+          ),
+          control: {
+            type: "dropdown",
+            key: "rubyStyle",
+            options: {
+              narou: "\u306A\u308D\u3046\u5F0F\uFF08\u6F22\u5B57\u300A\u30EB\u30D3\u300B / |\u6F22\u5B57\u300A\u30EB\u30D3\u300B\uFF09",
+              aozora: "\u9752\u7A7A\u6587\u5EAB\u5F0F\uFF08\u6F22\u5B57\u300A\u30EB\u30D3\u300B / \uFF5C\u6F22\u5B57\u300A\u30EB\u30D3\u300B\uFF09",
+              denden: "\u3067\u3093\u3067\u3093\u5F0F\uFF08{\u6F22\u5B57|\u30EB\u30D3}\uFF09",
+              html: "HTML\u30BF\u30B0\uFF08<ruby>\uFF09"
+            },
+            defaultValue: DEFAULT_SETTINGS.rubyStyle
+          }
+        }
+      ]
+    };
   }
   // ─────────────────────────────────────────
   // 文字数カウントセクション
   // ─────────────────────────────────────────
-  renderWordCountSection(containerEl) {
-    new import_obsidian4.Setting(containerEl).setName("\u6587\u5B57\u6570\u30AB\u30A6\u30F3\u30C8").setHeading();
-    containerEl.createEl("p", {
-      text: "\u30B9\u30C6\u30FC\u30BF\u30B9\u30D0\u30FC\uFF08\u753B\u9762\u4E0B\u90E8\uFF09\u306B\u539F\u7A3F\u306E\u6587\u5B57\u6570\u3092\u8868\u793A\u3057\u307E\u3059\u3002\u30AF\u30EA\u30C3\u30AF\u3067\u30E2\u30FC\u30C9\u3092\u5207\u308A\u66FF\u3048\u3089\u308C\u307E\u3059\u3002",
-      cls: "setting-item-description"
-    });
-    new import_obsidian4.Setting(containerEl).setName("\u30AB\u30A6\u30F3\u30C8\u30E2\u30FC\u30C9").setDesc(descLines(
-      "raw: \u6587\u5B57\u6570\u305D\u306E\u307E\u307E",
-      "novel: \u5168\u89D21\u5B57\u30FB\u534A\u89D20.5\u5B57\u3067\u63DB\u7B97",
-      "manuscript: 400\u5B57\u8A70\u3081\u539F\u7A3F\u7528\u7D19\u306E\u679A\u6570"
-    )).addDropdown(
-      (drop) => drop.addOption("raw", "raw\uFF08\u6587\u5B57\u6570\uFF09").addOption("novel", "novel\uFF08\u5C0F\u8AAC\u63DB\u7B97\uFF09").addOption("manuscript", "manuscript\uFF08\u539F\u7A3F\u7528\u7D19\u63DB\u7B97\uFF09").setValue(this.plugin.settings.countMode).onChange(async (value) => {
-        this.plugin.settings.countMode = value;
-        await this.plugin.saveSettings();
-        this.plugin.updateWordCount();
-      })
-    );
-    new import_obsidian4.Setting(containerEl).setName("\u5168\u89D2\u30B9\u30DA\u30FC\u30B9\u3092\u6587\u5B57\u6570\u306B\u542B\u3081\u308B").setDesc(descLines(
-      "\u30AA\u30F3\u306B\u3059\u308B\u3068\u6BB5\u843D\u5148\u982D\u306A\u3069\u306E\u5168\u89D2\u30B9\u30DA\u30FC\u30B9\uFF08\u3000\uFF09\u30821\u6587\u5B57\u3068\u3057\u3066\u30AB\u30A6\u30F3\u30C8\u3057\u307E\u3059\u3002",
-      "\u30AA\u30D5\uFF08\u30C7\u30D5\u30A9\u30EB\u30C8\uFF09\u306B\u3059\u308B\u3068\u9664\u5916\u3057\u307E\u3059\u3002"
-    )).addToggle(
-      (toggle) => toggle.setValue(this.plugin.settings.countFullWidthSpace).onChange(async (value) => {
-        this.plugin.settings.countFullWidthSpace = value;
-        await this.plugin.saveSettings();
-        this.plugin.updateWordCount();
-      })
-    );
-    new import_obsidian4.Setting(containerEl).setName("\u7A7A\u884C\u3092\u6587\u5B57\u6570\u306B\u542B\u3081\u308B").setDesc(descLines(
-      "\u30AA\u30F3\u306B\u3059\u308B\u3068\u5185\u5BB9\u306E\u306A\u3044\u884C\uFF08\u7A7A\u884C\uFF09\u306E\u6539\u884C\u6587\u5B57\u3082\u30AB\u30A6\u30F3\u30C8\u5BFE\u8C61\u306B\u3057\u307E\u3059\u3002",
-      "\u901A\u5E38\u306F\u30AA\u30D5\uFF08\u30C7\u30D5\u30A9\u30EB\u30C8\uFF09\u306E\u307E\u307E\u3067\u69CB\u3044\u307E\u305B\u3093\u3002"
-    )).addToggle(
-      (toggle) => toggle.setValue(this.plugin.settings.countEmptyLines).onChange(async (value) => {
-        this.plugin.settings.countEmptyLines = value;
-        await this.plugin.saveSettings();
-        this.plugin.updateWordCount();
-      })
-    );
-    new import_obsidian4.Setting(containerEl).setName("#tag \u3092\u6587\u5B57\u6570\u306B\u542B\u3081\u308B").setDesc(descLines(
-      "\u30AA\u30F3\u306B\u3059\u308B\u3068\u539F\u7A3F\u4E2D\u306B\u66F8\u3044\u305F #tag\uFF08\u30AD\u30E3\u30E9\u30AF\u30BF\u30FC\u767B\u9332\u306A\u3069\u306E\u76EE\u5370\uFF09\u3082\u6587\u5B57\u6570\u3068\u3057\u3066\u30AB\u30A6\u30F3\u30C8\u3057\u307E\u3059\u3002",
-      "\u30AA\u30D5\uFF08\u30C7\u30D5\u30A9\u30EB\u30C8\uFF09\u306B\u3059\u308B\u3068 #tag \u3092\u9664\u5916\u3057\u307E\u3059\uFF08\u30A8\u30AF\u30B9\u30DD\u30FC\u30C8\u6642\u306E\u9664\u53BB\u3068\u540C\u3058\u6271\u3044\u306B\u306A\u308A\u307E\u3059\uFF09\u3002"
-    )).addToggle(
-      (toggle) => toggle.setValue(this.plugin.settings.countHashtags).onChange(async (value) => {
-        this.plugin.settings.countHashtags = value;
-        await this.plugin.saveSettings();
-        this.plugin.updateWordCount();
-      })
-    );
+  buildWordCountSection() {
+    return {
+      type: "group",
+      heading: "\u6587\u5B57\u6570\u30AB\u30A6\u30F3\u30C8",
+      items: [
+        {
+          name: "\u30AB\u30A6\u30F3\u30C8\u30E2\u30FC\u30C9",
+          desc: descLines(
+            "\u30B9\u30C6\u30FC\u30BF\u30B9\u30D0\u30FC\uFF08\u753B\u9762\u4E0B\u90E8\uFF09\u306B\u539F\u7A3F\u306E\u6587\u5B57\u6570\u3092\u8868\u793A\u3057\u307E\u3059\u3002\u30AF\u30EA\u30C3\u30AF\u3067\u30E2\u30FC\u30C9\u3092\u5207\u308A\u66FF\u3048\u3089\u308C\u307E\u3059\u3002",
+            "raw: \u6587\u5B57\u6570\u305D\u306E\u307E\u307E",
+            "novel: \u5168\u89D21\u5B57\u30FB\u534A\u89D20.5\u5B57\u3067\u63DB\u7B97",
+            "manuscript: 400\u5B57\u8A70\u3081\u539F\u7A3F\u7528\u7D19\u306E\u679A\u6570"
+          ),
+          control: {
+            type: "dropdown",
+            key: "countMode",
+            options: { raw: "raw\uFF08\u6587\u5B57\u6570\uFF09", novel: "novel\uFF08\u5C0F\u8AAC\u63DB\u7B97\uFF09", manuscript: "manuscript\uFF08\u539F\u7A3F\u7528\u7D19\u63DB\u7B97\uFF09" },
+            defaultValue: DEFAULT_SETTINGS.countMode
+          }
+        },
+        {
+          name: "\u5168\u89D2\u30B9\u30DA\u30FC\u30B9\u3092\u6587\u5B57\u6570\u306B\u542B\u3081\u308B",
+          desc: descLines(
+            "\u30AA\u30F3\u306B\u3059\u308B\u3068\u6BB5\u843D\u5148\u982D\u306A\u3069\u306E\u5168\u89D2\u30B9\u30DA\u30FC\u30B9\uFF08\u3000\uFF09\u30821\u6587\u5B57\u3068\u3057\u3066\u30AB\u30A6\u30F3\u30C8\u3057\u307E\u3059\u3002",
+            "\u30AA\u30D5\uFF08\u30C7\u30D5\u30A9\u30EB\u30C8\uFF09\u306B\u3059\u308B\u3068\u9664\u5916\u3057\u307E\u3059\u3002"
+          ),
+          control: { type: "toggle", key: "countFullWidthSpace", defaultValue: DEFAULT_SETTINGS.countFullWidthSpace }
+        },
+        {
+          name: "\u7A7A\u884C\u3092\u6587\u5B57\u6570\u306B\u542B\u3081\u308B",
+          desc: descLines(
+            "\u30AA\u30F3\u306B\u3059\u308B\u3068\u5185\u5BB9\u306E\u306A\u3044\u884C\uFF08\u7A7A\u884C\uFF09\u306E\u6539\u884C\u6587\u5B57\u3082\u30AB\u30A6\u30F3\u30C8\u5BFE\u8C61\u306B\u3057\u307E\u3059\u3002",
+            "\u901A\u5E38\u306F\u30AA\u30D5\uFF08\u30C7\u30D5\u30A9\u30EB\u30C8\uFF09\u306E\u307E\u307E\u3067\u69CB\u3044\u307E\u305B\u3093\u3002"
+          ),
+          control: { type: "toggle", key: "countEmptyLines", defaultValue: DEFAULT_SETTINGS.countEmptyLines }
+        },
+        {
+          name: "#tag \u3092\u6587\u5B57\u6570\u306B\u542B\u3081\u308B",
+          desc: descLines(
+            "\u30AA\u30F3\u306B\u3059\u308B\u3068\u539F\u7A3F\u4E2D\u306B\u66F8\u3044\u305F #tag\uFF08\u30AD\u30E3\u30E9\u30AF\u30BF\u30FC\u767B\u9332\u306A\u3069\u306E\u76EE\u5370\uFF09\u3082\u6587\u5B57\u6570\u3068\u3057\u3066\u30AB\u30A6\u30F3\u30C8\u3057\u307E\u3059\u3002",
+            "\u30AA\u30D5\uFF08\u30C7\u30D5\u30A9\u30EB\u30C8\uFF09\u306B\u3059\u308B\u3068 #tag \u3092\u9664\u5916\u3057\u307E\u3059\uFF08\u30A8\u30AF\u30B9\u30DD\u30FC\u30C8\u6642\u306E\u9664\u53BB\u3068\u540C\u3058\u6271\u3044\u306B\u306A\u308A\u307E\u3059\uFF09\u3002"
+          ),
+          control: { type: "toggle", key: "countHashtags", defaultValue: DEFAULT_SETTINGS.countHashtags }
+        }
+      ]
+    };
   }
   // ─────────────────────────────────────────
   // 用語入力パレットセクション
   // ─────────────────────────────────────────
-  renderGlossaryPaletteSection(containerEl) {
-    new import_obsidian4.Setting(containerEl).setName("\u7528\u8A9E\u5165\u529B\u30D1\u30EC\u30C3\u30C8").setHeading();
-    containerEl.createEl("p", {
-      text: "\u57F7\u7B46\u4E2D\u306B\u30C8\u30EA\u30AC\u30FC\u6587\u5B57\u3092\u5165\u529B\u3059\u308B\u3068\u3001\u7528\u8A9E\u30A4\u30F3\u30C7\u30C3\u30AF\u30B9\u304B\u3089\u7528\u8A9E\u3092\u691C\u7D22\u30FB\u5165\u529B\u3067\u304D\u308B\u30D1\u30EC\u30C3\u30C8\u3092\u958B\u304D\u307E\u3059\u3002",
-      cls: "setting-item-description"
-    });
-    new import_obsidian4.Setting(containerEl).setName("\u7528\u8A9E\u5165\u529B\u30D1\u30EC\u30C3\u30C8\u3092\u6709\u52B9\u306B\u3059\u308B").addToggle(
-      (toggle) => toggle.setValue(this.plugin.settings.glossaryPaletteEnabled).onChange(async (value) => {
-        this.plugin.settings.glossaryPaletteEnabled = value;
-        await this.plugin.saveSettings();
-        this.plugin.refreshEditors();
-      })
-    );
-    new import_obsidian4.Setting(containerEl).setName("\u8D77\u52D5\u7BC4\u56F2").setDesc(descLines(
-      "\u30FB\u539F\u7A3F\u30CE\u30FC\u30C8\u306E\u307F\uFF1Amode: novel \u304C\u8A2D\u5B9A\u3055\u308C\u305F\u30CE\u30FC\u30C8\u3067\u306E\u307F\u8D77\u52D5\u3057\u307E\u3059\u3002",
-      "\u30FB\u539F\u7A3F\u30CE\u30FC\u30C8\uFF0B\u7528\u8A9E\u30CE\u30FC\u30C8\uFF08\u30C7\u30D5\u30A9\u30EB\u30C8\uFF09\uFF1A\u539F\u7A3F\u30CE\u30FC\u30C8\u306B\u52A0\u3048\u3066\u3001\u7528\u8A9E\u30CE\u30FC\u30C8\uFF08\u30AD\u30E3\u30E9\u30AF\u30BF\u30FC\u30FB\u5834\u6240\u306A\u3069\u306E\u30BF\u30B0\u3092\u6301\u3064\u30CE\u30FC\u30C8\uFF09\u3067\u3082\u8D77\u52D5\u3057\u307E\u3059\u3002",
-      "\u30FB\u3059\u3079\u3066\u306E\u30CE\u30FC\u30C8\uFF1A\u5168\u3066\u306EMarkdown\u30CE\u30FC\u30C8\u3067\u8D77\u52D5\u3057\u307E\u3059\u3002\u30E1\u30E2\u7B49\u3067\u666E\u6BB5\u304B\u3089\u30C8\u30EA\u30AC\u30FC\u6587\u5B57\u3092\u66F8\u304F\u5834\u5408\u306F\u8AA4\u7206\u3057\u3084\u3059\u3044\u306E\u3067\u3054\u6CE8\u610F\u304F\u3060\u3055\u3044\u3002"
-    )).addDropdown(
-      (drop) => drop.addOption("novelOnly", "\u539F\u7A3F\u30CE\u30FC\u30C8\u306E\u307F").addOption("novelAndGlossary", "\u539F\u7A3F\u30CE\u30FC\u30C8\uFF0B\u7528\u8A9E\u30CE\u30FC\u30C8").addOption("all", "\u3059\u3079\u3066\u306E\u30CE\u30FC\u30C8").setValue(this.plugin.settings.glossaryPaletteScope).onChange(async (value) => {
-        this.plugin.settings.glossaryPaletteScope = value;
-        await this.plugin.saveSettings();
-        this.plugin.refreshEditors();
-      })
-    );
-    new import_obsidian4.Setting(containerEl).setName("\u8D77\u52D5\u30C8\u30EA\u30AC\u30FC\u6587\u5B57").setDesc(descLines(
-      "\u30D1\u30EC\u30C3\u30C8\u3092\u958B\u304F\u305F\u3081\u306E1\u6587\u5B57\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044\uFF08\u4F8B\uFF1A / @ $ : ;\uFF09\u3002",
-      `Markdown\u3067\u4E00\u822C\u7684\u306B\u4F7F\u308F\u308C\u308B ${GLOSSARY_PALETTE_FORBIDDEN_TRIGGERS.join(" ")} \u306F\u6307\u5B9A\u3067\u304D\u307E\u305B\u3093\u3002`
-    )).addText(
-      (text) => text.setValue(this.plugin.settings.glossaryPaletteTrigger).setPlaceholder("/").onChange(async (value) => {
-        const trimmed = value.trim();
-        if (trimmed.length === 0) return;
-        if (trimmed.length !== 1) {
-          new import_obsidian4.Notice("\u30C8\u30EA\u30AC\u30FC\u6587\u5B57\u306F1\u6587\u5B57\u3067\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044\u3002");
-          return;
-        }
-        if (GLOSSARY_PALETTE_FORBIDDEN_TRIGGERS.includes(trimmed)) {
-          new import_obsidian4.Notice(`\u300C${trimmed}\u300D\u306FMarkdown\u8A18\u6CD5\u3068\u885D\u7A81\u3059\u308B\u305F\u3081\u4F7F\u7528\u3067\u304D\u307E\u305B\u3093\u3002`);
-          return;
-        }
-        this.plugin.settings.glossaryPaletteTrigger = trimmed;
-        await this.plugin.saveSettings();
-        this.plugin.refreshEditors();
-      })
-    );
-    new import_obsidian4.Setting(containerEl).setName("\u300C\u6700\u8FD1\u4F7F\u3063\u305F\u300D\u5C65\u6B74\u3092\u30AF\u30EA\u30A2").setDesc("\u7528\u8A9E\u5165\u529B\u30D1\u30EC\u30C3\u30C8\u306E\u300C\u6700\u8FD1\u4F7F\u3063\u305F\u300D\u306B\u8868\u793A\u3055\u308C\u308B\u5C65\u6B74\u3092\u3059\u3079\u3066\u524A\u9664\u3057\u307E\u3059\u3002\u3053\u306E\u64CD\u4F5C\u306F\u53D6\u308A\u6D88\u305B\u307E\u305B\u3093\u3002").addButton(
-      (btn) => btn.setButtonText("\u30AF\u30EA\u30A2").setWarning().onClick(() => {
-        new ConfirmDialog(
-          this.app,
-          "\u300C\u6700\u8FD1\u4F7F\u3063\u305F\u300D\u5C65\u6B74\u3092\u3059\u3079\u3066\u524A\u9664\u3057\u307E\u3059\u3002\u3088\u308D\u3057\u3044\u3067\u3059\u304B\uFF1F",
-          async () => {
-            await this.plugin.clearGlossaryPaletteHistory();
-            new import_obsidian4.Notice("\u300C\u6700\u8FD1\u4F7F\u3063\u305F\u300D\u5C65\u6B74\u3092\u30AF\u30EA\u30A2\u3057\u307E\u3057\u305F\u3002");
+  buildGlossaryPaletteSection() {
+    return {
+      type: "group",
+      heading: "\u7528\u8A9E\u5165\u529B\u30D1\u30EC\u30C3\u30C8",
+      items: [
+        {
+          name: "\u7528\u8A9E\u5165\u529B\u30D1\u30EC\u30C3\u30C8\u3092\u6709\u52B9\u306B\u3059\u308B",
+          desc: "\u57F7\u7B46\u4E2D\u306B\u30C8\u30EA\u30AC\u30FC\u6587\u5B57\u3092\u5165\u529B\u3059\u308B\u3068\u3001\u7528\u8A9E\u30A4\u30F3\u30C7\u30C3\u30AF\u30B9\u304B\u3089\u7528\u8A9E\u3092\u691C\u7D22\u30FB\u5165\u529B\u3067\u304D\u308B\u30D1\u30EC\u30C3\u30C8\u3092\u958B\u304D\u307E\u3059\u3002",
+          control: { type: "toggle", key: "glossaryPaletteEnabled", defaultValue: DEFAULT_SETTINGS.glossaryPaletteEnabled }
+        },
+        {
+          name: "\u8D77\u52D5\u7BC4\u56F2",
+          desc: descLines(
+            "\u30FB\u539F\u7A3F\u30CE\u30FC\u30C8\u306E\u307F\uFF1Amode: novel \u304C\u8A2D\u5B9A\u3055\u308C\u305F\u30CE\u30FC\u30C8\u3067\u306E\u307F\u8D77\u52D5\u3057\u307E\u3059\u3002",
+            "\u30FB\u539F\u7A3F\u30CE\u30FC\u30C8\uFF0B\u7528\u8A9E\u30CE\u30FC\u30C8\uFF08\u30C7\u30D5\u30A9\u30EB\u30C8\uFF09\uFF1A\u539F\u7A3F\u30CE\u30FC\u30C8\u306B\u52A0\u3048\u3066\u3001\u7528\u8A9E\u30CE\u30FC\u30C8\uFF08\u30AD\u30E3\u30E9\u30AF\u30BF\u30FC\u30FB\u5834\u6240\u306A\u3069\u306E\u30BF\u30B0\u3092\u6301\u3064\u30CE\u30FC\u30C8\uFF09\u3067\u3082\u8D77\u52D5\u3057\u307E\u3059\u3002",
+            "\u30FB\u3059\u3079\u3066\u306E\u30CE\u30FC\u30C8\uFF1A\u5168\u3066\u306EMarkdown\u30CE\u30FC\u30C8\u3067\u8D77\u52D5\u3057\u307E\u3059\u3002\u30E1\u30E2\u7B49\u3067\u666E\u6BB5\u304B\u3089\u30C8\u30EA\u30AC\u30FC\u6587\u5B57\u3092\u66F8\u304F\u5834\u5408\u306F\u8AA4\u7206\u3057\u3084\u3059\u3044\u306E\u3067\u3054\u6CE8\u610F\u304F\u3060\u3055\u3044\u3002"
+          ),
+          control: {
+            type: "dropdown",
+            key: "glossaryPaletteScope",
+            options: { novelOnly: "\u539F\u7A3F\u30CE\u30FC\u30C8\u306E\u307F", novelAndGlossary: "\u539F\u7A3F\u30CE\u30FC\u30C8\uFF0B\u7528\u8A9E\u30CE\u30FC\u30C8", all: "\u3059\u3079\u3066\u306E\u30CE\u30FC\u30C8" },
+            defaultValue: DEFAULT_SETTINGS.glossaryPaletteScope
           }
-        ).open();
-      })
-    );
+        },
+        {
+          name: "\u8D77\u52D5\u30C8\u30EA\u30AC\u30FC\u6587\u5B57",
+          desc: descLines(
+            "\u30D1\u30EC\u30C3\u30C8\u3092\u958B\u304F\u305F\u3081\u306E1\u6587\u5B57\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044\uFF08\u4F8B\uFF1A / @ $ : ;\uFF09\u3002",
+            `Markdown\u3067\u4E00\u822C\u7684\u306B\u4F7F\u308F\u308C\u308B ${GLOSSARY_PALETTE_FORBIDDEN_TRIGGERS.join(" ")} \u306F\u6307\u5B9A\u3067\u304D\u307E\u305B\u3093\u3002`
+          ),
+          control: {
+            type: "text",
+            key: "glossaryPaletteTrigger",
+            placeholder: "/",
+            defaultValue: DEFAULT_SETTINGS.glossaryPaletteTrigger,
+            // 空文字・2文字以上・使用禁止記号は保存前に拒否する
+            // （拒否時は元の値のまま維持され、入力欄にはインラインで
+            // エラーメッセージが表示される）。
+            validate: (value) => {
+              const trimmed = value.trim();
+              if (trimmed.length !== 1) {
+                return "\u30C8\u30EA\u30AC\u30FC\u6587\u5B57\u306F1\u6587\u5B57\u3067\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044\u3002";
+              }
+              if (GLOSSARY_PALETTE_FORBIDDEN_TRIGGERS.includes(trimmed)) {
+                return `\u300C${trimmed}\u300D\u306FMarkdown\u8A18\u6CD5\u3068\u885D\u7A81\u3059\u308B\u305F\u3081\u4F7F\u7528\u3067\u304D\u307E\u305B\u3093\u3002`;
+              }
+              return;
+            }
+          }
+        },
+        {
+          name: "\u300C\u6700\u8FD1\u4F7F\u3063\u305F\u300D\u5C65\u6B74\u3092\u30AF\u30EA\u30A2",
+          desc: "\u7528\u8A9E\u5165\u529B\u30D1\u30EC\u30C3\u30C8\u306E\u300C\u6700\u8FD1\u4F7F\u3063\u305F\u300D\u306B\u8868\u793A\u3055\u308C\u308B\u5C65\u6B74\u3092\u3059\u3079\u3066\u524A\u9664\u3057\u307E\u3059\u3002\u3053\u306E\u64CD\u4F5C\u306F\u53D6\u308A\u6D88\u305B\u307E\u305B\u3093\u3002",
+          // SettingDefinitionAction は行全体がクリック可能になるだけで
+          // ボタン文言（「クリア」）や setDestructive() のスタイルを
+          // 指定できないため、従来通り addButton() を使った render で
+          // 表現する。
+          render: (setting) => {
+            setting.addButton(
+              (btn) => btn.setButtonText("\u30AF\u30EA\u30A2").setDestructive().onClick(() => {
+                new import_obsidian4.ConfirmationModal(this.app).setTitle("\u300C\u6700\u8FD1\u4F7F\u3063\u305F\u300D\u5C65\u6B74\u306E\u30AF\u30EA\u30A2").setContent("\u300C\u6700\u8FD1\u4F7F\u3063\u305F\u300D\u5C65\u6B74\u3092\u3059\u3079\u3066\u524A\u9664\u3057\u307E\u3059\u3002\u3088\u308D\u3057\u3044\u3067\u3059\u304B\uFF1F").addButton((b) => b.setButtonText("\u30AD\u30E3\u30F3\u30BB\u30EB").setCancel().setInitialFocus()).addButton(
+                  (b) => b.setButtonText("\u30AF\u30EA\u30A2").setDestructive().onClick(async () => {
+                    await this.plugin.clearGlossaryPaletteHistory();
+                    new import_obsidian4.Notice("\u300C\u6700\u8FD1\u4F7F\u3063\u305F\u300D\u5C65\u6B74\u3092\u30AF\u30EA\u30A2\u3057\u307E\u3057\u305F\u3002");
+                  })
+                ).open();
+              })
+            );
+          }
+        }
+      ]
+    };
   }
 };
 
@@ -3683,6 +3755,17 @@ var WritingStatsView = class extends import_obsidian8.ItemView {
     this.sortAsc = true;
     this.viewMode = "list";
     this.loading = true;
+    // ファイル名・フォルダ名を対象にした絞り込みキーワード
+    this.filterText = "";
+    // 絞り込み時に「合計サマリー」「一覧／グラフ」だけを部分再描画するための
+    // コンテナ参照。並び替えツールバー（検索ボックスを含む）自体は
+    // render() でしか作り直さないため、検索ボックスへの入力のたびに
+    // this.render() を呼ぶと入力欄自体が毎回作り直されてフォーカスが
+    // 外れてしまう（＝1文字打つたびに入力が止まる）。これを避けるため、
+    // 検索ボックスの input イベントでは refreshFiltered() のみを呼び、
+    // 検索ボックスを含むツールバーそのものは再生成しない。
+    this.summaryContainerEl = null;
+    this.scrollEl = null;
     this.fetchEntries = fetchEntries;
     this.getReadingSpeed = getReadingSpeed;
   }
@@ -3725,6 +3808,8 @@ var WritingStatsView = class extends import_obsidian8.ItemView {
     container.addClass("nn-stats-view");
     const headerEl = container.createDiv({ cls: "nn-stats-header" });
     const scrollEl = container.createDiv({ cls: "nn-stats-scroll" });
+    this.scrollEl = scrollEl;
+    this.summaryContainerEl = null;
     if (this.loading) {
       scrollEl.createEl("p", {
         text: "\u539F\u7A3F\u30CE\u30FC\u30C8\u3092\u96C6\u8A08\u3057\u3066\u3044\u307E\u3059\u2026",
@@ -3741,21 +3826,66 @@ var WritingStatsView = class extends import_obsidian8.ItemView {
       });
       return;
     }
-    this.renderSummary(headerEl);
+    this.summaryContainerEl = headerEl.createDiv();
+    this.renderSummary(this.summaryContainerEl);
     this.renderViewToggle(headerEl);
     this.renderToolbar(headerEl);
-    if (this.viewMode === "list") {
-      this.renderList(scrollEl);
-    } else {
-      this.renderChart(scrollEl);
+    this.renderBody();
+  }
+  // ─────────────────────────────────────────
+  // スクロール領域（一覧／グラフ）のみを再描画する
+  // 絞り込みキーワード変更時（refreshFiltered）・並び替え変更時
+  // （render() 経由）の両方から呼ばれる。
+  // ─────────────────────────────────────────
+  renderBody() {
+    if (!this.scrollEl) return;
+    const scrollEl = this.scrollEl;
+    scrollEl.empty();
+    const filtered = this.getFilteredEntries();
+    if (filtered.length === 0) {
+      scrollEl.createEl("p", {
+        text: "\u7D5E\u308A\u8FBC\u307F\u6761\u4EF6\u306B\u4E00\u81F4\u3059\u308B\u539F\u7A3F\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3067\u3057\u305F\u3002",
+        cls: "nn-stats-empty"
+      });
+      return;
     }
+    if (this.viewMode === "list") {
+      this.renderList(scrollEl, filtered);
+    } else {
+      this.renderChart(scrollEl, filtered);
+    }
+  }
+  // ─────────────────────────────────────────
+  // 絞り込みキーワード変更時：検索ボックス自体は再生成せず、
+  // 合計サマリーと一覧／グラフだけを部分再描画する
+  // （入力欄のフォーカスを維持するため）。
+  // ─────────────────────────────────────────
+  refreshFiltered() {
+    if (this.summaryContainerEl) {
+      this.summaryContainerEl.empty();
+      this.renderSummary(this.summaryContainerEl);
+    }
+    this.renderBody();
+  }
+  // ─────────────────────────────────────────
+  // 絞り込みキーワードを適用したエントリ一覧を返す
+  // （ファイル名・フォルダ名を対象に、大文字小文字を区別しない部分一致）
+  // ─────────────────────────────────────────
+  getFilteredEntries() {
+    const query = this.filterText.trim().toLowerCase();
+    if (!query) return this.entries;
+    return this.entries.filter(
+      (e) => e.fileName.toLowerCase().includes(query) || e.folderPath.toLowerCase().includes(query)
+    );
   }
   // ─────────────────────────────────────────
   // 現在の並び替え条件を適用したエントリ一覧を返す
   // （一覧表示・グラフ表示の両方から共通で利用する）
+  // 対象は呼び出し側で絞り込み済みのエントリ一覧
+  // （getFilteredEntries() の結果）を渡す。
   // ─────────────────────────────────────────
-  getSortedEntries() {
-    return [...this.entries].sort((a, b) => {
+  getSortedEntries(entries) {
+    return [...entries].sort((a, b) => {
       let cmp = 0;
       if (this.sortKey === "name") {
         cmp = a.fileName.localeCompare(b.fileName, "ja");
@@ -3806,14 +3936,18 @@ var WritingStatsView = class extends import_obsidian8.ItemView {
   }
   // ─────────────────────────────────────────
   // 固定ヘッダー：全原稿の合計サマリー（ソート対象外・常時表示）
+  // 絞り込みキーワードが指定されている場合は、絞り込み後のエントリ
+  // のみを対象に合計を再計算する（全原稿の合計ではなく「絞り込み結果の
+  // 合計」になる。ラベル文言は変えず、対象ノート数の増減で反映される）。
   // ─────────────────────────────────────────
   renderSummary(container) {
-    const totalNotes = this.entries.length;
+    const filtered = this.getFilteredEntries();
+    const totalNotes = filtered.length;
     let totalChars = 0;
     let narrativeChars = 0;
     let dialogueChars = 0;
     let novelChars = 0;
-    for (const e of this.entries) {
+    for (const e of filtered) {
       totalChars += e.totalChars;
       narrativeChars += e.narrativeChars;
       dialogueChars += e.dialogueChars;
@@ -3877,12 +4011,38 @@ var WritingStatsView = class extends import_obsidian8.ItemView {
     addSortButton("created", "\u4F5C\u6210\u65E5\u6642");
     addSortButton("modified", "\u6700\u7D42\u66F4\u65B0\u65E5\u6642");
     addSortButton("chars", "\u6587\u5B57\u6570");
+    const filterWrap = toolbar.createDiv({ cls: "nn-stats-filter-wrap" });
+    const filterInput = filterWrap.createEl("input", {
+      type: "text",
+      placeholder: "\u30D5\u30A1\u30A4\u30EB\u540D\u30FB\u30D5\u30A9\u30EB\u30C0\u540D\u3067\u7D5E\u308A\u8FBC\u307F",
+      cls: "nn-stats-filter-input"
+    });
+    filterInput.value = this.filterText;
+    const clearBtn = filterWrap.createEl("button", {
+      cls: "nn-stats-filter-clear",
+      title: "\u7D5E\u308A\u8FBC\u307F\u3092\u30AF\u30EA\u30A2",
+      text: "\u2715"
+    });
+    clearBtn.toggleClass("nn-hidden", !this.filterText);
+    filterInput.addEventListener("input", () => {
+      this.filterText = filterInput.value;
+      clearBtn.toggleClass("nn-hidden", !this.filterText);
+      this.refreshFiltered();
+    });
+    clearBtn.addEventListener("click", () => {
+      filterInput.value = "";
+      this.filterText = "";
+      clearBtn.addClass("nn-hidden");
+      filterInput.focus();
+      this.refreshFiltered();
+    });
   }
   // ─────────────────────────────────────────
   // スクロール領域：ファイル単位カードの一覧
+  // entries は呼び出し側（renderBody）で絞り込み済みのエントリ一覧
   // ─────────────────────────────────────────
-  renderList(container) {
-    const sorted = this.getSortedEntries();
+  renderList(container, entries) {
+    const sorted = this.getSortedEntries(entries);
     const list = container.createDiv({ cls: "nn-stats-list" });
     for (const entry of sorted) {
       const card = list.createDiv({ cls: "nn-stats-card" });
@@ -3935,9 +4095,10 @@ var WritingStatsView = class extends import_obsidian8.ItemView {
   // 原稿間の分量差を比較できるようにする。目盛り軸の最大値を
   // 基準にバーの幅（%）を算出し、setCssProps() でCSSカスタム
   // プロパティとして渡す（.style への直接代入は行わない）。
+  // entries は呼び出し側（renderBody）で絞り込み済みのエントリ一覧
   // ─────────────────────────────────────────
-  renderChart(container) {
-    const sorted = this.getSortedEntries();
+  renderChart(container, entries) {
+    const sorted = this.getSortedEntries(entries);
     const maxTotal = Math.max(0, ...sorted.map((e) => e.totalChars));
     const scale = computeNiceScale(maxTotal);
     const chart = container.createDiv({ cls: "nn-stats-chart" });

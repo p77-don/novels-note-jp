@@ -753,70 +753,8 @@
   background: var(--text-faint);
 }
 
-/* ═══════════════════════════════════════════
-   カテゴリ定義 ドラッグ & ドロップ
-   ══════════════════════════════════════════ */
-
-/* ドラッグ可能な行
-   モバイル（狭い画面幅）では横一列に収まりきらないため、
-   flex-wrap: wrap で折り返す。align-items は折り返した際に
-   先頭（ドラッグハンドル側）に揃うよう flex-start にする。 */
-.nn-drag-row {
-  display: flex;
-  align-items: flex-start;
-  flex-wrap: wrap;
-  gap: 4px;
-  border-radius: 6px;
-  border: 1px solid transparent;
-  padding: 2px 4px;
-  transition: background 0.12s, border-color 0.12s;
-  cursor: default;
-}
-
-/* ドラッグハンドルアイコン */
-.nn-drag-handle {
-  display: flex;
-  align-items: center;
-  flex-shrink: 0;
-  color: var(--text-faint);
-  cursor: grab;
-  padding: 2px;
-  border-radius: 3px;
-  transition: color 0.12s, background 0.12s;
-}
-.nn-drag-handle:hover {
-  color: var(--text-muted);
-  background: var(--background-modifier-hover);
-}
-.nn-drag-handle:active {
-  cursor: grabbing;
-}
-
-/* ドラッグ中の元行（半透明） */
-.nn-drag-row.nn-drag-dragging {
-  opacity: 0.4;
-  border-color: var(--interactive-accent);
-}
-
-/* ドロップ先ホバー */
-.nn-drag-row.nn-drag-over {
-  background: var(--background-modifier-hover);
-  border-color: var(--interactive-accent);
-  border-style: dashed;
-}
-
-/* Setting 要素が行内に入るので幅を伸ばす。
-   flex-basis を 260px 程度に確保しておくことで、
-   ドラッグハンドルと横並びに収まらない狭い画面幅では
-   nn-drag-row の flex-wrap によってこの要素ごと次の行に
-   折り返される（＝中身が0幅まで潰れて消えるのを防ぐ）。 */
-.nn-drag-row .setting-item {
-  flex: 1 1 260px;
-  min-width: 0;
-}
-
 /* カテゴリ定義行のコントロール群（タグ名・表示名・カラー・
-   トグル・上下移動・削除）は数が多いため、狭い画面では
+   トグル・上下移動）は数が多いため、狭い画面では
    setting-item-control 自体も折り返し、テキスト入力には
    最低限の幅を確保する。 */
 .nn-tag-setting-row .setting-item-control {
@@ -924,9 +862,22 @@
 
 /* ─────────────────────────────────────────
    字下げ行
+
+   text-indent プロパティは、値が単純な長さ指定（1em等）であっても
+   Obsidianのコミュニティプラグイン審査のCSSチェッカーで
+   「css-text-indent は部分的にしかサポートされていない」という
+   警告の対象になる（プロパティ名単位での判定であり、実際に使って
+   いる値は関係ないと見られる）。そのため text-indent は使わず、
+   ::before で全角スペース文字（U+3000）を生成する方式に変更した。
+   Obsidian側フォントでの全角スペースの表示幅は、日本語小説の
+   字下げとして意図している「全角1文字分」の幅そのものであるため、
+   見た目は変わらない。生成コンテンツはテキスト選択・コピー時に
+   含まれない（＝コピーした本文に字下げ用の空白文字が混ざらない）
+   という、元々テキストから全角スペースを除去していた設計意図とも
+   合致する。
    ───────────────────────────────────────── */
-.nn-reading-root p.nn-indent {
-  text-indent: 1em;
+.nn-reading-root p.nn-indent::before {
+  content: "\3000";
 }
 
 /* ─────────────────────────────────────────
@@ -1039,34 +990,10 @@
   display: none;
 }
 
-/* 除外フォルダ入力フィールド */
-.nn-folder-path-input {
-  width: 200px;
-}
-
-/* 除外フォルダ行レイアウト */
-.nn-exclude-folder-item-row {
-  border-top: 1px solid var(--background-modifier-border);
-  padding: 6px 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-/* 除外フォルダラベル */
-.nn-folder-label {
-  flex: 1;
-}
-
 /* 除外フォルダアイコン */
 .nn-folder-icon {
   opacity: 0.6;
   margin-right: 4px;
-}
-
-/* 除外フォルダ削除ボタン */
-.nn-folder-del-btn {
-  flex-shrink: 0;
 }
 
 /* カテゴリ定義行 — Setting枠を除去 */
@@ -1162,6 +1089,18 @@
      これを使うだけでテーマ切り替えに自動追従する。 */
   --nn-pie-narrative-color: var(--color-blue);
   --nn-pie-dialogue-color: var(--color-orange);
+
+  /* 文字選択を有効にする。
+     Obsidian は ItemView のコンテンツ領域にデフォルトで
+     選択無効相当のスタイルを当てているため、縦書きプレビュー
+     （.nn-vertical-text）・小説閲覧ビュー（.nn-reading-root）と
+     同様に明示的に有効化する（ファイル名・文字数などをコピー
+     できるようにするため）。ボタンやリンクは各要素の既定スタイル
+     （クリック用カーソル等）がこの継承値より優先されるため、
+     個別に上書きする必要はない。 */
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
 }
 
 .nn-stats-loading,
@@ -1302,6 +1241,68 @@
 /* 再集計ボタン：表示切替ボタン（各原稿詳細／文字数グラフ）の隣に配置 */
 .nn-stats-refresh-btn {
   font-size: 0.85em;
+}
+
+/* 絞り込み検索ボックス（「文字数」並び替えボタンの右側に配置）
+   サイドバーの用語検索ボックス（.nn-search-*）と見た目を揃える。
+   ツールバー内で残りの余白いっぱいに広がるようにし、狭い画面では
+   flex-wrap により自然に次の行へ折り返す。 */
+.nn-stats-filter-wrap {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1 1 160px;
+  min-width: 120px;
+  margin-left: 4px;
+}
+
+.nn-stats-filter-input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-size: 0.85em;
+  box-sizing: border-box;
+  outline: none;
+}
+.nn-stats-filter-input:focus {
+  border-color: var(--interactive-accent);
+  box-shadow: 0 0 0 2px var(--interactive-accent-hover);
+}
+
+.nn-stats-filter-clear {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--background-modifier-border);
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.nn-stats-filter-clear:hover {
+  background: var(--background-modifier-border-hover);
+  color: var(--text-normal);
+}
+
+/* モバイルではツールバー全体を縮小しているため、絞り込みボックスも
+   幅の下限を下げて折り返しやすくする */
+.nn-stats-toolbar-mobile .nn-stats-filter-wrap {
+  flex-basis: 100%;
+  min-width: 0;
+  margin-left: 0;
+}
+.nn-stats-toolbar-mobile .nn-stats-filter-input {
+  font-size: 0.75em;
 }
 
 /* ファイル単位カード一覧 */
@@ -1715,11 +1716,6 @@ a.nn-stats-chart-label {
 
 .nn-glossary-crumb.is-clickable {
   cursor: pointer;
-  /* text-decoration の複数値ショートハンド（underline dotted）は
-     Obsidianの対象バージョンで部分サポートの警告対象となるため、
-     同じ見た目をロングハンドプロパティの組み合わせで表現する。 */
-  text-decoration-line: underline;
-  text-decoration-style: dotted;
 }
 
 .nn-glossary-crumb.is-clickable:hover {
@@ -1791,14 +1787,4 @@ a.nn-stats-chart-label {
 .nn-glossary-insert-btn:disabled {
   opacity: 0.5;
   cursor: default;
-}
-
-/* ─────────────────────────────────────────
-   汎用の確認ダイアログ（ConfirmDialog）
-   ───────────────────────────────────────── */
-.nn-confirm-dialog-buttons {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 16px;
 }

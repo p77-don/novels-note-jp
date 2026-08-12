@@ -27,35 +27,64 @@ import { findTermMatches, TermMatch } from "../core/termMatcher";
 // 丸ごと置き換えて描画するため、置き換え前の親文字に付いていた
 // 用語ハイライトの Decoration.mark はそのままでは失われてしまう
 // （置換後のDOMは本ウィジェットが新規に作るため）。
-// そのため、親文字が用語ハイライト対象である場合は、呼び出し側
-// （buildRubyExtension）で判定した highlightClass をこのウィジェットに
-// 渡し、ここで改めて親文字部分に同じCSSクラスを適用する。
+// そのため、親文字のうち用語ハイライト対象となる「部分文字列」を
+// 呼び出し側（buildRubyExtension）で判定し、highlightSegments として
+// このウィジェットに渡す。ここで改めて、親文字のうち該当する部分
+// 文字列のみに同じCSSクラスを適用する（親文字全体ではない）。
+//
+// 例：登録用語が「波斯」で、親文字が「波斯産」の場合、
+// 「波斯」の2文字分だけがハイライト対象になり、「産」は
+// ハイライトされない（本文側の用語ハイライトと同じ基準に揃える）。
 // ─────────────────────────────────────────
+
+// 親文字（base）内でハイライト対象となる部分文字列の範囲。
+// start/end は base 文字列内でのオフセット（0始まり、endは排他的）。
+export interface RubyHighlightSegment {
+  start: number;
+  end: number;
+  cssClass: string;
+}
+
 class RubyWidget extends WidgetType {
   constructor(
     readonly base: string,
     readonly ruby: string,
-    readonly highlightClass: string | null
+    readonly highlightSegments: RubyHighlightSegment[]
   ) {
     super();
   }
 
   eq(other: RubyWidget): boolean {
-    return this.base === other.base &&
-      this.ruby === other.ruby &&
-      this.highlightClass === other.highlightClass;
+    if (this.base !== other.base || this.ruby !== other.ruby) return false;
+    if (this.highlightSegments.length !== other.highlightSegments.length) return false;
+    for (let i = 0; i < this.highlightSegments.length; i++) {
+      const a = this.highlightSegments[i];
+      const b = other.highlightSegments[i];
+      if (a.start !== b.start || a.end !== b.end || a.cssClass !== b.cssClass) return false;
+    }
+    return true;
   }
 
   toDOM(): HTMLElement {
     const rubyEl = createEl("ruby", { cls: "nn-editor-ruby" });
-    if (this.highlightClass) {
-      // 用語ハイライト対象の親文字：本文側と同じクラスを付けた
-      // <span> で包み、色付けを引き継ぐ（本文側は
-      // main.ts の applyEditorStyles() が注入する
-      // `.cm-content .novel-hl-xxx` セレクタで色指定されており、
+    if (this.highlightSegments.length > 0) {
+      // 用語ハイライト対象の部分文字列だけを <span> で包み、
+      // 色付けを引き継ぐ（本文側は main.ts の applyEditorStyles() が
+      // 注入する `.cm-content .novel-hl-xxx` セレクタで色指定されており、
       // このウィジェットのDOMも .cm-content の子孫になるため、
       // 同じクラスを付けるだけで同一のスタイルが適用される）。
-      rubyEl.createSpan({ cls: this.highlightClass, text: this.base });
+      // segments は呼び出し側で start 昇順にソート済み・重なりなしを前提とする。
+      let pos = 0;
+      for (const seg of this.highlightSegments) {
+        if (seg.start > pos) {
+          rubyEl.appendText(this.base.slice(pos, seg.start));
+        }
+        rubyEl.createSpan({ cls: seg.cssClass, text: this.base.slice(seg.start, seg.end) });
+        pos = seg.end;
+      }
+      if (pos < this.base.length) {
+        rubyEl.appendText(this.base.slice(pos));
+      }
     } else {
       rubyEl.appendText(this.base);
     }
@@ -159,11 +188,23 @@ export function buildRubyExtension(
             ? findTermMatches(docText, terms, settings)
             : [];
 
-        const findHighlightClass = (baseFrom: number, baseTo: number): string | null => {
+        // 親文字範囲 [baseFrom, baseTo) と重なる用語マッチを、親文字内の
+        // 相対オフセットに変換して返す。用語マッチが親文字の一部だけに
+        // かかっている場合（例：親文字「波斯産」に対し用語「波斯」）は、
+        // 重なっている部分だけを切り出す（親文字全体は対象にしない）。
+        const findHighlightSegments = (baseFrom: number, baseTo: number): RubyHighlightSegment[] => {
+          const segments: RubyHighlightSegment[] = [];
           for (const t of termMatches) {
-            if (t.start < baseTo && t.end > baseFrom) return t.cssClass;
+            if (t.start < baseTo && t.end > baseFrom) {
+              segments.push({
+                start: Math.max(t.start, baseFrom) - baseFrom,
+                end: Math.min(t.end, baseTo) - baseFrom,
+                cssClass: t.cssClass,
+              });
+            }
           }
-          return null;
+          segments.sort((a, b) => a.start - b.start);
+          return segments;
         };
 
         const allMatches: RubyMatch[] = [];
@@ -209,12 +250,12 @@ export function buildRubyExtension(
           if (cursorTouches) continue;
 
           // 構文全体を WidgetType で置換する
-          const highlightClass = findHighlightClass(m.baseFrom, m.baseTo);
+          const highlightSegments = findHighlightSegments(m.baseFrom, m.baseTo);
           builder.add(
             m.from,
             m.to,
             Decoration.replace({
-              widget: new RubyWidget(m.base, m.ruby, highlightClass),
+              widget: new RubyWidget(m.base, m.ruby, highlightSegments),
               inclusive: false,
             })
           );
