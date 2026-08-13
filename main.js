@@ -1967,7 +1967,13 @@ var NovelsNoteSettingTab = class extends import_obsidian4.PluginSettingTab {
         action: () => {
           this.promptForFolderPath(
             "\u9664\u5916\u30D5\u30A9\u30EB\u30C0\u3092\u8FFD\u52A0\uFF08\u7528\u8A9E\u30A4\u30F3\u30C7\u30C3\u30AF\u30B9\uFF09",
-            (value) => this.addExcludeFolder(value)
+            // addExcludeFolder は async だが、promptForFolderPath の
+            // onSubmit は void を期待するシグネチャのため、Promise を
+            // そのまま返さないよう void で明示的に切り離す
+            // （no-misused-promises 対策）。
+            (value) => {
+              void this.addExcludeFolder(value);
+            }
           );
         }
       }
@@ -2045,7 +2051,11 @@ var NovelsNoteSettingTab = class extends import_obsidian4.PluginSettingTab {
         action: () => {
           this.promptForFolderPath(
             "\u9664\u5916\u30D5\u30A9\u30EB\u30C0\u3092\u8FFD\u52A0\uFF08\u57F7\u7B46\u60C5\u5831\u4E00\u89A7\uFF09",
-            (value) => this.addStatsExcludeFolder(value)
+            // addStatsExcludeFolder も同様に async のため、Promise を
+            // そのまま返さないよう void で切り離す。
+            (value) => {
+              void this.addStatsExcludeFolder(value);
+            }
           );
         }
       }

@@ -14,7 +14,12 @@ import {
 
 // 宣言的設定APIの control.key に渡すキー名を NovelsNoteSettings の
 // プロパティ名に制限し、タイプミスを型エラーとして検出できるようにする。
-type SettingKey = keyof NovelsNoteSettings & string;
+// NovelsNoteSettings は全プロパティが通常の文字列キーのため、
+// keyof の結果は既に string のサブセットであり、
+// `& string` は冗長（Obsidianのコミュニティプラグイン審査の
+// 静的解析で "string is overridden by ... in this intersection type"
+// という警告の対象になっていた）。
+type SettingKey = keyof NovelsNoteSettings;
 
 // ─────────────────────────────────────────
 // 説明文（setDesc）を複数行に分けて表示するためのヘルパー
@@ -438,7 +443,11 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
         action: () => {
           this.promptForFolderPath(
             "除外フォルダを追加（用語インデックス）",
-            (value) => this.addExcludeFolder(value)
+            // addExcludeFolder は async だが、promptForFolderPath の
+            // onSubmit は void を期待するシグネチャのため、Promise を
+            // そのまま返さないよう void で明示的に切り離す
+            // （no-misused-promises 対策）。
+            (value) => { void this.addExcludeFolder(value); }
           );
         },
       },
@@ -528,7 +537,9 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
         action: () => {
           this.promptForFolderPath(
             "除外フォルダを追加（執筆情報一覧）",
-            (value) => this.addStatsExcludeFolder(value)
+            // addStatsExcludeFolder も同様に async のため、Promise を
+            // そのまま返さないよう void で切り離す。
+            (value) => { void this.addStatsExcludeFolder(value); }
           );
         },
       },
