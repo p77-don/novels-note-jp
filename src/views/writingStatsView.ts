@@ -149,6 +149,12 @@ export class WritingStatsView extends ItemView {
     const container = this.contentEl;
     container.empty();
     container.addClass("nn-stats-view");
+    // モバイルでは「すべての原稿の情報」（サマリー）を上部固定にせず、
+    // ヘッダーと一覧をまとめて1つのスクロール領域として扱う
+    // （個別ファイル情報の表示スペースが原稿1件分しかなくなってしまう
+    // のを避けるため）。PC版は従来通り、サマリーを固定ヘッダーとして
+    // 残し、一覧のみを独立スクロールさせる。
+    if (Platform.isMobile) container.addClass("nn-stats-view-mobile");
 
     const headerEl = container.createDiv({ cls: "nn-stats-header" });
     const scrollEl = container.createDiv({ cls: "nn-stats-scroll" });
@@ -316,20 +322,24 @@ export class WritingStatsView extends ItemView {
     let narrativeChars = 0;
     let dialogueChars = 0;
     let novelChars = 0;
+    let totalPages = 0;
     for (const e of filtered) {
       totalChars += e.totalChars;
       narrativeChars += e.narrativeChars;
       dialogueChars += e.dialogueChars;
       novelChars += e.novelChars;
+      totalPages += e.pageEquivalent;
     }
 
     const summary = container.createDiv({ cls: "nn-stats-summary" });
     summary.createDiv({ text: "全原稿の合計", cls: "nn-stats-summary-label" });
 
     const body = summary.createDiv({ cls: "nn-stats-summary-body" });
-    const grid = body.createDiv({ cls: "nn-stats-summary-grid" });
+    const rows = body.createDiv({ cls: "nn-stats-summary-rows" });
+    const topRow = rows.createDiv({ cls: "nn-stats-summary-grid" });
+    const bottomRow = rows.createDiv({ cls: "nn-stats-summary-grid" });
 
-    const addMetric = (label: string, value: string, dotColorClass?: string): void => {
+    const addMetric = (grid: HTMLElement, label: string, value: string, dotColorClass?: string): void => {
       const metric = grid.createDiv({ cls: "nn-stats-metric" });
       const labelEl = metric.createDiv({ cls: "nn-stats-metric-label" });
       if (dotColorClass) renderColorDot(labelEl, dotColorClass);
@@ -339,15 +349,21 @@ export class WritingStatsView extends ItemView {
 
     const readingMinutes = estimateReadingMinutes(novelChars, this.getReadingSpeed());
 
-    addMetric("対象ノート数", `${totalNotes.toLocaleString()} 件`);
-    addMetric("執筆文字数", `${totalChars.toLocaleString()} 字`);
-    addMetric("推定読了時間", formatReadingTime(readingMinutes));
+    // 上段：対象ノート数・総ページ数・推定読了時間
+    addMetric(topRow, "対象ノート数", `${totalNotes.toLocaleString()} 件`);
+    addMetric(topRow, "総ページ数", `${totalPages.toLocaleString()} 枚`);
+    addMetric(topRow, "推定読了時間", formatReadingTime(readingMinutes));
+
+    // 下段：執筆文字数・地の文・会話文
+    addMetric(bottomRow, "執筆文字数", `${totalChars.toLocaleString()} 字`);
     addMetric(
+      bottomRow,
       "地の文",
       `${narrativeChars.toLocaleString()} 字 (${formatRatio(narrativeChars, totalChars)})`,
       "nn-stats-label-dot-narrative"
     );
     addMetric(
+      bottomRow,
       "会話文",
       `${dialogueChars.toLocaleString()} 字 (${formatRatio(dialogueChars, totalChars)})`,
       "nn-stats-label-dot-dialogue"
@@ -458,12 +474,15 @@ export class WritingStatsView extends ItemView {
       row2.createDiv({ text: `作成: ${formatDateTime(entry.createdAt)}` });
       row2.createDiv({ text: `更新: ${formatDateTime(entry.modifiedAt)}` });
 
-      // 3段目：執筆文字数・推定読了時間・地の文・会話文・円グラフ
+      // 3段目：執筆文字数・ページ数・推定読了時間（上段）／
+      //        地の文・会話文（下段）＋円グラフ
       const row3 = card.createDiv({ cls: "nn-stats-card-row3" });
 
-      const statsCol = row3.createDiv({ cls: "nn-stats-card-stats" });
+      const statsRows = row3.createDiv({ cls: "nn-stats-card-stats-rows" });
+      const topStatsRow = statsRows.createDiv({ cls: "nn-stats-card-stats nn-stats-card-stats-top" });
+      const bottomStatsRow = statsRows.createDiv({ cls: "nn-stats-card-stats nn-stats-card-stats-bottom" });
 
-      const addStat = (label: string, text: string, dotColorClass?: string): void => {
+      const addStat = (statsCol: HTMLElement, label: string, text: string, dotColorClass?: string): void => {
         const stat = statsCol.createDiv({ cls: "nn-stats-card-stat" });
         const labelEl = stat.createDiv({ cls: "nn-stats-card-stat-label" });
         if (dotColorClass) renderColorDot(labelEl, dotColorClass);
@@ -473,14 +492,20 @@ export class WritingStatsView extends ItemView {
 
       const readingMinutes = estimateReadingMinutes(entry.novelChars, this.getReadingSpeed());
 
-      addStat("執筆文字数", `${entry.totalChars.toLocaleString()} 字`);
-      addStat("推定読了時間", formatReadingTime(readingMinutes));
+      // 上段：執筆文字数・ページ数・推定読了時間
+      addStat(topStatsRow, "執筆文字数", `${entry.totalChars.toLocaleString()} 字`);
+      addStat(topStatsRow, "ページ数", `${entry.pageEquivalent.toLocaleString()} 枚`);
+      addStat(topStatsRow, "推定読了時間", formatReadingTime(readingMinutes));
+
+      // 下段：地の文・会話文
       addStat(
+        bottomStatsRow,
         "地の文",
         `${entry.narrativeChars.toLocaleString()} 字 (${formatRatio(entry.narrativeChars, entry.totalChars)})`,
         "nn-stats-label-dot-narrative"
       );
       addStat(
+        bottomStatsRow,
         "会話文",
         `${entry.dialogueChars.toLocaleString()} 字 (${formatRatio(entry.dialogueChars, entry.totalChars)})`,
         "nn-stats-label-dot-dialogue"

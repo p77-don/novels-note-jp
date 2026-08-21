@@ -100,10 +100,22 @@ function insertTerm(
   insertTerm(child, rest, term);
 }
 
-/** ツリーをソート（フォルダ名・用語名ともに昇順） */
+/** ファイルパスからファイル名（拡張子なし）を取り出す */
+function fileBaseName(filePath: string): string {
+  const last = filePath.split("/").pop() ?? filePath;
+  return last.replace(/\.md$/, "");
+}
+
+/**
+ * ツリーをソート（フォルダ名・用語名ともに昇順）
+ *
+ * 用語の並び順はサイドバー表示（ファイル名がメイン表示）と一致させるため、
+ * term.name（frontmatterのnameプロパティが優先される値）ではなく
+ * ファイル名を基準にソートする。
+ */
 export function sortTree(node: FolderNode): void {
   node.children.sort((a, b) => a.name.localeCompare(b.name, "ja"));
-  node.terms.sort((a, b) => a.name.localeCompare(b.name, "ja"));
+  node.terms.sort((a, b) => fileBaseName(a.filePath).localeCompare(fileBaseName(b.filePath), "ja"));
   for (const child of node.children) sortTree(child);
 }
 

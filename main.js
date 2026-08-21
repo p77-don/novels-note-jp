@@ -26,7 +26,7 @@ __export(main_exports, {
   default: () => NovelsNoteJP
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian14 = require("obsidian");
+var import_obsidian16 = require("obsidian");
 var import_view4 = require("@codemirror/view");
 
 // src/settings.ts
@@ -67,8 +67,8 @@ var DEFAULT_SETTINGS = {
   // 文字数カウント
   countMode: "raw",
   countFullWidthSpace: false,
-  countEmptyLines: false,
-  countHashtags: false,
+  countRubyText: false,
+  pageLinesPerPage: 20,
   // 縦書きプレビュー
   verticalCursorHighlightColor: "#3a5a8a",
   verticalCursorHighlightEnabled: true,
@@ -81,7 +81,10 @@ var DEFAULT_SETTINGS = {
   // 用語入力パレット
   glossaryPaletteEnabled: false,
   glossaryPaletteScope: "novelAndGlossary",
-  glossaryPaletteTrigger: "/"
+  glossaryPaletteTrigger: "/",
+  // 原稿クリーニング定義（manuscript-rules.json）
+  manuscriptRulesFiles: [],
+  defaultManuscriptRulesFileName: void 0
 };
 var GLOSSARY_PALETTE_FORBIDDEN_TRIGGERS = [
   "#",
@@ -928,9 +931,14 @@ function insertTerm(node, segments, term) {
   }
   insertTerm(child, rest, term);
 }
+function fileBaseName(filePath) {
+  var _a;
+  const last = (_a = filePath.split("/").pop()) != null ? _a : filePath;
+  return last.replace(/\.md$/, "");
+}
 function sortTree(node) {
   node.children.sort((a, b) => a.name.localeCompare(b.name, "ja"));
-  node.terms.sort((a, b) => a.name.localeCompare(b.name, "ja"));
+  node.terms.sort((a, b) => fileBaseName(a.filePath).localeCompare(fileBaseName(b.filePath), "ja"));
   for (const child of node.children) sortTree(child);
 }
 function filterTree(node, query) {
@@ -1369,18 +1377,27 @@ var NovelsNoteSidebarView = class extends import_obsidian3.ItemView {
   }
   /** 用語 1 件の行 */
   renderTermItem(container, term, tag) {
+    var _a;
     const row = container.createDiv({
       cls: "nn-term-row",
       attr: { draggable: "true" }
     });
+    const fileName = ((_a = term.filePath.split("/").pop()) != null ? _a : term.filePath).replace(/\.md$/, "");
     const nameEl = row.createSpan({
-      text: term.name,
+      text: fileName,
       cls: `nn-term-name novel-hl-${tag}`,
       title: term.filePath
     });
-    if (term.aliases.length > 0) {
+    const supplementalLabels = [];
+    if (term.name && term.name !== fileName) supplementalLabels.push(term.name);
+    for (const alias of term.aliases) {
+      if (alias && alias !== fileName && !supplementalLabels.includes(alias)) {
+        supplementalLabels.push(alias);
+      }
+    }
+    if (supplementalLabels.length > 0) {
       row.createSpan({
-        text: `\uFF08${term.aliases.join("\u30FB")}\uFF09`,
+        text: `\uFF08${supplementalLabels.join("\u30FB")}\uFF09`,
         cls: "nn-aliases"
       });
     }
@@ -1601,7 +1618,561 @@ tags:
 };
 
 // src/core/settingTab.ts
+var import_obsidian6 = require("obsidian");
+
+// src/manuscript-rules/adapter/pluginRuleStore.ts
 var import_obsidian4 = require("obsidian");
+
+// src/manuscript-rules/rules/ruleValidator.ts
+var KEEP_REMOVE = ["keep", "remove"];
+var KEEP_REMOVE_EDIT = ["keep", "remove", "edit"];
+var RUBY_MODES = ["none", "remove", "narou", "aozora", "denden", "html"];
+function isPlainObject(v) {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+function pushUnknownKeys(obj, allowed, path, errors) {
+  for (const key of Object.keys(obj)) {
+    if (!allowed.includes(key)) {
+      errors.push(`${path}: \u672A\u77E5\u306E\u30D7\u30ED\u30D1\u30C6\u30A3 "${key}" \u306F\u8A31\u53EF\u3055\u308C\u3066\u3044\u307E\u305B\u3093`);
+    }
+  }
+}
+function validateSimpleRule(v, path, errors) {
+  if (!isPlainObject(v)) {
+    errors.push(`${path}: \u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059`);
+    return;
+  }
+  pushUnknownKeys(v, ["action"], path, errors);
+  if (typeof v.action !== "string" || !KEEP_REMOVE.includes(v.action)) {
+    errors.push(`${path}.action: "keep" \u307E\u305F\u306F "remove" \u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059`);
+  }
+}
+function validateEditableRule(v, path, errors) {
+  if (!isPlainObject(v)) {
+    errors.push(`${path}: \u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059`);
+    return;
+  }
+  pushUnknownKeys(v, ["action"], path, errors);
+  if (typeof v.action !== "string" || !KEEP_REMOVE_EDIT.includes(v.action)) {
+    errors.push(`${path}.action: "keep" / "remove" / "edit" \u306E\u3044\u305A\u308C\u304B\u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059`);
+  }
+}
+function validateWikilinkRule(v, path, errors) {
+  if (!isPlainObject(v)) {
+    errors.push(`${path}: \u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059`);
+    return;
+  }
+  pushUnknownKeys(v, ["action", "editMode"], path, errors);
+  if (typeof v.action !== "string" || !KEEP_REMOVE_EDIT.includes(v.action)) {
+    errors.push(`${path}.action: "keep" / "remove" / "edit" \u306E\u3044\u305A\u308C\u304B\u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059`);
+    return;
+  }
+  if (v.editMode !== void 0 && v.editMode !== "fileName" && v.editMode !== "displayText") {
+    errors.push(`${path}.editMode: "fileName" \u307E\u305F\u306F "displayText" \u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059`);
+  }
+}
+function validateRubyRule(v, path, errors) {
+  if (!isPlainObject(v)) {
+    errors.push(`${path}: \u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059`);
+    return;
+  }
+  pushUnknownKeys(v, ["mode"], path, errors);
+  if (typeof v.mode !== "string" || !RUBY_MODES.includes(v.mode)) {
+    errors.push(`${path}.mode: ${RUBY_MODES.join(" / ")} \u306E\u3044\u305A\u308C\u304B\u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059`);
+  }
+}
+function validateBlankLinesRule(v, path, errors) {
+  if (!isPlainObject(v)) {
+    errors.push(`${path}: \u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059`);
+    return;
+  }
+  pushUnknownKeys(v, ["action", "maxConsecutive"], path, errors);
+  if (v.action !== "keep" && v.action !== "normalize") {
+    errors.push(`${path}.action: "keep" \u307E\u305F\u306F "normalize" \u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059`);
+    return;
+  }
+  if (v.action === "normalize" && v.maxConsecutive !== void 0) {
+    if (typeof v.maxConsecutive !== "number" || !Number.isInteger(v.maxConsecutive) || v.maxConsecutive < 0) {
+      errors.push(`${path}.maxConsecutive: 0\u4EE5\u4E0A\u306E\u6574\u6570\u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059`);
+    }
+  }
+}
+function validateTrailingWhitespaceRule(v, path, errors) {
+  if (!isPlainObject(v)) {
+    errors.push(`${path}: \u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059`);
+    return;
+  }
+  pushUnknownKeys(v, ["action"], path, errors);
+  if (v.action !== "keep" && v.action !== "normalize") {
+    errors.push(`${path}.action: "keep" \u307E\u305F\u306F "normalize" \u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059`);
+  }
+}
+var BLOCK_SIMPLE_KEYS = ["comment", "horizontalRule", "html"];
+var BLOCK_EDITABLE_KEYS = ["callout", "heading", "blockquote", "list", "codeBlock"];
+var INLINE_SIMPLE_KEYS = ["tag", "image", "html"];
+var INLINE_EDITABLE_KEYS = ["emphasis", "markdownLink", "inlineCode"];
+function validateRules(v, path, errors) {
+  if (!isPlainObject(v)) {
+    errors.push(`${path}: \u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059`);
+    return;
+  }
+  pushUnknownKeys(v, ["metadata", "block", "inline", "document"], path, errors);
+  if (v.metadata !== void 0) {
+    const p = `${path}.metadata`;
+    if (!isPlainObject(v.metadata)) {
+      errors.push(`${p}: \u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059`);
+    } else {
+      pushUnknownKeys(v.metadata, ["frontmatter"], p, errors);
+      if (v.metadata.frontmatter !== void 0) validateSimpleRule(v.metadata.frontmatter, `${p}.frontmatter`, errors);
+    }
+  }
+  if (v.block !== void 0) {
+    const p = `${path}.block`;
+    if (!isPlainObject(v.block)) {
+      errors.push(`${p}: \u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059`);
+    } else {
+      pushUnknownKeys(v.block, [...BLOCK_SIMPLE_KEYS, ...BLOCK_EDITABLE_KEYS], p, errors);
+      for (const key of BLOCK_SIMPLE_KEYS) {
+        if (v.block[key] !== void 0) validateSimpleRule(v.block[key], `${p}.${key}`, errors);
+      }
+      for (const key of BLOCK_EDITABLE_KEYS) {
+        if (v.block[key] !== void 0) validateEditableRule(v.block[key], `${p}.${key}`, errors);
+      }
+    }
+  }
+  if (v.inline !== void 0) {
+    const p = `${path}.inline`;
+    if (!isPlainObject(v.inline)) {
+      errors.push(`${p}: \u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059`);
+    } else {
+      pushUnknownKeys(v.inline, [...INLINE_SIMPLE_KEYS, ...INLINE_EDITABLE_KEYS, "wikilink", "ruby"], p, errors);
+      for (const key of INLINE_SIMPLE_KEYS) {
+        if (v.inline[key] !== void 0) validateSimpleRule(v.inline[key], `${p}.${key}`, errors);
+      }
+      for (const key of INLINE_EDITABLE_KEYS) {
+        if (v.inline[key] !== void 0) validateEditableRule(v.inline[key], `${p}.${key}`, errors);
+      }
+      if (v.inline.wikilink !== void 0) validateWikilinkRule(v.inline.wikilink, `${p}.wikilink`, errors);
+      if (v.inline.ruby !== void 0) validateRubyRule(v.inline.ruby, `${p}.ruby`, errors);
+    }
+  }
+  if (v.document !== void 0) {
+    const p = `${path}.document`;
+    if (!isPlainObject(v.document)) {
+      errors.push(`${p}: \u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059`);
+    } else {
+      pushUnknownKeys(v.document, ["blankLines", "trailingWhitespace"], p, errors);
+      if (v.document.blankLines !== void 0) validateBlankLinesRule(v.document.blankLines, `${p}.blankLines`, errors);
+      if (v.document.trailingWhitespace !== void 0) {
+        validateTrailingWhitespaceRule(v.document.trailingWhitespace, `${p}.trailingWhitespace`, errors);
+      }
+    }
+  }
+}
+function validateManuscriptRulesDefinition(input) {
+  const errors = [];
+  if (!isPlainObject(input)) {
+    return { ok: false, errors: ["\u30EB\u30FC\u30C8: \u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059"] };
+  }
+  pushUnknownKeys(input, ["version", "name", "createdAt", "updatedAt", "rules"], "$", errors);
+  if (input.version !== 1) {
+    errors.push(`$.version: 1 \u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059\uFF08\u53D7\u3051\u53D6\u3063\u305F\u5024: ${JSON.stringify(input.version)}\uFF09`);
+  }
+  if (input.name !== void 0 && typeof input.name !== "string") {
+    errors.push("$.name: \u6587\u5B57\u5217\u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059");
+  }
+  if (typeof input.createdAt !== "string") {
+    errors.push("$.createdAt: \u6587\u5B57\u5217\uFF08ISO 8601\u5F62\u5F0F\u306E\u65E5\u6642\uFF09\u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059");
+  }
+  if (typeof input.updatedAt !== "string") {
+    errors.push("$.updatedAt: \u6587\u5B57\u5217\uFF08ISO 8601\u5F62\u5F0F\u306E\u65E5\u6642\uFF09\u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059");
+  }
+  if (input.rules === void 0) {
+    errors.push("$.rules: \u5FC5\u9808\u3067\u3059");
+  } else {
+    validateRules(input.rules, "$.rules", errors);
+  }
+  if (errors.length > 0) return { ok: false, errors };
+  return { ok: true, errors: [], value: input };
+}
+
+// src/manuscript-rules/rules/ruleLoader.ts
+var ManuscriptRulesParseError = class extends Error {
+  constructor(errors) {
+    super(`manuscript-rules.json \u306E\u5185\u5BB9\u304C\u4E0D\u6B63\u3067\u3059:
+${errors.map((e) => `  - ${e}`).join("\n")}`);
+    this.errors = errors;
+    this.name = "ManuscriptRulesParseError";
+  }
+};
+function parseManuscriptRulesDefinition(jsonText) {
+  let raw;
+  try {
+    raw = JSON.parse(jsonText);
+  } catch (e) {
+    throw new ManuscriptRulesParseError([`JSON\u3068\u3057\u3066\u8AAD\u307F\u8FBC\u3081\u307E\u305B\u3093\uFF08\u69CB\u6587\u30A8\u30E9\u30FC\uFF09: ${String(e)}`]);
+  }
+  const result = validateManuscriptRulesDefinition(raw);
+  if (!result.ok || !result.value) {
+    throw new ManuscriptRulesParseError(result.errors);
+  }
+  return result.value;
+}
+function serializeManuscriptRulesDefinition(def) {
+  return JSON.stringify(def, null, 2) + "\n";
+}
+
+// src/manuscript-rules/rules/ruleDefaults.ts
+function createDefaultManuscriptRules() {
+  return {
+    metadata: {
+      frontmatter: { action: "remove" }
+    },
+    block: {
+      comment: { action: "remove" },
+      callout: { action: "remove" },
+      heading: { action: "edit" },
+      blockquote: { action: "remove" },
+      list: { action: "remove" },
+      codeBlock: { action: "remove" },
+      horizontalRule: { action: "keep" },
+      html: { action: "remove" }
+    },
+    inline: {
+      wikilink: { action: "edit", editMode: "displayText" },
+      tag: { action: "remove" },
+      emphasis: { action: "edit" },
+      markdownLink: { action: "edit" },
+      image: { action: "keep" },
+      ruby: { mode: "none" },
+      inlineCode: { action: "remove" },
+      html: { action: "remove" }
+    },
+    document: {
+      blankLines: { action: "normalize", maxConsecutive: 1 },
+      trailingWhitespace: { action: "normalize" }
+    }
+  };
+}
+function createDefaultManuscriptRulesDefinition(name) {
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  return {
+    version: 1,
+    name,
+    createdAt: now,
+    updatedAt: now,
+    rules: createDefaultManuscriptRules()
+  };
+}
+
+// src/manuscript-rules/adapter/pluginRuleStore.ts
+var ManuscriptRulesFileError = class extends Error {
+};
+var RULES_SUBDIR = "rules";
+function normalizeRuleFileName(rawFileName) {
+  const trimmed = rawFileName.trim();
+  if (!trimmed) {
+    throw new ManuscriptRulesFileError("\u30D5\u30A1\u30A4\u30EB\u540D\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044\u3002");
+  }
+  if (trimmed.includes("/") || trimmed.includes("\\")) {
+    throw new ManuscriptRulesFileError("\u30D5\u30A1\u30A4\u30EB\u540D\u306B\u30D5\u30A9\u30EB\u30C0\u306E\u533A\u5207\u308A\uFF08/ \uFF09\u306F\u4F7F\u7528\u3067\u304D\u307E\u305B\u3093\u3002");
+  }
+  const withExt = trimmed.endsWith(".json") ? trimmed : `${trimmed}.json`;
+  const normalized = (0, import_obsidian4.normalizePath)(withExt);
+  if (normalized.includes("/") || normalized === "." || normalized === "") {
+    throw new ManuscriptRulesFileError("\u30D5\u30A1\u30A4\u30EB\u540D\u304C\u4E0D\u6B63\u3067\u3059\u3002");
+  }
+  return normalized;
+}
+function rulesDirPath(pluginDir) {
+  return (0, import_obsidian4.normalizePath)(`${pluginDir}/${RULES_SUBDIR}`);
+}
+function ruleFilePath(pluginDir, fileName) {
+  return (0, import_obsidian4.normalizePath)(`${rulesDirPath(pluginDir)}/${normalizeRuleFileName(fileName)}`);
+}
+async function ensureRulesDir(app, pluginDir) {
+  const dir = rulesDirPath(pluginDir);
+  const exists = await app.vault.adapter.exists(dir);
+  if (!exists) {
+    await app.vault.adapter.mkdir(dir);
+  }
+}
+async function readRuleFile(app, pluginDir, fileName) {
+  const path = ruleFilePath(pluginDir, fileName);
+  const exists = await app.vault.adapter.exists(path);
+  if (!exists) {
+    throw new ManuscriptRulesFileError(`\u5B9A\u7FA9\u30D5\u30A1\u30A4\u30EB\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093\uFF1A${fileName}`);
+  }
+  const text = await app.vault.adapter.read(path);
+  try {
+    return parseManuscriptRulesDefinition(text);
+  } catch (e) {
+    if (e instanceof ManuscriptRulesParseError) {
+      throw new ManuscriptRulesFileError(`${fileName}
+${e.message}`);
+    }
+    throw e;
+  }
+}
+async function writeRuleFile(app, pluginDir, fileName, def) {
+  await ensureRulesDir(app, pluginDir);
+  const path = ruleFilePath(pluginDir, fileName);
+  await app.vault.adapter.write(path, serializeManuscriptRulesDefinition(def));
+}
+async function createRuleFile(app, pluginDir, fileName, name) {
+  const path = ruleFilePath(pluginDir, fileName);
+  await ensureRulesDir(app, pluginDir);
+  const exists = await app.vault.adapter.exists(path);
+  if (exists) {
+    throw new ManuscriptRulesFileError(`${fileName} \u306F\u65E2\u306B\u5B58\u5728\u3057\u307E\u3059\u3002`);
+  }
+  const def = createDefaultManuscriptRulesDefinition(name);
+  await app.vault.adapter.write(path, serializeManuscriptRulesDefinition(def));
+  return def;
+}
+async function duplicateRuleFile(app, pluginDir, sourceFileName, destFileName, newName) {
+  const source = await readRuleFile(app, pluginDir, sourceFileName);
+  const destPath = ruleFilePath(pluginDir, destFileName);
+  const exists = await app.vault.adapter.exists(destPath);
+  if (exists) {
+    throw new ManuscriptRulesFileError(`${destFileName} \u306F\u65E2\u306B\u5B58\u5728\u3057\u307E\u3059\u3002`);
+  }
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  const duplicated = {
+    ...source,
+    name: newName != null ? newName : source.name ? `${source.name}\u306E\u30B3\u30D4\u30FC` : void 0,
+    createdAt: now,
+    updatedAt: now
+  };
+  await app.vault.adapter.write(destPath, serializeManuscriptRulesDefinition(duplicated));
+  return duplicated;
+}
+async function renameRuleFile(app, pluginDir, oldFileName, newFileName) {
+  const oldPath = ruleFilePath(pluginDir, oldFileName);
+  const newPath = ruleFilePath(pluginDir, newFileName);
+  const oldExists = await app.vault.adapter.exists(oldPath);
+  if (!oldExists) {
+    throw new ManuscriptRulesFileError(`\u5B9A\u7FA9\u30D5\u30A1\u30A4\u30EB\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093\uFF1A${oldFileName}`);
+  }
+  const newExists = await app.vault.adapter.exists(newPath);
+  if (newExists) {
+    throw new ManuscriptRulesFileError(`${newFileName} \u306F\u65E2\u306B\u5B58\u5728\u3057\u307E\u3059\u3002`);
+  }
+  await app.vault.adapter.rename(oldPath, newPath);
+}
+async function deleteRuleFile(app, pluginDir, fileName) {
+  const path = ruleFilePath(pluginDir, fileName);
+  const exists = await app.vault.adapter.exists(path);
+  if (!exists) return;
+  await app.vault.adapter.remove(path);
+}
+async function updateRuleFile(app, pluginDir, fileName, updatedDef) {
+  const withTimestamp = {
+    ...updatedDef,
+    updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+  };
+  await writeRuleFile(app, pluginDir, fileName, withTimestamp);
+}
+
+// src/manuscript-rules/adapter/ruleEditorModal.ts
+var import_obsidian5 = require("obsidian");
+var RuleEditorModal = class extends import_obsidian5.Modal {
+  constructor(app, def, onSave) {
+    super(app);
+    this.dirty = false;
+    this.def = JSON.parse(JSON.stringify(def));
+    this.onSave = onSave;
+  }
+  onOpen() {
+    var _a, _b, _c, _d;
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.addClass("nn-rule-editor-modal");
+    contentEl.createEl("h2", { text: `\u539F\u7A3F\u30AF\u30EA\u30FC\u30CB\u30F3\u30B0\u5B9A\u7FA9\u306E\u7DE8\u96C6${this.def.name ? `\uFF1A${this.def.name}` : ""}` });
+    const rules = this.def.rules;
+    (_a = rules.metadata) != null ? _a : rules.metadata = {};
+    (_b = rules.block) != null ? _b : rules.block = {};
+    (_c = rules.inline) != null ? _c : rules.inline = {};
+    (_d = rules.document) != null ? _d : rules.document = {};
+    new import_obsidian5.Setting(contentEl).setName("\u8868\u793A\u540D").setDesc("\u3053\u306E\u5B9A\u7FA9\u30D5\u30A1\u30A4\u30EB\u306E\u4E00\u89A7\u8868\u793A\u306B\u4F7F\u3046\u4EFB\u610F\u306E\u30E9\u30D9\u30EB\u3067\u3059\u3002").addText(
+      (text) => {
+        var _a2;
+        return text.setPlaceholder("\uFF08\u672A\u8A2D\u5B9A\uFF09").setValue((_a2 = this.def.name) != null ? _a2 : "").onChange((value) => {
+          this.def.name = value.trim() || void 0;
+          this.dirty = true;
+        });
+      }
+    );
+    const metaSection = contentEl.createDiv();
+    metaSection.createEl("h3", { text: "\u30E1\u30BF\u30C7\u30FC\u30BF" });
+    this.addSimpleRuleSetting(metaSection, "Frontmatter", () => rules.metadata.frontmatter, (v) => rules.metadata.frontmatter = v);
+    const blockSection = contentEl.createDiv();
+    blockSection.createEl("h3", { text: "\u30D6\u30ED\u30C3\u30AF\u8981\u7D20" });
+    this.addSimpleRuleSetting(blockSection, "\u30B3\u30E1\u30F3\u30C8\uFF08%%...%%\uFF09", () => rules.block.comment, (v) => rules.block.comment = v);
+    this.addEditableRuleSetting(blockSection, "Callout\uFF08> [!note] ...\uFF09", () => rules.block.callout, (v) => rules.block.callout = v);
+    this.addEditableRuleSetting(blockSection, "\u898B\u51FA\u3057\uFF08# ...\uFF09", () => rules.block.heading, (v) => rules.block.heading = v);
+    this.addEditableRuleSetting(blockSection, "\u5F15\u7528\uFF08> ...\uFF09", () => rules.block.blockquote, (v) => rules.block.blockquote = v);
+    this.addEditableRuleSetting(blockSection, "\u30EA\u30B9\u30C8\uFF08- / 1. ...\uFF09", () => rules.block.list, (v) => rules.block.list = v);
+    this.addEditableRuleSetting(blockSection, "\u30B3\u30FC\u30C9\u30D6\u30ED\u30C3\u30AF\uFF08``` ... ```\uFF09", () => rules.block.codeBlock, (v) => rules.block.codeBlock = v);
+    this.addSimpleRuleSetting(blockSection, "\u6C34\u5E73\u7DDA\uFF08---\uFF09", () => rules.block.horizontalRule, (v) => rules.block.horizontalRule = v);
+    this.addSimpleRuleSetting(blockSection, "HTML\u30BF\u30B0\uFF08\u884C\u5168\u4F53\u304C\u30BF\u30B0\u306E\u307F\u306E\u884C\uFF09", () => rules.block.html, (v) => rules.block.html = v);
+    const inlineSection = contentEl.createDiv();
+    inlineSection.createEl("h3", { text: "\u30A4\u30F3\u30E9\u30A4\u30F3\u8981\u7D20" });
+    this.addWikilinkRuleSetting(inlineSection, () => rules.inline.wikilink, (v) => rules.inline.wikilink = v);
+    this.addSimpleRuleSetting(inlineSection, "\u30BF\u30B0\uFF08#\u30BF\u30B0\u540D\uFF09", () => rules.inline.tag, (v) => rules.inline.tag = v);
+    this.addEditableRuleSetting(inlineSection, "\u5F37\u8ABF\uFF08*\u659C\u4F53* / **\u592A\u5B57**\uFF09", () => rules.inline.emphasis, (v) => rules.inline.emphasis = v);
+    this.addEditableRuleSetting(inlineSection, "Markdown\u30EA\u30F3\u30AF\uFF08[text](url)\uFF09", () => rules.inline.markdownLink, (v) => rules.inline.markdownLink = v);
+    this.addSimpleRuleSetting(inlineSection, "\u753B\u50CF\uFF08![alt](url)\uFF09", () => rules.inline.image, (v) => rules.inline.image = v);
+    this.addRubyRuleSetting(inlineSection, () => rules.inline.ruby, (v) => rules.inline.ruby = v);
+    this.addEditableRuleSetting(inlineSection, "\u30A4\u30F3\u30E9\u30A4\u30F3\u30B3\u30FC\u30C9\uFF08`code`\uFF09", () => rules.inline.inlineCode, (v) => rules.inline.inlineCode = v);
+    this.addSimpleRuleSetting(inlineSection, "HTML\u30BF\u30B0\uFF08\u672C\u6587\u4E2D\u306B\u6DF7\u5728\u3059\u308B\u30BF\u30B0\uFF09", () => rules.inline.html, (v) => rules.inline.html = v);
+    const documentSection = contentEl.createDiv();
+    documentSection.createEl("h3", { text: "\u6587\u66F8\u5168\u4F53\u306E\u6574\u5F62" });
+    const blankLinesContainer = documentSection.createDiv();
+    this.addBlankLinesRuleSetting(blankLinesContainer, () => rules.document.blankLines, (v) => rules.document.blankLines = v);
+    this.addTrailingWhitespaceRuleSetting(documentSection, () => rules.document.trailingWhitespace, (v) => rules.document.trailingWhitespace = v);
+    const btnArea = contentEl.createDiv({ cls: "nn-rule-editor-buttons" });
+    const saveBtn = btnArea.createEl("button", { text: "\u4FDD\u5B58", cls: "mod-cta" });
+    saveBtn.addEventListener("click", () => {
+      void this.save();
+    });
+    const cancelBtn = btnArea.createEl("button", { text: "\u30AD\u30E3\u30F3\u30BB\u30EB" });
+    cancelBtn.addEventListener("click", () => this.close());
+  }
+  onClose() {
+    this.contentEl.empty();
+  }
+  async save() {
+    await this.onSave(this.def);
+    this.close();
+  }
+  // ─────────────────────────────────────────
+  // 各ルール種別ごとのUI構築ヘルパー
+  // ─────────────────────────────────────────
+  addSimpleRuleSetting(container, label, get, set, desc) {
+    var _a;
+    const current = (_a = get()) != null ? _a : { action: "keep" };
+    const setting = new import_obsidian5.Setting(container).setName(label);
+    if (desc) setting.setDesc(desc);
+    setting.addDropdown((drop) => {
+      drop.addOption("keep", "\u305D\u306E\u307E\u307E\u7DAD\u6301");
+      drop.addOption("remove", "\u524A\u9664\u3059\u308B");
+      drop.setValue(current.action);
+      drop.onChange((value) => {
+        set({ action: value });
+        this.dirty = true;
+      });
+    });
+  }
+  addEditableRuleSetting(container, label, get, set) {
+    var _a;
+    const current = (_a = get()) != null ? _a : { action: "keep" };
+    new import_obsidian5.Setting(container).setName(label).addDropdown((drop) => {
+      drop.addOption("keep", "\u305D\u306E\u307E\u307E\u7DAD\u6301");
+      drop.addOption("remove", "\u524A\u9664\u3059\u308B\uFF08\u4E2D\u8EAB\u3054\u3068\uFF09");
+      drop.addOption("edit", "\u8A18\u6CD5\u3060\u3051\u5916\u3057\u3066\u4E2D\u8EAB\u3092\u6B8B\u3059");
+      drop.setValue(current.action);
+      drop.onChange((value) => {
+        set({ action: value });
+        this.dirty = true;
+      });
+    });
+  }
+  // 選択によって表示すべき追加項目（例：blankLinesのnormalize選択時の
+  // maxConsecutive入力欄）が変わる場合に、そのセクションだけ簡易的に
+  // 再描画するためのヘルパー（モーダル全体は再構築しない）。
+  refreshSection(container, rerender) {
+    container.empty();
+    rerender();
+  }
+  addWikilinkRuleSetting(container, get, set) {
+    var _a;
+    const current = (_a = get()) != null ? _a : { action: "keep" };
+    new import_obsidian5.Setting(container).setName("Wikilink\uFF08[[\u30DA\u30FC\u30B8\u540D]]\uFF09").addDropdown((drop) => {
+      var _a2;
+      drop.addOption("keep", "\u305D\u306E\u307E\u307E\u7DAD\u6301");
+      drop.addOption("remove", "\u524A\u9664\u3059\u308B\uFF08\u4E2D\u8EAB\u3054\u3068\uFF09");
+      drop.addOption("fileName", "\u30D5\u30A1\u30A4\u30EB\u540D\u3092\u6B8B\u3059\uFF08\u30A8\u30A4\u30EA\u30A2\u30B9\u7121\u8996\uFF09");
+      drop.addOption("displayText", "\u8868\u793A\u540D\u3092\u6B8B\u3059\uFF08\u30A8\u30A4\u30EA\u30A2\u30B9\u512A\u5148\uFF09");
+      const initial = current.action === "edit" ? (_a2 = current.editMode) != null ? _a2 : "displayText" : current.action;
+      drop.setValue(initial);
+      drop.onChange((value) => {
+        if (value === "keep" || value === "remove") {
+          set({ action: value });
+        } else {
+          set({ action: "edit", editMode: value });
+        }
+        this.dirty = true;
+      });
+    });
+  }
+  addRubyRuleSetting(container, get, set) {
+    var _a;
+    const current = (_a = get()) != null ? _a : { mode: "none" };
+    new import_obsidian5.Setting(container).setName("\u30EB\u30D3").addDropdown((drop) => {
+      drop.addOption("none", "\u5909\u63DB\u3057\u306A\u3044\uFF08\u305D\u306E\u307E\u307E\u7DAD\u6301\uFF09");
+      drop.addOption("remove", "\u30EB\u30D3\u8A18\u53F7\u3092\u524A\u9664\uFF08\u89AA\u6587\u5B57\u306E\u307F\u6B8B\u3059\uFF09");
+      drop.addOption("narou", "\u306A\u308D\u3046\u5F0F\u306B\u5909\u63DB\uFF08|\u6F22\u5B57\u300A\u30EB\u30D3\u300B\uFF09");
+      drop.addOption("aozora", "\u9752\u7A7A\u6587\u5EAB\u5F0F\u306B\u5909\u63DB\uFF08\uFF5C\u6F22\u5B57\u300A\u30EB\u30D3\u300B\uFF09");
+      drop.addOption("denden", "\u3067\u3093\u3067\u3093\u5F0F\u306B\u5909\u63DB\uFF08{\u6F22\u5B57|\u30EB\u30D3}\uFF09");
+      drop.addOption("html", "HTML\u30BF\u30B0\u306B\u5909\u63DB\uFF08<ruby>\uFF09");
+      drop.setValue(current.mode);
+      drop.onChange((value) => {
+        set({ mode: value });
+        this.dirty = true;
+      });
+    });
+  }
+  addBlankLinesRuleSetting(container, get, set) {
+    var _a;
+    const current = (_a = get()) != null ? _a : { action: "keep" };
+    const setting = new import_obsidian5.Setting(container).setName("\u9023\u7D9A\u3059\u308B\u7A7A\u884C");
+    setting.addDropdown((drop) => {
+      drop.addOption("keep", "\u305D\u306E\u307E\u307E\u7DAD\u6301");
+      drop.addOption("normalize", "\u6307\u5B9A\u884C\u6570\u307E\u3067\u5727\u7E2E\u3059\u308B");
+      drop.setValue(current.action);
+      drop.onChange((value) => {
+        if (value === "keep") {
+          set({ action: "keep" });
+        } else {
+          set({ action: "normalize", maxConsecutive: 1 });
+        }
+        this.dirty = true;
+        this.refreshSection(container, () => this.rerenderDocument(container, get, set));
+      });
+    });
+    if (current.action === "normalize") {
+      setting.addText(
+        (text) => {
+          var _a2;
+          return text.setPlaceholder("1").setValue(String((_a2 = current.maxConsecutive) != null ? _a2 : 1)).onChange((value) => {
+            const n = Math.max(0, Math.trunc(Number(value) || 0));
+            set({ action: "normalize", maxConsecutive: n });
+            this.dirty = true;
+          });
+        }
+      );
+    }
+  }
+  rerenderDocument(container, get, set) {
+    this.addBlankLinesRuleSetting(container, get, set);
+  }
+  addTrailingWhitespaceRuleSetting(container, get, set) {
+    var _a;
+    const current = (_a = get()) != null ? _a : { action: "keep" };
+    new import_obsidian5.Setting(container).setName("\u672B\u5C3E\u306E\u4F59\u5206\u306A\u7A7A\u767D\u30FB\u7A7A\u884C").addDropdown((drop) => {
+      drop.addOption("keep", "\u305D\u306E\u307E\u307E\u7DAD\u6301");
+      drop.addOption("normalize", "\u9664\u53BB\u3057\u3066\u6539\u884C1\u3064\u306B\u63C3\u3048\u308B");
+      drop.setValue(current.action);
+      drop.onChange((value) => {
+        set({ action: value });
+        this.dirty = true;
+      });
+    });
+  }
+};
+
+// src/core/settingTab.ts
 function descLines(...lines) {
   return createFragment((frag) => {
     lines.forEach((line, i) => {
@@ -1610,7 +2181,7 @@ function descLines(...lines) {
     });
   });
 }
-var NovelsNoteSettingTab = class extends import_obsidian4.PluginSettingTab {
+var NovelsNoteSettingTab = class extends import_obsidian6.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
     this.plugin = plugin;
@@ -1644,6 +2215,7 @@ var NovelsNoteSettingTab = class extends import_obsidian4.PluginSettingTab {
       case "wrapColumn":
         this.plugin.applyEditorStyles();
         this.plugin.refreshEditors();
+        this.plugin.updateWordCount();
         break;
       case "showRuler":
       case "rulerStyle":
@@ -1675,8 +2247,8 @@ var NovelsNoteSettingTab = class extends import_obsidian4.PluginSettingTab {
         break;
       case "countMode":
       case "countFullWidthSpace":
-      case "countEmptyLines":
-      case "countHashtags":
+      case "countRubyText":
+      case "pageLinesPerPage":
         this.plugin.updateWordCount();
         break;
       case "glossaryPaletteEnabled":
@@ -1689,29 +2261,59 @@ var NovelsNoteSettingTab = class extends import_obsidian4.PluginSettingTab {
     }
   }
   // ─────────────────────────────────────────
+  // 「タイトル＋コントロール」を上段、「説明文」を下段に
+  // フル幅で表示するためのヘルパー。
+  //
+  // 標準の Setting レイアウトでは、名前・説明文が左カラム
+  // （.setting-item-info）に収まり、コントロールが右カラムに
+  // 配置される。説明文が長くドロップダウンの選択肢文言も長い
+  // 項目では、左カラムの幅に対して右カラムが窮屈になり
+  // バランスが悪くなるため、説明文だけを setting-item の外側
+  // （下段・フル幅）に追い出す。
+  //
+  // 【重要】新たに説明文の要素を作るのではなく、フレームワークが
+  // item.desc から自動生成した setting.descEl を「移動」させるだけに
+  // している。新規要素を作って同じ文言を流し込むと、descEl（左カラム内）
+  // とその複製（下段）の2箇所に同じ説明文が表示されてしまうため。
+  // ─────────────────────────────────────────
+  renderFullWidthDesc(setting) {
+    setting.settingEl.addClass("nn-setting-balanced");
+    setting.descEl.addClass("nn-setting-fullwidth-desc");
+    setting.settingEl.appendChild(setting.descEl);
+  }
+  // ─────────────────────────────────────────
   // 設定タブ本体（宣言的定義）
   //
   // getSettingDefinitions() を実装したことで display() は完全に
-  // 撤去済み（Obsidian側の仕様上、この配列が空でない限り display() は
-  // 一切呼ばれなくなるため、以前は動的リスト系セクションを
-  // render コールバックで暫定的に包んでいたが、全セクションを
-  // 正式な宣言的表現へ移行済み。minAppVersion: 1.13.0）。
+  // 撤去済み（Obsidian側の仕様上、getSettingDefinitions() が空でない
+  // 配列を返す場合、display() は一切呼ばれなくなる。実際のレンダリング
+  // は非推奨ではない update() 側がトリガーする）。
+  //
+  // containerEl に本プラグイン専用のスコープ用クラスを付与するため
+  // だけに update() をオーバーライドしている（モバイルでの横方向
+  // オーバーフロー対策CSSを、他プラグインの設定行に影響させず
+  // 本プラグインの設定タブ内だけに限定するため）。
   // ─────────────────────────────────────────
+  update() {
+    super.update();
+    this.containerEl.addClass("nn-settings-root");
+  }
   getSettingDefinitions() {
     return [
       this.buildEditorSection(),
       this.buildRulerSection(),
+      this.buildFullWidthSpaceSection(),
       this.buildRubySection(),
       this.buildVerticalPreviewSection(),
-      this.buildFullWidthSpaceSection(),
       this.buildWordCountSection(),
-      this.buildExcludeFoldersGroup(),
-      this.buildStatsExcludeFoldersGroup(),
       this.buildReadingSpeedSection(),
+      this.buildStatsExcludeFoldersGroup(),
       this.buildHighlightSection(),
-      this.buildTagGroup(),
       this.buildBracketGroup(),
-      this.buildGlossaryPaletteSection()
+      this.buildTagGroup(),
+      this.buildExcludeFoldersGroup(),
+      this.buildGlossaryPaletteSection(),
+      this.buildManuscriptRulesSection()
     ];
   }
   // ─────────────────────────────────────────
@@ -1734,8 +2336,19 @@ var NovelsNoteSettingTab = class extends import_obsidian4.PluginSettingTab {
         },
         {
           name: "\u6298\u308A\u8FD4\u3057\u6587\u5B57\u6570",
-          desc: "1\u884C\u306B\u8868\u793A\u3059\u308B\u5168\u89D2\u6587\u5B57\u6570\uFF08\u4F8B\uFF1A40\uFF09\u3002",
+          desc: descLines(
+            "1\u884C\u306B\u8868\u793A\u3059\u308B\u5168\u89D2\u6587\u5B57\u6570\uFF08\u4F8B\uFF1A40\uFF09\u3002",
+            "\u6587\u5B57\u6570\u30AB\u30A6\u30F3\u30C8\u306E\u300C\u30DA\u30FC\u30B8\u63DB\u7B97\u300D\u3067\u3082\u30011\u884C\u3042\u305F\u308A\u306E\u6587\u5B57\u6570\u3068\u3057\u3066\u3053\u306E\u5024\u3092\u4F7F\u3044\u307E\u3059\u3002"
+          ),
           control: { type: "number", key: "wrapColumn", min: 1, step: 1, defaultValue: DEFAULT_SETTINGS.wrapColumn }
+        },
+        {
+          name: "1\u30DA\u30FC\u30B8\u306E\u884C\u6570",
+          desc: descLines(
+            "1\u30DA\u30FC\u30B8\u306B\u8868\u793A\u3059\u308B\u884C\u6570\uFF08\u4F8B\uFF1A20\uFF09\u3002",
+            "\u6587\u5B57\u6570\u30AB\u30A6\u30F3\u30C8\u306E\u300C\u30DA\u30FC\u30B8\u63DB\u7B97\u300D\u3067\u30011\u30DA\u30FC\u30B8\u3042\u305F\u308A\u306E\u6587\u5B57\u6570\uFF08\u6298\u308A\u8FD4\u3057\u6587\u5B57\u6570 \xD7 \u3053\u306E\u884C\u6570\uFF09\u3068\u3057\u3066\u4F7F\u3044\u307E\u3059\u3002"
+          ),
+          control: { type: "number", key: "pageLinesPerPage", min: 1, step: 1, defaultValue: DEFAULT_SETTINGS.pageLinesPerPage }
         }
       ]
     };
@@ -1787,7 +2400,7 @@ var NovelsNoteSettingTab = class extends import_obsidian4.PluginSettingTab {
   // disabled で無効化し、理由を明記する。
   // ─────────────────────────────────────────
   buildVerticalPreviewSection() {
-    const isMobile = import_obsidian4.Platform.isMobile;
+    const isMobile = import_obsidian6.Platform.isMobile;
     return {
       type: "group",
       heading: "\u7E26\u66F8\u304D\u30D7\u30EC\u30D3\u30E5\u30FC",
@@ -1827,7 +2440,7 @@ var NovelsNoteSettingTab = class extends import_obsidian4.PluginSettingTab {
           name: "\u5168\u89D2\u30B9\u30DA\u30FC\u30B9\u3092\u53EF\u8996\u5316\u3059\u308B",
           desc: descLines(
             "\u6BB5\u843D\u5148\u982D\u306E\u5168\u89D2\u30B9\u30DA\u30FC\u30B9\u3068\u3001\u884C\u672B\u306E\u6539\u884C\u4F4D\u7F6E\u3092\u76EE\u8996\u3067\u78BA\u8A8D\u3067\u304D\u307E\u3059\u3002",
-            "\u30AA\u30F3\u306B\u3059\u308B\u3068\u5168\u89D2\u30B9\u30DA\u30FC\u30B9\uFF08\u3000\uFF09\u306E\u4F4D\u7F6E\u3092\u8A18\u53F7\u3067\u8868\u793A\u3057\u307E\u3059\u3002",
+            "\u30AA\u30F3\u306B\u3059\u308B\u3068\u5168\u89D2\u30B9\u30DA\u30FC\u30B9\u306E\u4F4D\u7F6E\u3092\u8A18\u53F7\u3067\u8868\u793A\u3057\u307E\u3059\u3002",
             "\u3042\u308F\u305B\u3066\u884C\u672B\u306B\u6539\u884C\u8A18\u53F7\uFF08\u21B5\uFF09\u3082\u8868\u793A\u3057\u307E\u3059\uFF08\u30AA\u30D5\u306B\u3059\u308B\u3068\u4E21\u65B9\u3068\u3082\u975E\u8868\u793A\u306B\u306A\u308A\u307E\u3059\uFF09\u3002",
             "\u203B\u6539\u884C\u8A18\u53F7\u306F\u5E45\u3092\u6301\u305F\u306A\u3044\u305F\u3081\u3001\u6298\u308A\u8FD4\u3057\u4F4D\u7F6E\u306B\u306F\u5F71\u97FF\u3057\u307E\u305B\u3093\u3002"
           ),
@@ -1870,11 +2483,11 @@ var NovelsNoteSettingTab = class extends import_obsidian4.PluginSettingTab {
   // ─────────────────────────────────────────
   promptForFolderPath(title, onSubmit) {
     let value = "";
-    const modal = new import_obsidian4.ConfirmationModal(this.app);
+    const modal = new import_obsidian6.ConfirmationModal(this.app);
     modal.setTitle(title);
     modal.setContent(createFragment((frag) => {
       const el = frag.createDiv();
-      new import_obsidian4.Setting(el).setName("\u30D5\u30A9\u30EB\u30C0\u30D1\u30B9").setDesc(descLines(
+      new import_obsidian6.Setting(el).setName("\u30D5\u30A9\u30EB\u30C0\u30D1\u30B9").setDesc(descLines(
         "Vault \u30EB\u30FC\u30C8\u304B\u3089\u306E\u76F8\u5BFE\u30D1\u30B9\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044\u3002",
         "\uFF08\u4F8B\uFF1Atemplates\u3001characters/templates\uFF09"
       )).addText((text) => {
@@ -1932,7 +2545,7 @@ var NovelsNoteSettingTab = class extends import_obsidian4.PluginSettingTab {
     const folders = (_a = this.plugin.settings.excludeFolders) != null ? _a : [];
     return {
       type: "list",
-      heading: "\u7528\u8A9E\u30A4\u30F3\u30C7\u30C3\u30AF\u30B9 \u2014 \u9664\u5916\u30D5\u30A9\u30EB\u30C0",
+      heading: "\u7528\u8A9E\u30A4\u30F3\u30C7\u30C3\u30AF\u30B9 - \u9664\u5916\u30D5\u30A9\u30EB\u30C0",
       // SettingDefinitionList には group の desc に相当するフィールドが
       // 無いため、常時表示の説明文は持たせられない。最もガイダンスが
       // 必要な「まだ1件も無い」タイミングに表示されるよう、
@@ -1985,7 +2598,7 @@ var NovelsNoteSettingTab = class extends import_obsidian4.PluginSettingTab {
   buildReadingSpeedSection() {
     return {
       type: "group",
-      heading: "\u57F7\u7B46\u60C5\u5831\u4E00\u89A7 \u2014 \u63A8\u5B9A\u8AAD\u4E86\u6642\u9593",
+      heading: "\u57F7\u7B46\u60C5\u5831\u4E00\u89A7 - \u63A8\u5B9A\u8AAD\u4E86\u6642\u9593",
       items: [
         {
           name: "\u8AAD\u4E86\u901F\u5EA6\uFF08\u5B57/\u5206\uFF09",
@@ -2023,7 +2636,7 @@ var NovelsNoteSettingTab = class extends import_obsidian4.PluginSettingTab {
     const folders = (_a = this.plugin.settings.statsExcludeFolders) != null ? _a : [];
     return {
       type: "list",
-      heading: "\u57F7\u7B46\u60C5\u5831\u4E00\u89A7 \u2014 \u9664\u5916\u30D5\u30A9\u30EB\u30C0",
+      heading: "\u57F7\u7B46\u60C5\u5831\u4E00\u89A7 - \u9664\u5916\u30D5\u30A9\u30EB\u30C0",
       emptyState: createFragment((el) => {
         el.createEl("p", {
           text: "\u6307\u5B9A\u3057\u305F\u30D5\u30A9\u30EB\u30C0\u5185\u306E\u30D5\u30A1\u30A4\u30EB\u3092\u300C\u57F7\u7B46\u60C5\u5831\u4E00\u89A7\u300D\u306E\u96C6\u8A08\u5BFE\u8C61\u304B\u3089\u9664\u5916\u3057\u307E\u3059\u3002\u30C6\u30F3\u30D7\u30EC\u30FC\u30C8\u30D5\u30A9\u30EB\u30C0\u306A\u3069\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044\u3002\u30D5\u30A9\u30EB\u30C0\u30D1\u30B9\u306F Vault \u30EB\u30FC\u30C8\u304B\u3089\u306E\u76F8\u5BFE\u30D1\u30B9\u3067\u5165\u529B\u3057\u307E\u3059\uFF08\u4F8B\uFF1A_templates\uFF09\u3002\u7528\u8A9E\u30A4\u30F3\u30C7\u30C3\u30AF\u30B9\u306E\u9664\u5916\u30D5\u30A9\u30EB\u30C0\u3068\u306F\u5225\u306B\u7BA1\u7406\u3055\u308C\u307E\u3059\u3002"
@@ -2067,7 +2680,7 @@ var NovelsNoteSettingTab = class extends import_obsidian4.PluginSettingTab {
   buildHighlightSection() {
     return {
       type: "group",
-      heading: "\u30CF\u30A4\u30E9\u30A4\u30C8",
+      heading: "\u30CF\u30A4\u30E9\u30A4\u30C8\u8A2D\u5B9A",
       items: [
         {
           name: "\u30CF\u30A4\u30E9\u30A4\u30C8\u3092\u6709\u52B9\u306B\u3059\u308B",
@@ -2106,7 +2719,7 @@ var NovelsNoteSettingTab = class extends import_obsidian4.PluginSettingTab {
     };
     return {
       type: "list",
-      heading: "\u30AB\u30C6\u30B4\u30EA\u5B9A\u7FA9",
+      heading: "\u7528\u8A9E\u30AB\u30C6\u30B4\u30EA\u5B9A\u7FA9",
       emptyState: createFragment((el) => {
         el.createEl("p", { text: "\u7528\u8A9E\u30CE\u30FC\u30C8\u306B\u4ED8\u3051\u308B\u30AB\u30C6\u30B4\u30EA\u540D\u30FB\u8868\u793A\u540D\u30FB\u8272\u30FB\u30AA\u30F3/\u30AA\u30D5\u3092\u8A2D\u5B9A\u3057\u307E\u3059\u3002" });
       }),
@@ -2199,7 +2812,7 @@ var NovelsNoteSettingTab = class extends import_obsidian4.PluginSettingTab {
       type: "list",
       heading: "\u30AB\u30C3\u30B3\u30CF\u30A4\u30E9\u30A4\u30C8",
       emptyState: createFragment((el) => {
-        el.createEl("p", { text: "\u5185\u5074\u306E\u30AB\u30C3\u30B3\u304C\u5916\u5074\u3088\u308A\u512A\u5148\u3055\u308C\u307E\u3059\u3002\u7528\u8A9E\u306E\u5F37\u8ABF\u8868\u793A\u306F\u3059\u3079\u3066\u306E\u30AB\u30C3\u30B3\u3088\u308A\u512A\u5148\u3055\u308C\u307E\u3059\u3002" });
+        el.createEl("p", { text: "\u5185\u5074\u306E\u30AB\u30C3\u30B3\u304C\u5916\u5074\u3088\u308A\u512A\u5148\u3055\u308C\u307E\u3059\u3002\u7528\u8A9E\u306E\u30CF\u30A4\u30E9\u30A4\u30C8\u8868\u793A\u306F\u3059\u3079\u3066\u306E\u30AB\u30C3\u30B3\u3088\u308A\u512A\u5148\u3055\u308C\u307E\u3059\u3002" });
       }),
       items: defs.map((bd, i) => ({
         name: bd.label || "\uFF08\u7121\u984C\u306E\u30AB\u30C3\u30B3\uFF09",
@@ -2294,16 +2907,18 @@ var NovelsNoteSettingTab = class extends import_obsidian4.PluginSettingTab {
             "\u30FB\u3067\u3093\u3067\u3093\u5F0F\uFF1A{\u6F22\u5B57|\u30EB\u30D3}",
             "\u30FBHTML\u30BF\u30B0\uFF1A<ruby>\u6F22\u5B57<rt>\u30EB\u30D3</rt></ruby>"
           ),
-          control: {
-            type: "dropdown",
-            key: "rubyStyle",
-            options: {
-              narou: "\u306A\u308D\u3046\u5F0F\uFF08\u6F22\u5B57\u300A\u30EB\u30D3\u300B / |\u6F22\u5B57\u300A\u30EB\u30D3\u300B\uFF09",
-              aozora: "\u9752\u7A7A\u6587\u5EAB\u5F0F\uFF08\u6F22\u5B57\u300A\u30EB\u30D3\u300B / \uFF5C\u6F22\u5B57\u300A\u30EB\u30D3\u300B\uFF09",
-              denden: "\u3067\u3093\u3067\u3093\u5F0F\uFF08{\u6F22\u5B57|\u30EB\u30D3}\uFF09",
-              html: "HTML\u30BF\u30B0\uFF08<ruby>\uFF09"
-            },
-            defaultValue: DEFAULT_SETTINGS.rubyStyle
+          render: (setting) => {
+            setting.addDropdown((drop) => {
+              drop.addOption("narou", "\u306A\u308D\u3046\u5F0F\uFF08\u6F22\u5B57\u300A\u30EB\u30D3\u300B / |\u6F22\u5B57\u300A\u30EB\u30D3\u300B\uFF09");
+              drop.addOption("aozora", "\u9752\u7A7A\u6587\u5EAB\u5F0F\uFF08\u6F22\u5B57\u300A\u30EB\u30D3\u300B / \uFF5C\u6F22\u5B57\u300A\u30EB\u30D3\u300B\uFF09");
+              drop.addOption("denden", "\u3067\u3093\u3067\u3093\u5F0F\uFF08{\u6F22\u5B57|\u30EB\u30D3}\uFF09");
+              drop.addOption("html", "HTML\u30BF\u30B0\uFF08<ruby>\uFF09");
+              drop.setValue(this.plugin.settings.rubyStyle);
+              drop.onChange((value) => {
+                void this.setControlValue("rubyStyle", value);
+              });
+            });
+            this.renderFullWidthDesc(setting);
           }
         }
       ]
@@ -2323,38 +2938,39 @@ var NovelsNoteSettingTab = class extends import_obsidian4.PluginSettingTab {
             "\u30B9\u30C6\u30FC\u30BF\u30B9\u30D0\u30FC\uFF08\u753B\u9762\u4E0B\u90E8\uFF09\u306B\u539F\u7A3F\u306E\u6587\u5B57\u6570\u3092\u8868\u793A\u3057\u307E\u3059\u3002\u30AF\u30EA\u30C3\u30AF\u3067\u30E2\u30FC\u30C9\u3092\u5207\u308A\u66FF\u3048\u3089\u308C\u307E\u3059\u3002",
             "raw: \u6587\u5B57\u6570\u305D\u306E\u307E\u307E",
             "novel: \u5168\u89D21\u5B57\u30FB\u534A\u89D20.5\u5B57\u3067\u63DB\u7B97",
-            "manuscript: 400\u5B57\u8A70\u3081\u539F\u7A3F\u7528\u7D19\u306E\u679A\u6570"
+            "page: \u6BB5\u843D\u306E\u6587\u5B57\u6570\u304B\u3089\u884C\u6570\u3092\u7B97\u51FA\u3057\u30011\u30DA\u30FC\u30B8\u306E\u884C\u6570\u3067\u5272\u308B\u3053\u3068\u3067\u7DCF\u30DA\u30FC\u30B8\u6570\u3092\u7B97\u51FA",
+            "",
+            "\u6587\u5B57\u6570\u306E\u30AB\u30A6\u30F3\u30C8\u306F\u3001Export\u3068\u540C\u3058\u300C\u539F\u7A3F\u30AF\u30EA\u30FC\u30CB\u30F3\u30B0\u5B9A\u7FA9\u300D\uFF08\u8A2D\u5B9A \u2192 \u539F\u7A3F\u30AF\u30EA\u30FC\u30CB\u30F3\u30B0\u5B9A\u7FA9\uFF09\u3067\u672C\u6587\u3092\u30AF\u30EA\u30FC\u30CB\u30F3\u30B0\u3057\u305F\u5F8C\u306E\u6587\u5B57\u6570\u3092\u6570\u3048\u307E\u3059\u3002#tag\u30FBFrontmatter\u30FBWikilink \u306A\u3069\u3092\u30AB\u30A6\u30F3\u30C8\u306B\u542B\u3081\u308B\u304B\u306F\u3001\u4F7F\u7528\u3059\u308B\u5B9A\u7FA9\u30D5\u30A1\u30A4\u30EB\u306E\u30EB\u30FC\u30EB\u306B\u5F93\u3044\u307E\u3059\u3002"
           ),
-          control: {
-            type: "dropdown",
-            key: "countMode",
-            options: { raw: "raw\uFF08\u6587\u5B57\u6570\uFF09", novel: "novel\uFF08\u5C0F\u8AAC\u63DB\u7B97\uFF09", manuscript: "manuscript\uFF08\u539F\u7A3F\u7528\u7D19\u63DB\u7B97\uFF09" },
-            defaultValue: DEFAULT_SETTINGS.countMode
+          render: (setting) => {
+            setting.addDropdown((drop) => {
+              drop.addOption("raw", "raw\uFF08\u6587\u5B57\u6570\uFF09");
+              drop.addOption("novel", "novel\uFF08\u5C0F\u8AAC\u63DB\u7B97\uFF09");
+              drop.addOption("page", "page\uFF08\u30DA\u30FC\u30B8\u63DB\u7B97\uFF09");
+              drop.setValue(this.plugin.settings.countMode);
+              drop.onChange((value) => {
+                void this.setControlValue("countMode", value);
+              });
+            });
+            this.renderFullWidthDesc(setting);
           }
         },
         {
           name: "\u5168\u89D2\u30B9\u30DA\u30FC\u30B9\u3092\u6587\u5B57\u6570\u306B\u542B\u3081\u308B",
           desc: descLines(
-            "\u30AA\u30F3\u306B\u3059\u308B\u3068\u6BB5\u843D\u5148\u982D\u306A\u3069\u306E\u5168\u89D2\u30B9\u30DA\u30FC\u30B9\uFF08\u3000\uFF09\u30821\u6587\u5B57\u3068\u3057\u3066\u30AB\u30A6\u30F3\u30C8\u3057\u307E\u3059\u3002",
+            "\u30AA\u30F3\u306B\u3059\u308B\u3068\u6BB5\u843D\u5148\u982D\u306A\u3069\u306E\u5168\u89D2\u30B9\u30DA\u30FC\u30B9\u30821\u6587\u5B57\u3068\u3057\u3066\u30AB\u30A6\u30F3\u30C8\u3057\u307E\u3059\u3002",
             "\u30AA\u30D5\uFF08\u30C7\u30D5\u30A9\u30EB\u30C8\uFF09\u306B\u3059\u308B\u3068\u9664\u5916\u3057\u307E\u3059\u3002"
           ),
           control: { type: "toggle", key: "countFullWidthSpace", defaultValue: DEFAULT_SETTINGS.countFullWidthSpace }
         },
         {
-          name: "\u7A7A\u884C\u3092\u6587\u5B57\u6570\u306B\u542B\u3081\u308B",
+          name: "\u30EB\u30D3\u6587\u5B57\u3082\u6587\u5B57\u6570\u306B\u542B\u3081\u308B",
           desc: descLines(
-            "\u30AA\u30F3\u306B\u3059\u308B\u3068\u5185\u5BB9\u306E\u306A\u3044\u884C\uFF08\u7A7A\u884C\uFF09\u306E\u6539\u884C\u6587\u5B57\u3082\u30AB\u30A6\u30F3\u30C8\u5BFE\u8C61\u306B\u3057\u307E\u3059\u3002",
-            "\u901A\u5E38\u306F\u30AA\u30D5\uFF08\u30C7\u30D5\u30A9\u30EB\u30C8\uFF09\u306E\u307E\u307E\u3067\u69CB\u3044\u307E\u305B\u3093\u3002"
+            "\u30AA\u30D5\uFF08\u30C7\u30D5\u30A9\u30EB\u30C8\uFF09\uFF1A\u30EB\u30D3\u306E\u89AA\u6587\u5B57\u306E\u307F\u3092\u30AB\u30A6\u30F3\u30C8\u3057\u307E\u3059\uFF08\u4E00\u822C\u7684\u306A\u539F\u7A3F\u306E\u6587\u5B57\u6570\u306E\u6570\u3048\u65B9\u3067\u3059\uFF09\u3002",
+            "\u30AA\u30F3\uFF1A\u89AA\u6587\u5B57\u306B\u52A0\u3048\u3066\u3001\u30EB\u30D3\u306E\u8AAD\u307F\u4EEE\u540D\u90E8\u5206\u3082\u6587\u5B57\u6570\u306B\u542B\u3081\u307E\u3059\u3002",
+            "Export\u3067\u4F7F\u7528\u3059\u308B\u30EB\u30D3\u306E\u51FA\u529B\u5F62\u5F0F\uFF08\u539F\u7A3F\u30AF\u30EA\u30FC\u30CB\u30F3\u30B0\u5B9A\u7FA9\u306E\u30EB\u30D3\u8A2D\u5B9A\uFF09\u3068\u306F\u72EC\u7ACB\u3057\u3066\u3044\u307E\u3059\u3002"
           ),
-          control: { type: "toggle", key: "countEmptyLines", defaultValue: DEFAULT_SETTINGS.countEmptyLines }
-        },
-        {
-          name: "#tag \u3092\u6587\u5B57\u6570\u306B\u542B\u3081\u308B",
-          desc: descLines(
-            "\u30AA\u30F3\u306B\u3059\u308B\u3068\u539F\u7A3F\u4E2D\u306B\u66F8\u3044\u305F #tag\uFF08\u30AD\u30E3\u30E9\u30AF\u30BF\u30FC\u767B\u9332\u306A\u3069\u306E\u76EE\u5370\uFF09\u3082\u6587\u5B57\u6570\u3068\u3057\u3066\u30AB\u30A6\u30F3\u30C8\u3057\u307E\u3059\u3002",
-            "\u30AA\u30D5\uFF08\u30C7\u30D5\u30A9\u30EB\u30C8\uFF09\u306B\u3059\u308B\u3068 #tag \u3092\u9664\u5916\u3057\u307E\u3059\uFF08\u30A8\u30AF\u30B9\u30DD\u30FC\u30C8\u6642\u306E\u9664\u53BB\u3068\u540C\u3058\u6271\u3044\u306B\u306A\u308A\u307E\u3059\uFF09\u3002"
-          ),
-          control: { type: "toggle", key: "countHashtags", defaultValue: DEFAULT_SETTINGS.countHashtags }
+          control: { type: "toggle", key: "countRubyText", defaultValue: DEFAULT_SETTINGS.countRubyText }
         }
       ]
     };
@@ -2422,10 +3038,10 @@ var NovelsNoteSettingTab = class extends import_obsidian4.PluginSettingTab {
           render: (setting) => {
             setting.addButton(
               (btn) => btn.setButtonText("\u30AF\u30EA\u30A2").setDestructive().onClick(() => {
-                new import_obsidian4.ConfirmationModal(this.app).setTitle("\u300C\u6700\u8FD1\u4F7F\u3063\u305F\u300D\u5C65\u6B74\u306E\u30AF\u30EA\u30A2").setContent("\u300C\u6700\u8FD1\u4F7F\u3063\u305F\u300D\u5C65\u6B74\u3092\u3059\u3079\u3066\u524A\u9664\u3057\u307E\u3059\u3002\u3088\u308D\u3057\u3044\u3067\u3059\u304B\uFF1F").addButton((b) => b.setButtonText("\u30AD\u30E3\u30F3\u30BB\u30EB").setCancel().setInitialFocus()).addButton(
+                new import_obsidian6.ConfirmationModal(this.app).setTitle("\u300C\u6700\u8FD1\u4F7F\u3063\u305F\u300D\u5C65\u6B74\u306E\u30AF\u30EA\u30A2").setContent("\u300C\u6700\u8FD1\u4F7F\u3063\u305F\u300D\u5C65\u6B74\u3092\u3059\u3079\u3066\u524A\u9664\u3057\u307E\u3059\u3002\u3088\u308D\u3057\u3044\u3067\u3059\u304B\uFF1F").addButton((b) => b.setButtonText("\u30AD\u30E3\u30F3\u30BB\u30EB").setCancel().setInitialFocus()).addButton(
                   (b) => b.setButtonText("\u30AF\u30EA\u30A2").setDestructive().onClick(async () => {
                     await this.plugin.clearGlossaryPaletteHistory();
-                    new import_obsidian4.Notice("\u300C\u6700\u8FD1\u4F7F\u3063\u305F\u300D\u5C65\u6B74\u3092\u30AF\u30EA\u30A2\u3057\u307E\u3057\u305F\u3002");
+                    new import_obsidian6.Notice("\u300C\u6700\u8FD1\u4F7F\u3063\u305F\u300D\u5C65\u6B74\u3092\u30AF\u30EA\u30A2\u3057\u307E\u3057\u305F\u3002");
                   })
                 ).open();
               })
@@ -2435,7 +3051,357 @@ var NovelsNoteSettingTab = class extends import_obsidian4.PluginSettingTab {
       ]
     };
   }
+  // ─────────────────────────────────────────
+  // 原稿クリーニング定義（manuscript-rules.json）
+  //
+  // 【2026-08 設計変更】Novels Bookcrafter の開発計画を凍結したことに
+  // 伴い、定義ファイルの保存先を「Vault内の任意の場所」から、本
+  // プラグイン専用フォルダ（.obsidian/plugins/novels-note-jp/rules/）
+  // に固定した。保存先が固定されたため、ユーザーが指定するのは
+  // ファイル名のみ（フォルダ階層は指定できない）。
+  //
+  // 「登録解除」（一覧から外すだけ）と「削除」（実ファイルを完全に
+  // 削除する）を明確に分けている。それぞれ行内の専用ボタン＋
+  // （削除のみ）確認ダイアログを経由する操作として扱う。
+  // ─────────────────────────────────────────
+  buildManuscriptRulesSection() {
+    var _a;
+    const files = (_a = this.plugin.settings.manuscriptRulesFiles) != null ? _a : [];
+    const fileItems = files.map((ref, i) => ({
+      name: ref.label || ref.fileName,
+      searchable: false,
+      render: (setting) => {
+        setting.setName(ref.label || ref.fileName);
+        setting.setDesc(ref.fileName);
+        const capturedI = i;
+        const capturedRef = ref;
+        setting.addExtraButton(
+          (btn) => btn.setIcon("pencil").setTooltip("\u7DE8\u96C6").onClick(() => {
+            void this.openRuleEditor(capturedRef);
+          })
+        );
+        setting.addExtraButton(
+          (btn) => btn.setIcon("copy").setTooltip("\u8907\u88FD").onClick(() => {
+            this.promptDuplicateRuleFile(capturedRef);
+          })
+        );
+        setting.addExtraButton(
+          (btn) => btn.setIcon("file-edit").setTooltip("\u30D5\u30A1\u30A4\u30EB\u540D\u3092\u5909\u66F4").onClick(() => {
+            this.promptRenameRuleFile(capturedRef, capturedI);
+          })
+        );
+        setting.addExtraButton(
+          (btn) => btn.setIcon("unlink").setTooltip("\u767B\u9332\u89E3\u9664\uFF08\u30D5\u30A1\u30A4\u30EB\u306F\u524A\u9664\u3057\u307E\u305B\u3093\uFF09").onClick(() => {
+            void this.unregisterRuleFile(capturedI);
+          })
+        );
+        setting.addExtraButton(
+          (btn) => btn.setIcon("trash").setTooltip("\u30D5\u30A1\u30A4\u30EB\u3092\u524A\u9664").onClick(() => {
+            this.confirmDeleteRuleFile(capturedRef, capturedI);
+          })
+        );
+      }
+    }));
+    return {
+      type: "group",
+      heading: "\u539F\u7A3F\u30AF\u30EA\u30FC\u30CB\u30F3\u30B0\u5B9A\u7FA9",
+      items: [
+        {
+          name: "\u65E2\u5B9A\u3068\u3057\u3066\u4F7F\u3046\u5B9A\u7FA9\u30D5\u30A1\u30A4\u30EB",
+          desc: descLines(
+            "\u767B\u9332\u6E08\u307F\u306E\u539F\u7A3F\u30AF\u30EA\u30FC\u30CB\u30F3\u30B0\u5B9A\u7FA9\u30D5\u30A1\u30A4\u30EB\u3092\u3001Export \u3068\u6587\u5B57\u6570\u30AB\u30A6\u30F3\u30C8\u306E\u4E21\u65B9\u306E\u65E2\u5B9A\u30EB\u30FC\u30EB\u3068\u3057\u3066\u4F7F\u3044\u307E\u3059\u3002",
+            "\u300C\u7D44\u307F\u8FBC\u307F\u306E\u521D\u671F\u8A2D\u5B9A\u3092\u4F7F\u3046\u300D\u3092\u9078\u3076\u3068\u3001\u5B9A\u7FA9\u30D5\u30A1\u30A4\u30EB\u3092\u4F5C\u3089\u305A\u306B\u6A19\u6E96\u7684\u306A\u30AF\u30EA\u30FC\u30CB\u30F3\u30B0\u30EB\u30FC\u30EB\u3067\u51E6\u7406\u3057\u307E\u3059\u3002",
+            "Export\u30E2\u30FC\u30C0\u30EB\u3092\u958B\u3044\u305F\u3068\u304D\u306B\u306F\u3001\u305D\u306E\u5834\u3067\u4E00\u6642\u7684\u306B\u5225\u306E\u5B9A\u7FA9\u3078\u5207\u308A\u66FF\u3048\u308B\u3053\u3068\u3082\u3067\u304D\u307E\u3059\uFF08\u6587\u5B57\u6570\u30AB\u30A6\u30F3\u30C8\u306B\u306F\u5F71\u97FF\u3057\u307E\u305B\u3093\uFF09\u3002"
+          ),
+          render: (setting) => {
+            setting.addDropdown((drop) => {
+              var _a2;
+              drop.addOption("", "\u7D44\u307F\u8FBC\u307F\u306E\u521D\u671F\u8A2D\u5B9A\u3092\u4F7F\u3046");
+              for (const f of files) {
+                drop.addOption(f.fileName, f.label ? `${f.label}\uFF08${f.fileName}\uFF09` : f.fileName);
+              }
+              drop.setValue((_a2 = this.plugin.settings.defaultManuscriptRulesFileName) != null ? _a2 : "");
+              drop.onChange((value) => {
+                this.plugin.settings.defaultManuscriptRulesFileName = value || void 0;
+                void this.plugin.saveSettings().then(() => this.plugin.refreshActiveManuscriptRules());
+              });
+            });
+            this.renderFullWidthDesc(setting);
+          }
+        },
+        ...fileItems,
+        {
+          name: "\u5B9A\u7FA9\u30D5\u30A1\u30A4\u30EB\u3092\u8FFD\u52A0",
+          desc: descLines(
+            "\u539F\u7A3F\u30AF\u30EA\u30FC\u30CB\u30F3\u30B0\u306E\u30EB\u30FC\u30EB\u3092\u307E\u3068\u3081\u305F manuscript-rules.json \u3092\u65B0\u898F\u4F5C\u6210\u3001\u307E\u305F\u306F\u65E2\u5B58\u30D5\u30A1\u30A4\u30EB\u3092\u767B\u9332\u3057\u307E\u3059\u3002",
+            `\u4FDD\u5B58\u5148\u306F\u30D7\u30E9\u30B0\u30A4\u30F3\u5C02\u7528\u30D5\u30A9\u30EB\u30C0\uFF08${this.plugin.pluginDir}/rules/\uFF09\u306B\u56FA\u5B9A\u3055\u308C\u3066\u3044\u307E\u3059\u3002`
+          ),
+          render: (setting) => {
+            setting.addButton(
+              (btn) => btn.setButtonText("\u5B9A\u7FA9\u30D5\u30A1\u30A4\u30EB\u3092\u8FFD\u52A0").setCta().onClick(() => {
+                this.promptAddRuleFile();
+              })
+            );
+          }
+        }
+      ]
+    };
+  }
+  // ─────────────────────────────────────────
+  // 「定義ファイルを追加」ダイアログ
+  // 新規作成／既存ファイルの登録の両方をこの1つのダイアログで扱う。
+  // 保存先フォルダは固定のため、指定するのはファイル名のみ。
+  // ─────────────────────────────────────────
+  promptAddRuleFile() {
+    let name = "\u65B0\u3057\u3044\u5B9A\u7FA9\u30D5\u30A1\u30A4\u30EB";
+    let fileName = "manuscript-rules.json";
+    let registerExisting = false;
+    const modal = new import_obsidian6.ConfirmationModal(this.app);
+    modal.setTitle("\u5B9A\u7FA9\u30D5\u30A1\u30A4\u30EB\u3092\u8FFD\u52A0");
+    modal.setContent(createFragment((frag) => {
+      const el = frag.createDiv();
+      new import_obsidian6.Setting(el).setName("\u8868\u793A\u540D").setDesc("\u4E00\u89A7\u306B\u8868\u793A\u3059\u308B\u4EFB\u610F\u306E\u30E9\u30D9\u30EB\u3067\u3059\uFF08\u7701\u7565\u53EF\uFF09\u3002").addText((text) => {
+        text.setPlaceholder("\u4F8B\uFF1A\u30C7\u30D5\u30A9\u30EB\u30C8\u5B9A\u7FA9");
+        text.onChange((v) => {
+          name = v;
+        });
+      });
+      new import_obsidian6.Setting(el).setName("\u30D5\u30A1\u30A4\u30EB\u540D").setDesc(`\u5B9A\u7FA9\u30D5\u30A1\u30A4\u30EB\u306F\u30D7\u30E9\u30B0\u30A4\u30F3\u5C02\u7528\u30D5\u30A9\u30EB\u30C0\uFF08${this.plugin.pluginDir}/rules/\uFF09\u306B\u4FDD\u5B58\u3055\u308C\u307E\u3059\u3002`).addText((text) => {
+        text.setValue(fileName);
+        text.onChange((v) => {
+          fileName = v;
+        });
+        window.setTimeout(() => text.inputEl.focus());
+      });
+      new import_obsidian6.Setting(el).setName("\u65E2\u5B58\u306E\u30D5\u30A1\u30A4\u30EB\u3092\u767B\u9332\u3059\u308B").setDesc("\u30AA\u30F3\u306B\u3059\u308B\u3068\u3001\u30D7\u30E9\u30B0\u30A4\u30F3\u5C02\u7528\u30D5\u30A9\u30EB\u30C0\u306B\u65E2\u306B\u7F6E\u304B\u308C\u3066\u3044\u308B\u540C\u540D\u306E\u30D5\u30A1\u30A4\u30EB\u3092\u3001\u65B0\u898F\u4F5C\u6210\u305B\u305A\u767B\u9332\u3057\u307E\u3059\u3002").addToggle((toggle) => {
+        toggle.setValue(false).onChange((v) => {
+          registerExisting = v;
+        });
+      });
+    }));
+    modal.addButton((b) => b.setButtonText("\u30AD\u30E3\u30F3\u30BB\u30EB").setCancel());
+    modal.addButton(
+      (b) => b.setButtonText("\u8FFD\u52A0").setCta().onClick(() => {
+        void this.addRuleFile(name, fileName, registerExisting);
+      })
+    );
+    modal.open();
+  }
+  async addRuleFile(name, rawFileName, registerExisting) {
+    var _a;
+    let fileName;
+    try {
+      fileName = normalizeRuleFileName(rawFileName);
+    } catch (e) {
+      new import_obsidian6.Notice(e instanceof ManuscriptRulesFileError ? e.message : String(e));
+      return;
+    }
+    if (((_a = this.plugin.settings.manuscriptRulesFiles) != null ? _a : []).some((f) => f.fileName === fileName)) {
+      new import_obsidian6.Notice("\u305D\u306E\u30D5\u30A1\u30A4\u30EB\u540D\u306F\u65E2\u306B\u767B\u9332\u3055\u308C\u3066\u3044\u307E\u3059\u3002");
+      return;
+    }
+    try {
+      if (registerExisting) {
+        await readRuleFile(this.app, this.plugin.pluginDir, fileName);
+      } else {
+        await createRuleFile(this.app, this.plugin.pluginDir, fileName, name || void 0);
+      }
+      if (!this.plugin.settings.manuscriptRulesFiles) this.plugin.settings.manuscriptRulesFiles = [];
+      const ref = { fileName, label: name || void 0 };
+      this.plugin.settings.manuscriptRulesFiles.push(ref);
+      await this.plugin.saveSettings();
+      await this.plugin.refreshActiveManuscriptRules();
+      new import_obsidian6.Notice(`\u5B9A\u7FA9\u30D5\u30A1\u30A4\u30EB\u3092\u8FFD\u52A0\u3057\u307E\u3057\u305F\uFF1A${fileName}`);
+      this.update();
+    } catch (e) {
+      const message = e instanceof ManuscriptRulesFileError ? e.message : String(e);
+      new import_obsidian6.Notice(`\u5B9A\u7FA9\u30D5\u30A1\u30A4\u30EB\u306E\u8FFD\u52A0\u306B\u5931\u6557\u3057\u307E\u3057\u305F\uFF1A${message}`);
+    }
+  }
+  async openRuleEditor(ref) {
+    let def;
+    try {
+      def = await readRuleFile(this.app, this.plugin.pluginDir, ref.fileName);
+    } catch (e) {
+      const message = e instanceof ManuscriptRulesFileError ? e.message : String(e);
+      new import_obsidian6.Notice(`\u5B9A\u7FA9\u30D5\u30A1\u30A4\u30EB\u3092\u8AAD\u307F\u8FBC\u3081\u307E\u305B\u3093\u3067\u3057\u305F\uFF1A${message}`);
+      return;
+    }
+    new RuleEditorModal(this.app, def, async (updated) => {
+      try {
+        await updateRuleFile(this.app, this.plugin.pluginDir, ref.fileName, updated);
+        ref.label = updated.name;
+        await this.plugin.saveSettings();
+        await this.plugin.refreshActiveManuscriptRules();
+        new import_obsidian6.Notice(`\u4FDD\u5B58\u3057\u307E\u3057\u305F\uFF1A${ref.fileName}`);
+        this.update();
+      } catch (e) {
+        const message = e instanceof ManuscriptRulesFileError ? e.message : String(e);
+        new import_obsidian6.Notice(`\u4FDD\u5B58\u306B\u5931\u6557\u3057\u307E\u3057\u305F\uFF1A${message}`);
+      }
+    }).open();
+  }
+  promptDuplicateRuleFile(ref) {
+    const suggestedFileName = ref.fileName.replace(/(\.json)?$/, (m) => `-copy${m || ".json"}`);
+    let destFileName = suggestedFileName;
+    let newName = ref.label ? `${ref.label}\u306E\u30B3\u30D4\u30FC` : "";
+    const modal = new import_obsidian6.ConfirmationModal(this.app);
+    modal.setTitle("\u5B9A\u7FA9\u30D5\u30A1\u30A4\u30EB\u3092\u8907\u88FD");
+    modal.setContent(createFragment((frag) => {
+      const el = frag.createDiv();
+      new import_obsidian6.Setting(el).setName("\u8907\u88FD\u5F8C\u306E\u8868\u793A\u540D").addText((text) => {
+        text.setValue(newName);
+        text.onChange((v) => {
+          newName = v;
+        });
+      });
+      new import_obsidian6.Setting(el).setName("\u8907\u88FD\u5F8C\u306E\u30D5\u30A1\u30A4\u30EB\u540D").addText((text) => {
+        text.setValue(destFileName);
+        text.onChange((v) => {
+          destFileName = v;
+        });
+        window.setTimeout(() => text.inputEl.focus());
+      });
+    }));
+    modal.addButton((b) => b.setButtonText("\u30AD\u30E3\u30F3\u30BB\u30EB").setCancel());
+    modal.addButton(
+      (b) => b.setButtonText("\u8907\u88FD").setCta().onClick(() => {
+        void this.doDuplicateRuleFile(ref, destFileName, newName);
+      })
+    );
+    modal.open();
+  }
+  async doDuplicateRuleFile(ref, rawDestFileName, newName) {
+    var _a;
+    let destFileName;
+    try {
+      destFileName = normalizeRuleFileName(rawDestFileName);
+    } catch (e) {
+      new import_obsidian6.Notice(e instanceof ManuscriptRulesFileError ? e.message : String(e));
+      return;
+    }
+    if (((_a = this.plugin.settings.manuscriptRulesFiles) != null ? _a : []).some((f) => f.fileName === destFileName)) {
+      new import_obsidian6.Notice("\u305D\u306E\u30D5\u30A1\u30A4\u30EB\u540D\u306F\u65E2\u306B\u767B\u9332\u3055\u308C\u3066\u3044\u307E\u3059\u3002");
+      return;
+    }
+    try {
+      await duplicateRuleFile(this.app, this.plugin.pluginDir, ref.fileName, destFileName, newName || void 0);
+      this.plugin.settings.manuscriptRulesFiles.push({ fileName: destFileName, label: newName || void 0 });
+      await this.plugin.saveSettings();
+      await this.plugin.refreshActiveManuscriptRules();
+      new import_obsidian6.Notice(`\u8907\u88FD\u3057\u307E\u3057\u305F\uFF1A${destFileName}`);
+      this.update();
+    } catch (e) {
+      const message = e instanceof ManuscriptRulesFileError ? e.message : String(e);
+      new import_obsidian6.Notice(`\u8907\u88FD\u306B\u5931\u6557\u3057\u307E\u3057\u305F\uFF1A${message}`);
+    }
+  }
+  promptRenameRuleFile(ref, index) {
+    let newFileName = ref.fileName;
+    const modal = new import_obsidian6.ConfirmationModal(this.app);
+    modal.setTitle("\u30D5\u30A1\u30A4\u30EB\u540D\u3092\u5909\u66F4");
+    modal.setContent(createFragment((frag) => {
+      const el = frag.createDiv();
+      new import_obsidian6.Setting(el).setName("\u65B0\u3057\u3044\u30D5\u30A1\u30A4\u30EB\u540D").setDesc(`\u4FDD\u5B58\u5148\u306F\u30D7\u30E9\u30B0\u30A4\u30F3\u5C02\u7528\u30D5\u30A9\u30EB\u30C0\uFF08${this.plugin.pluginDir}/rules/\uFF09\u306B\u56FA\u5B9A\u3055\u308C\u3066\u3044\u307E\u3059\u3002`).addText((text) => {
+        text.setValue(newFileName);
+        text.onChange((v) => {
+          newFileName = v;
+        });
+        window.setTimeout(() => text.inputEl.focus());
+      });
+    }));
+    modal.addButton((b) => b.setButtonText("\u30AD\u30E3\u30F3\u30BB\u30EB").setCancel());
+    modal.addButton(
+      (b) => b.setButtonText("\u5909\u66F4").setCta().onClick(() => {
+        void this.doRenameRuleFile(ref, index, newFileName);
+      })
+    );
+    modal.open();
+  }
+  async doRenameRuleFile(ref, index, rawNewFileName) {
+    var _a;
+    let newFileName;
+    try {
+      newFileName = normalizeRuleFileName(rawNewFileName);
+    } catch (e) {
+      new import_obsidian6.Notice(e instanceof ManuscriptRulesFileError ? e.message : String(e));
+      return;
+    }
+    if (newFileName === ref.fileName) return;
+    if (((_a = this.plugin.settings.manuscriptRulesFiles) != null ? _a : []).some((f, i) => i !== index && f.fileName === newFileName)) {
+      new import_obsidian6.Notice("\u305D\u306E\u30D5\u30A1\u30A4\u30EB\u540D\u306F\u65E2\u306B\u767B\u9332\u3055\u308C\u3066\u3044\u307E\u3059\u3002");
+      return;
+    }
+    try {
+      await renameRuleFile(this.app, this.plugin.pluginDir, ref.fileName, newFileName);
+      const oldFileName = ref.fileName;
+      this.plugin.settings.manuscriptRulesFiles[index] = { ...ref, fileName: newFileName };
+      if (this.plugin.settings.defaultManuscriptRulesFileName === oldFileName) {
+        this.plugin.settings.defaultManuscriptRulesFileName = newFileName;
+      }
+      await this.plugin.saveSettings();
+      await this.plugin.refreshActiveManuscriptRules();
+      new import_obsidian6.Notice(`\u30D5\u30A1\u30A4\u30EB\u540D\u3092\u5909\u66F4\u3057\u307E\u3057\u305F\uFF1A${newFileName}`);
+      this.update();
+    } catch (e) {
+      const message = e instanceof ManuscriptRulesFileError ? e.message : String(e);
+      new import_obsidian6.Notice(`\u5909\u66F4\u306B\u5931\u6557\u3057\u307E\u3057\u305F\uFF1A${message}`);
+    }
+  }
+  // 一覧からの登録解除のみ（実ファイルは削除しない）
+  async unregisterRuleFile(index) {
+    var _a;
+    const files = (_a = this.plugin.settings.manuscriptRulesFiles) != null ? _a : [];
+    const removed = files.splice(index, 1)[0];
+    if (removed && this.plugin.settings.defaultManuscriptRulesFileName === removed.fileName) {
+      this.plugin.settings.defaultManuscriptRulesFileName = void 0;
+    }
+    await this.plugin.saveSettings();
+    await this.plugin.refreshActiveManuscriptRules();
+    if (removed) new import_obsidian6.Notice(`\u767B\u9332\u3092\u89E3\u9664\u3057\u307E\u3057\u305F\uFF1A${removed.fileName}`);
+    this.update();
+  }
+  confirmDeleteRuleFile(ref, index) {
+    new import_obsidian6.ConfirmationModal(this.app).setTitle("\u5B9A\u7FA9\u30D5\u30A1\u30A4\u30EB\u3092\u524A\u9664").setContent(`${ref.fileName} \u3092\u5B8C\u5168\u306B\u524A\u9664\u3057\u307E\u3059\u3002\u3088\u308D\u3057\u3044\u3067\u3059\u304B\uFF1F\uFF08\u3053\u306E\u64CD\u4F5C\u306F\u4E00\u89A7\u304B\u3089\u306E\u767B\u9332\u89E3\u9664\u3082\u540C\u6642\u306B\u884C\u3044\u307E\u3059\uFF09`).addButton((b) => b.setButtonText("\u30AD\u30E3\u30F3\u30BB\u30EB").setCancel().setInitialFocus()).addButton(
+      (b) => b.setButtonText("\u524A\u9664").setDestructive().onClick(async () => {
+        try {
+          await deleteRuleFile(this.app, this.plugin.pluginDir, ref.fileName);
+          this.plugin.settings.manuscriptRulesFiles.splice(index, 1);
+          if (this.plugin.settings.defaultManuscriptRulesFileName === ref.fileName) {
+            this.plugin.settings.defaultManuscriptRulesFileName = void 0;
+          }
+          await this.plugin.saveSettings();
+          await this.plugin.refreshActiveManuscriptRules();
+          new import_obsidian6.Notice(`\u524A\u9664\u3057\u307E\u3057\u305F\uFF1A${ref.fileName}`);
+          this.update();
+        } catch (e) {
+          const message = e instanceof ManuscriptRulesFileError ? e.message : String(e);
+          new import_obsidian6.Notice(`\u524A\u9664\u306B\u5931\u6557\u3057\u307E\u3057\u305F\uFF1A${message}`);
+        }
+      })
+    ).open();
+  }
 };
+
+// src/manuscript-rules/cleaner/protect.ts
+function protectMatches(source, regex, prefix, replacer) {
+  const preserved = [];
+  const text = source.replace(regex, (...args) => {
+    const match = args[0];
+    const content = replacer ? replacer(...args) : match;
+    const token = `\0MRP:${prefix}:${preserved.length}\0`;
+    preserved.push(content);
+    return token;
+  });
+  const tokenRe = new RegExp(`\\u0000MRP:${prefix}:(\\d+)\\u0000`, "g");
+  return {
+    text,
+    restore: (t) => t.replace(tokenRe, (_m, i) => {
+      var _a;
+      return (_a = preserved[Number(i)]) != null ? _a : "";
+    })
+  };
+}
 
 // src/core/hashtags.ts
 function stripHashtags(text) {
@@ -2448,116 +3414,7 @@ function stripHashtags(text) {
   return text;
 }
 
-// src/core/wordCount.ts
-function cleanNovelText(raw) {
-  let text = raw;
-  text = text.replace(/^---[ \t]*\n[\s\S]*?\n---[ \t]*\n?/, "");
-  text = text.replace(/%%[\s\S]*?%%/g, "");
-  text = text.replace(/<rt[^>]*>[\s\S]*?<\/rt>/gi, "");
-  text = text.replace(/<\/?ruby[^>]*>/gi, "");
-  text = text.replace(/<[^>]+>/g, "");
-  text = text.replace(/^```[\s\S]*?^```\s*$/gm, "");
-  text = text.replace(/^~~~[\s\S]*?^~~~\s*$/gm, "");
-  text = text.replace(/`[^`]*`/g, "");
-  text = text.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, "$2");
-  text = text.replace(/\[\[([^\]]+)\]\]/g, "$1");
-  text = text.replace(/^#{1,6}\s+/gm, "");
-  text = text.replace(/^>\s?/gm, "");
-  text = text.replace(/^[ \t]*[-*+]\s+/gm, "");
-  text = text.replace(/^[ \t]*\d+\.\s+/gm, "");
-  text = text.replace(/(\*{1,3}|_{1,3})([\s\S]*?)\1/g, "$2");
-  text = text.replace(/[|｜]([^《\n]+)《[^》]*》/g, "$1");
-  text = text.replace(new RegExp("([" + CJK_PATTERN + "]+)\u300A[^\u300B]*\u300B", "gu"), "$1");
-  text = text.replace(/\{([^|]+)\|[^}]+\}/g, "$1");
-  text = text.replace(/^[-*_]{3,}\s*$/gm, "");
-  text = text.replace(/!\[[^\]]*\]\([^)]+\)/g, "");
-  text = text.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
-  return text;
-}
-function charWidth(ch) {
-  var _a;
-  const code = (_a = ch.codePointAt(0)) != null ? _a : 0;
-  if (code >= 32 && code <= 126 || // ASCII 印刷可能文字
-  code >= 65377 && code <= 65439) {
-    return 0.5;
-  }
-  return 1;
-}
-function applyCountSettings(cleaned, settings) {
-  if (!settings.countHashtags) {
-    cleaned = stripHashtags(cleaned);
-    cleaned = cleaned.replace(/[ \t\u3000]{2,}/g, " ");
-  }
-  if (!settings.countEmptyLines) {
-    cleaned = cleaned.replace(/^[ \t\u3000]*\n/gm, "");
-  }
-  if (!settings.countFullWidthSpace) {
-    cleaned = cleaned.replace(/\u3000/g, "");
-  }
-  cleaned = cleaned.replace(/[ \t]/g, "");
-  cleaned = cleaned.replace(/\n/g, "");
-  return cleaned;
-}
-function countCharacters(text, settings) {
-  const cleaned = applyCountSettings(cleanNovelText(text), settings);
-  const raw = [...cleaned].length;
-  let novel = 0;
-  for (const ch of cleaned) {
-    novel += charWidth(ch);
-  }
-  novel = Math.round(novel * 10) / 10;
-  const manuscript = Math.round(raw / 400 * 10) / 10;
-  return { raw, novel, manuscript };
-}
-function mergeRanges(ranges) {
-  if (ranges.length === 0) return [];
-  const sorted = [...ranges].sort((a, b) => a.start - b.start || a.end - b.end);
-  const merged = [{ ...sorted[0] }];
-  for (let i = 1; i < sorted.length; i++) {
-    const current = sorted[i];
-    const last = merged[merged.length - 1];
-    if (current.start <= last.end) {
-      last.end = Math.max(last.end, current.end);
-    } else {
-      merged.push({ ...current });
-    }
-  }
-  return merged;
-}
-function countNarrativeAndDialogue(text, settings) {
-  const cleaned = applyCountSettings(cleanNovelText(text), settings);
-  const totalChars = [...cleaned].length;
-  const enabledBrackets = settings.bracketDefinitions.filter((bd) => bd.enabled);
-  const matches = parseBrackets(cleaned, enabledBrackets);
-  const merged = mergeRanges(matches.map((m) => ({ start: m.start, end: m.end })));
-  let dialogueChars = 0;
-  for (const range of merged) {
-    dialogueChars += [...cleaned.slice(range.start, range.end)].length;
-  }
-  const narrativeChars = totalChars - dialogueChars;
-  return { narrativeChars, dialogueChars };
-}
-function formatCount(result, mode) {
-  switch (mode) {
-    case "raw":
-      return `${result.raw.toLocaleString()} \u5B57`;
-    case "novel":
-      return `${result.novel.toLocaleString()} \u5B57\uFF08\u5C0F\u8AAC\u63DB\u7B97\uFF09`;
-    case "manuscript":
-      return `${result.manuscript.toLocaleString()} \u679A\uFF08400\u5B57\u8A70\u3081\uFF09`;
-  }
-}
-
-// src/export/exportModal.ts
-var import_obsidian5 = require("obsidian");
-
-// src/export/exporter.ts
-var DEFAULT_EXPORT_OPTIONS = {
-  format: "txt",
-  removeBlankLines: true,
-  rubyConvert: "none",
-  sourceRubyStyle: "narou"
-};
+// src/manuscript-rules/utils/rubyConvert.ts
 function rubyPairToStyle(base, ruby, target) {
   switch (target) {
     case "none":
@@ -2588,37 +3445,380 @@ function convertRubyStyle(text, sourceStyle, target) {
   result += text.slice(cursor);
   return result;
 }
-function exportText(source, opts) {
-  let text = source;
-  text = text.replace(/^---[ \t]*\n[\s\S]*?\n---[ \t]*\n?/, "");
-  text = text.replace(/%%[\s\S]*?%%/g, "");
-  text = text.replace(/^(>[ \t]*\[![\w-]+\][^\n]*\n(?:>[ \t]*[^\n]*\n?)*)/gm, "");
-  text = text.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, "$2");
-  text = text.replace(/\[\[([^\]]+)\]\]/g, "$1");
+
+// src/manuscript-rules/parser/patterns.ts
+var FRONTMATTER_RE = /^---[ \t]*\n[\s\S]*?\n---[ \t]*\n?/;
+var COMMENT_RE = /%%[\s\S]*?%%/g;
+var CALLOUT_BLOCK_RE = /^(>[ \t]*\[![\w-]+\][^\n]*\n(?:>[ \t]*[^\n]*\n?)*)/gm;
+var CALLOUT_LINE_RE = /^>[ \t]?(\[![\w-]+\][ \t]*)?(.*)$/gm;
+var BLOCKQUOTE_BLOCK_RE = /^(?!>[ \t]*\[![\w-]+\])(>[ \t]?[^\n]*\n?)+/gm;
+var BLOCKQUOTE_LINE_RE = /^>[ \t]?(.*)$/gm;
+var WIKILINK_PIPE_RE = /\[\[([^\]|]+)\|([^\]]+)\]\]/g;
+var WIKILINK_PLAIN_RE = /\[\[([^\]]+)\]\]/g;
+var HEADING_RE = /^(#{1,6})([ \t]+)(.*)$/gm;
+var LIST_UNORDERED_LINE_RE = /^([ \t]*)([-*+])([ \t]+)(.*)$/gm;
+var LIST_ORDERED_LINE_RE = /^([ \t]*)(\d+\.)([ \t]+)(.*)$/gm;
+var EMPHASIS_RE = /(\*{1,3}|_{1,3})([\s\S]*?)\1/g;
+var HORIZONTAL_RULE_RE = /^[ \t]*[-*_]{3,}[ \t]*$/gm;
+var CODE_FENCE_BACKTICK_RE = /^```[\s\S]*?^```[ \t]*$/gm;
+var CODE_FENCE_TILDE_RE = /^~~~[\s\S]*?^~~~[ \t]*$/gm;
+var CODE_FENCE_BACKTICK_CAPTURE_RE = /^```[^\n]*\n([\s\S]*?)^```[ \t]*$/gm;
+var CODE_FENCE_TILDE_CAPTURE_RE = /^~~~[^\n]*\n([\s\S]*?)^~~~[ \t]*$/gm;
+var INLINE_CODE_RE = /`([^`]+)`/g;
+var IMAGE_RE = /!\[[^\]]*\]\([^)]+\)/g;
+var MARKDOWN_LINK_OR_IMAGE_RE = /(!)?\[([^\]]+)\]\(([^)]+)\)/g;
+var BLOCK_HTML_LINE_RE = /^[ \t]*<(?!\/?(ruby|rt)\b)[^>]+>[ \t]*$/gim;
+var HTML_TAG_RE = /<(?!\/?(ruby|rt)\b)[^>]+>/gi;
+
+// src/manuscript-rules/cleaner/elementCleaner.ts
+function applyFrontmatterRule(text, rule) {
+  if (!rule || rule.action === "keep") return text;
+  return text.replace(FRONTMATTER_RE, "");
+}
+function applyCommentRule(text, rule) {
+  if (!rule || rule.action === "keep") return text;
+  return text.replace(COMMENT_RE, "");
+}
+function applyCalloutRule(text, rule) {
+  if (!rule || rule.action === "keep") {
+    return protectMatches(text, CALLOUT_BLOCK_RE, "callout");
+  }
+  if (rule.action === "remove") {
+    return { text: text.replace(CALLOUT_BLOCK_RE, ""), restore: (t) => t };
+  }
+  const edited = text.replace(CALLOUT_BLOCK_RE, (block) => {
+    const stripped = block.replace(
+      CALLOUT_LINE_RE,
+      (_m, header, rest) => {
+        if (header) {
+          return header.replace(/^\[![\w-]+\][ \t]*/, "") + rest;
+        }
+        return rest;
+      }
+    );
+    return stripped.replace(/[ \t]+$/gm, "");
+  });
+  return { text: edited, restore: (t) => t };
+}
+function applyHeadingRule(text, rule) {
+  if (!rule || rule.action === "keep") return text;
+  if (rule.action === "remove") {
+    return text.replace(HEADING_RE, "");
+  }
+  return text.replace(HEADING_RE, (_m, _marks, _sp, content) => content);
+}
+function applyBlockquoteRule(text, rule) {
+  if (!rule || rule.action === "keep") return text;
+  if (rule.action === "remove") {
+    return text.replace(BLOCKQUOTE_BLOCK_RE, "");
+  }
+  return text.replace(
+    BLOCKQUOTE_BLOCK_RE,
+    (block) => block.replace(BLOCKQUOTE_LINE_RE, (_m, rest) => rest)
+  );
+}
+function applyListRule(text, rule) {
+  if (!rule || rule.action === "keep") return text;
+  if (rule.action === "remove") {
+    return text.replace(LIST_UNORDERED_LINE_RE, "").replace(LIST_ORDERED_LINE_RE, "");
+  }
+  return text.replace(
+    LIST_UNORDERED_LINE_RE,
+    (_m, _indent, _marker, _sp, content) => content
+  ).replace(
+    LIST_ORDERED_LINE_RE,
+    (_m, _indent, _marker, _sp, content) => content
+  );
+}
+function applyEmphasisRule(text, rule) {
+  if (!rule || rule.action === "keep") return text;
+  if (rule.action === "remove") {
+    return text.replace(EMPHASIS_RE, "");
+  }
+  return text.replace(EMPHASIS_RE, (_m, _mark, content) => content);
+}
+function applyHorizontalRuleRule(text, rule) {
+  if (!rule || rule.action === "keep") return text;
+  return text.replace(HORIZONTAL_RULE_RE, "");
+}
+function applyImageRule(text, rule) {
+  if (!rule || rule.action === "keep") return text;
+  return text.replace(IMAGE_RE, "");
+}
+function applyMarkdownLinkRule(text, rule) {
+  if (!rule) return text;
+  return text.replace(
+    MARKDOWN_LINK_OR_IMAGE_RE,
+    (whole, bang, display, _url) => {
+      if (bang) return whole;
+      if (rule.action === "keep") return whole;
+      if (rule.action === "remove") return "";
+      return display;
+    }
+  );
+}
+function applyWikilinkRule(text, rule) {
+  var _a;
+  if (!rule || rule.action === "keep") return text;
+  if (rule.action === "remove") {
+    return text.replace(WIKILINK_PIPE_RE, "").replace(WIKILINK_PLAIN_RE, "");
+  }
+  const editMode = (_a = rule.editMode) != null ? _a : "displayText";
+  if (editMode === "fileName") {
+    return text.replace(WIKILINK_PIPE_RE, (_m, fileName) => fileName).replace(WIKILINK_PLAIN_RE, (_m, fileName) => fileName);
+  }
+  return text.replace(WIKILINK_PIPE_RE, (_m, _fileName, alias) => alias).replace(WIKILINK_PLAIN_RE, (_m, fileName) => fileName);
+}
+function applyTagRule(text, rule) {
+  if (!rule || rule.action === "keep") return text;
   text = stripHashtags(text);
   text = text.replace(/[ \t\u3000]{2,}/g, " ");
   text = text.replace(/^[ \t\u3000]+$/gm, "");
-  text = text.replace(/^#{1,6}[ \t]+/gm, "");
-  text = text.replace(/^>[ \t]?/gm, "");
-  text = text.replace(/^[ \t]*[-*+][ \t]+/gm, "");
-  text = text.replace(/^[ \t]*\d+\.[ \t]+/gm, "");
-  text = text.replace(/(\*{1,3}|_{1,3})([\s\S]*?)\1/g, "$2");
-  text = text.replace(/^[-*_]{3,}[ \t]*$/gm, "");
-  text = text.replace(/^```[\s\S]*?^```[ \t]*$/gm, "");
-  text = text.replace(/^~~~[\s\S]*?^~~~[ \t]*$/gm, "");
-  text = text.replace(/`([^`]+)`/g, "$1");
-  text = text.replace(/!\[[^\]]*\]\([^)]+\)/g, "");
-  text = text.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
-  text = text.replace(/<(?!\/?(ruby|rt)\b)[^>]+>/gi, "");
-  if (opts.rubyConvert !== "none") {
-    text = convertRubyStyle(text, opts.sourceRubyStyle, opts.rubyConvert);
-  }
-  if (opts.removeBlankLines) {
-    text = text.replace(/\n{3,}/g, "\n\n");
-  }
-  text = text.replace(/[\s\n]+$/, "") + "\n";
   return text;
 }
+function applyBlockHtmlRule(text, rule) {
+  if (!rule || rule.action === "keep") return text;
+  return text.replace(BLOCK_HTML_LINE_RE, "");
+}
+function applyInlineHtmlRule(text, rule) {
+  if (!rule || rule.action === "keep") return text;
+  return text.replace(HTML_TAG_RE, "");
+}
+function applyRubyRule(text, rule, sourceRubyStyle) {
+  if (!rule || rule.mode === "none") return text;
+  return convertRubyStyle(text, sourceRubyStyle, rule.mode);
+}
+
+// src/manuscript-rules/cleaner/codeCleaner.ts
+function applyCodeBlockRule(text, rule) {
+  if (!rule || rule.action === "keep") {
+    const backtick2 = protectMatches(text, CODE_FENCE_BACKTICK_RE, "codeblock-bt");
+    const tilde2 = protectMatches(backtick2.text, CODE_FENCE_TILDE_RE, "codeblock-tl");
+    return {
+      text: tilde2.text,
+      restore: (t) => backtick2.restore(tilde2.restore(t))
+    };
+  }
+  if (rule.action === "remove") {
+    return {
+      text: text.replace(CODE_FENCE_BACKTICK_RE, "").replace(CODE_FENCE_TILDE_RE, ""),
+      restore: (t) => t
+    };
+  }
+  const backtick = protectMatches(
+    text,
+    CODE_FENCE_BACKTICK_CAPTURE_RE,
+    "codeblock-bt",
+    (_m, inner) => inner.replace(/\n$/, "")
+  );
+  const tilde = protectMatches(
+    backtick.text,
+    CODE_FENCE_TILDE_CAPTURE_RE,
+    "codeblock-tl",
+    (_m, inner) => inner.replace(/\n$/, "")
+  );
+  return {
+    text: tilde.text,
+    restore: (t) => backtick.restore(tilde.restore(t))
+  };
+}
+function applyInlineCodeRule(text, rule) {
+  if (!rule || rule.action === "keep") {
+    const session2 = protectMatches(text, INLINE_CODE_RE, "inlinecode");
+    return session2;
+  }
+  if (rule.action === "remove") {
+    return { text: text.replace(INLINE_CODE_RE, ""), restore: (t) => t };
+  }
+  const session = protectMatches(text, INLINE_CODE_RE, "inlinecode", (_m, inner) => inner);
+  return session;
+}
+
+// src/manuscript-rules/cleaner/normalizer.ts
+function applyBlankLinesRule(text, rule) {
+  var _a;
+  if (!rule || rule.action === "keep") return text;
+  const maxConsecutive = (_a = rule.maxConsecutive) != null ? _a : 1;
+  const threshold = maxConsecutive + 2;
+  const replacement = "\n".repeat(maxConsecutive + 1);
+  const re = new RegExp(`\\n{${threshold},}`, "g");
+  return text.replace(re, replacement);
+}
+function applyTrailingWhitespaceRule(text, rule) {
+  if (!rule || rule.action === "keep") return text;
+  return text.replace(/[\s\n]+$/, "") + "\n";
+}
+
+// src/manuscript-rules/cleaner/manuscriptCleaner.ts
+function cleanManuscript(source, rules, sourceRubyStyle) {
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s;
+  let text = source;
+  const codeBlockRule = (_a = rules.block) == null ? void 0 : _a.codeBlock;
+  const inlineCodeRule = (_b = rules.inline) == null ? void 0 : _b.inlineCode;
+  const codeBlockIsLateRemove = (codeBlockRule == null ? void 0 : codeBlockRule.action) === "remove";
+  text = applyFrontmatterRule(text, (_c = rules.metadata) == null ? void 0 : _c.frontmatter);
+  text = applyCommentRule(text, (_d = rules.block) == null ? void 0 : _d.comment);
+  let codeBlockResult = { text, restore: (t) => t };
+  let inlineCodeResult = { text, restore: (t) => t };
+  if (!codeBlockIsLateRemove) {
+    codeBlockResult = applyCodeBlockRule(text, codeBlockRule);
+    text = codeBlockResult.text;
+    inlineCodeResult = applyInlineCodeRule(text, inlineCodeRule);
+    text = inlineCodeResult.text;
+  }
+  const calloutResult = applyCalloutRule(text, (_e = rules.block) == null ? void 0 : _e.callout);
+  text = calloutResult.text;
+  text = applyWikilinkRule(text, (_f = rules.inline) == null ? void 0 : _f.wikilink);
+  text = applyTagRule(text, (_g = rules.inline) == null ? void 0 : _g.tag);
+  text = applyHeadingRule(text, (_h = rules.block) == null ? void 0 : _h.heading);
+  text = applyBlockquoteRule(text, (_i = rules.block) == null ? void 0 : _i.blockquote);
+  text = applyListRule(text, (_j = rules.block) == null ? void 0 : _j.list);
+  text = applyEmphasisRule(text, (_k = rules.inline) == null ? void 0 : _k.emphasis);
+  text = applyHorizontalRuleRule(text, (_l = rules.block) == null ? void 0 : _l.horizontalRule);
+  if (codeBlockIsLateRemove) {
+    codeBlockResult = applyCodeBlockRule(text, codeBlockRule);
+    text = codeBlockResult.text;
+    inlineCodeResult = applyInlineCodeRule(text, inlineCodeRule);
+    text = inlineCodeResult.text;
+  }
+  text = applyImageRule(text, (_m = rules.inline) == null ? void 0 : _m.image);
+  text = applyMarkdownLinkRule(text, (_n = rules.inline) == null ? void 0 : _n.markdownLink);
+  text = applyBlockHtmlRule(text, (_o = rules.block) == null ? void 0 : _o.html);
+  text = applyInlineHtmlRule(text, (_p = rules.inline) == null ? void 0 : _p.html);
+  text = applyRubyRule(text, (_q = rules.inline) == null ? void 0 : _q.ruby, sourceRubyStyle);
+  text = applyBlankLinesRule(text, (_r = rules.document) == null ? void 0 : _r.blankLines);
+  text = applyTrailingWhitespaceRule(text, (_s = rules.document) == null ? void 0 : _s.trailingWhitespace);
+  text = inlineCodeResult.restore(text);
+  text = codeBlockResult.restore(text);
+  text = calloutResult.restore(text);
+  return text;
+}
+
+// src/core/wordCount.ts
+function charWidth(ch) {
+  var _a;
+  const code = (_a = ch.codePointAt(0)) != null ? _a : 0;
+  if (code >= 32 && code <= 126 || // ASCII 印刷可能文字
+  code >= 65377 && code <= 65439) {
+    return 0.5;
+  }
+  return 1;
+}
+function finalizeCountText(cleaned, settings) {
+  if (!settings.countFullWidthSpace) {
+    cleaned = cleaned.replace(/\u3000/g, "");
+  }
+  cleaned = cleaned.replace(/[ \t]/g, "");
+  cleaned = cleaned.replace(/\n/g, "");
+  return cleaned;
+}
+function buildCountableText(text, settings, rules) {
+  if (!settings.countRubyText) {
+    const baseRules = {
+      ...rules,
+      inline: { ...rules.inline, ruby: { mode: "remove" } }
+    };
+    return cleanManuscript(text, baseRules, settings.rubyStyle);
+  }
+  const notationRules = {
+    ...rules,
+    inline: { ...rules.inline, ruby: { mode: "none" } }
+  };
+  const withRubyNotation = cleanManuscript(text, notationRules, settings.rubyStyle);
+  const matches = findRubyMatches(withRubyNotation, settings.rubyStyle);
+  let rebuilt = "";
+  let cursor = 0;
+  for (const m of matches) {
+    rebuilt += withRubyNotation.slice(cursor, m.from);
+    rebuilt += m.base + m.ruby;
+    cursor = m.to;
+  }
+  rebuilt += withRubyNotation.slice(cursor);
+  return rebuilt;
+}
+function finalizeLine(line, settings) {
+  let l = line;
+  if (!settings.countFullWidthSpace) {
+    l = l.replace(/\u3000/g, "");
+  }
+  l = l.replace(/[ \t]/g, "");
+  return l;
+}
+function countCharacters(text, settings, rules) {
+  const countable = buildCountableText(text, settings, rules);
+  const rawLines = countable.split("\n");
+  if (rawLines.length > 0 && rawLines[rawLines.length - 1] === "") {
+    rawLines.pop();
+  }
+  const finalizedLines = rawLines.map((line) => finalizeLine(line, settings));
+  const flat = finalizedLines.join("");
+  const raw = [...flat].length;
+  let novel = 0;
+  for (const ch of flat) {
+    novel += charWidth(ch);
+  }
+  novel = Math.round(novel * 10) / 10;
+  const charsPerLine = Math.max(1, settings.wrapColumn);
+  const linesPerPage = Math.max(1, settings.pageLinesPerPage);
+  let totalLines = 0;
+  if (raw > 0) {
+    for (const line of finalizedLines) {
+      const lineLength = [...line].length;
+      totalLines += Math.max(1, Math.ceil(lineLength / charsPerLine));
+    }
+  }
+  const pageEquivalent = Math.round(totalLines / linesPerPage * 10) / 10;
+  return { raw, novel, pageEquivalent };
+}
+function mergeRanges(ranges) {
+  if (ranges.length === 0) return [];
+  const sorted = [...ranges].sort((a, b) => a.start - b.start || a.end - b.end);
+  const merged = [{ ...sorted[0] }];
+  for (let i = 1; i < sorted.length; i++) {
+    const current = sorted[i];
+    const last = merged[merged.length - 1];
+    if (current.start <= last.end) {
+      last.end = Math.max(last.end, current.end);
+    } else {
+      merged.push({ ...current });
+    }
+  }
+  return merged;
+}
+function countNarrativeAndDialogue(text, settings, rules) {
+  const baseRules = {
+    ...rules,
+    inline: { ...rules.inline, ruby: { mode: "remove" } }
+  };
+  const cleaned = finalizeCountText(cleanManuscript(text, baseRules, settings.rubyStyle), settings);
+  const totalChars = [...cleaned].length;
+  const enabledBrackets = settings.bracketDefinitions.filter((bd) => bd.enabled);
+  const matches = parseBrackets(cleaned, enabledBrackets);
+  const merged = mergeRanges(matches.map((m) => ({ start: m.start, end: m.end })));
+  let dialogueChars = 0;
+  for (const range of merged) {
+    dialogueChars += [...cleaned.slice(range.start, range.end)].length;
+  }
+  const narrativeChars = totalChars - dialogueChars;
+  return { narrativeChars, dialogueChars };
+}
+function formatCount(result, mode, settings) {
+  switch (mode) {
+    case "raw":
+      return `${result.raw.toLocaleString()} \u5B57`;
+    case "novel":
+      return `${result.novel.toLocaleString()} \u5B57\uFF08\u5C0F\u8AAC\u63DB\u7B97\uFF09`;
+    case "page": {
+      const charsPerPage = Math.max(1, settings.wrapColumn) * Math.max(1, settings.pageLinesPerPage);
+      return `${result.pageEquivalent.toLocaleString()} \u679A\uFF08${charsPerPage}\u6587\u5B57\u8A70\u3081\uFF09`;
+    }
+  }
+}
+
+// src/export/exportModal.ts
+var import_obsidian7 = require("obsidian");
+
+// src/export/exporter.ts
 function makeExportFilename(originalName, format) {
   const dot = originalName.lastIndexOf(".");
   const base = dot !== -1 ? originalName.substring(0, dot) : originalName;
@@ -2626,18 +3826,22 @@ function makeExportFilename(originalName, format) {
 }
 
 // src/export/exportModal.ts
-var ExportModal = class extends import_obsidian5.Modal {
-  constructor(app, activeFile, rubyStyle) {
+var BUILT_IN_DEFAULT_LABEL = "\u7D44\u307F\u8FBC\u307F\u306E\u521D\u671F\u8A2D\u5B9A";
+var ExportModal = class extends import_obsidian7.Modal {
+  constructor(app, activeFile, settings, pluginDir) {
+    var _a;
     super(app);
     this.sourceText = "";
+    this.format = "txt";
+    /** 選択中の定義の読み込み結果（読み込みに失敗している間は null） */
+    this.selectedRulesDef = null;
     this.sourceFile = activeFile;
-    this.currentRubyStyle = rubyStyle;
-    this.opts = {
-      ...DEFAULT_EXPORT_OPTIONS,
-      sourceRubyStyle: rubyStyle
-    };
+    this.settings = settings;
+    this.pluginDir = pluginDir;
+    this.selectedRulesFileName = (_a = settings.defaultManuscriptRulesFileName) != null ? _a : "";
   }
   async onOpen() {
+    var _a;
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass("nn-export-modal");
@@ -2656,41 +3860,37 @@ var ExportModal = class extends import_obsidian5.Modal {
       return;
     }
     const settingsEl = contentEl.createDiv({ cls: "nn-export-settings" });
-    new import_obsidian5.Setting(settingsEl).setName("\u51FA\u529B\u5F62\u5F0F").addDropdown(
-      (drop) => drop.addOption("txt", ".txt\uFF08\u30D7\u30EC\u30FC\u30F3\u30C6\u30AD\u30B9\u30C8\uFF09").addOption("md", ".md\uFF08Markdown\uFF09").setValue(this.opts.format).onChange((value) => {
-        this.opts.format = value;
+    const rulesFiles = (_a = this.settings.manuscriptRulesFiles) != null ? _a : [];
+    const rulesEl = settingsEl.createDiv({ cls: "nn-export-rules-select" });
+    const rulesSetting = new import_obsidian7.Setting(rulesEl).setName("\u4F7F\u7528\u3059\u308B\u539F\u7A3F\u30AF\u30EA\u30FC\u30CB\u30F3\u30B0\u5B9A\u7FA9").setDesc(
+      rulesFiles.length > 0 ? "\u3053\u306E\u539F\u7A3F\u3092Export\u3059\u308B\u969B\u306B\u9069\u7528\u3059\u308B\u30AF\u30EA\u30FC\u30CB\u30F3\u30B0\u30EB\u30FC\u30EB\u3067\u3059\u3002\u8A2D\u5B9A\u753B\u9762\u300C\u539F\u7A3F\u30AF\u30EA\u30FC\u30CB\u30F3\u30B0\u5B9A\u7FA9\u300D\u3067\u7DE8\u96C6\u30FB\u8FFD\u52A0\u3067\u304D\u307E\u3059\u3002" : `\u5B9A\u7FA9\u30D5\u30A1\u30A4\u30EB\u304C\u672A\u767B\u9332\u306E\u305F\u3081\u3001${BUILT_IN_DEFAULT_LABEL}\u3092\u4F7F\u7528\u3057\u307E\u3059\u3002\u8A2D\u5B9A\u753B\u9762\u300C\u539F\u7A3F\u30AF\u30EA\u30FC\u30CB\u30F3\u30B0\u5B9A\u7FA9\u300D\u304B\u3089\u7DE8\u96C6\u7528\u306E\u30D5\u30A1\u30A4\u30EB\u3092\u4F5C\u6210\u3067\u304D\u307E\u3059\u3002`
+    ).addDropdown((drop) => {
+      drop.addOption("", BUILT_IN_DEFAULT_LABEL);
+      for (const f of rulesFiles) {
+        drop.addOption(f.fileName, f.label ? `${f.label}\uFF08${f.fileName}\uFF09` : f.fileName);
+      }
+      drop.setValue(this.selectedRulesFileName);
+      drop.onChange((value) => {
+        this.selectedRulesFileName = value;
+        void this.applyRulesSelection();
+      });
+    });
+    rulesSetting.settingEl.addClass("nn-setting-balanced");
+    rulesSetting.descEl.addClass("nn-setting-fullwidth-desc");
+    rulesSetting.settingEl.appendChild(rulesSetting.descEl);
+    this.rulesStatusEl = rulesSetting.settingEl.createEl("p", {
+      cls: "nn-export-rules-status nn-setting-fullwidth-desc"
+    });
+    new import_obsidian7.Setting(settingsEl).setName("\u51FA\u529B\u5F62\u5F0F").addDropdown(
+      (drop) => drop.addOption("txt", ".txt\uFF08\u30D7\u30EC\u30FC\u30F3\u30C6\u30AD\u30B9\u30C8\uFF09").addOption("md", ".md\uFF08Markdown\uFF09").setValue(this.format).onChange((value) => {
+        this.format = value;
         this.updateFileNameSuggestion();
       })
     );
-    new import_obsidian5.Setting(settingsEl).setName("\u9023\u7D9A\u3059\u308B\u7A7A\u884C\u30921\u884C\u306B\u5727\u7E2E\u3059\u308B").addToggle(
-      (toggle) => toggle.setValue(this.opts.removeBlankLines).onChange((value) => {
-        this.opts.removeBlankLines = value;
-        this.updatePreview();
-      })
-    );
-    const rubyStyleLabel = {
-      narou: "\u306A\u308D\u3046\u5F0F\uFF08|\u6F22\u5B57\u300A\u30EB\u30D3\u300B\uFF09",
-      aozora: "\u9752\u7A7A\u6587\u5EAB\u5F0F\uFF08\uFF5C\u6F22\u5B57\u300A\u30EB\u30D3\u300B\uFF09",
-      denden: "\u3067\u3093\u3067\u3093\u5F0F\uFF08{\u6F22\u5B57|\u30EB\u30D3}\uFF09",
-      html: "HTML\u30BF\u30B0\uFF08<ruby>\uFF09"
-    };
-    new import_obsidian5.Setting(settingsEl).setName("\u30EB\u30D3\u306E\u5909\u63DB").setDesc(`\u73FE\u5728\u306E\u5165\u529B\u65B9\u5F0F\uFF1A${rubyStyleLabel[this.currentRubyStyle]}`).addDropdown((drop) => {
-      drop.addOption("none", "\u5909\u63DB\u3057\u306A\u3044\uFF08\u305D\u306E\u307E\u307E\u51FA\u529B\uFF09");
-      drop.addOption("narou", "\u306A\u308D\u3046\u5F0F\u306B\u5909\u63DB\uFF08|\u6F22\u5B57\u300A\u30EB\u30D3\u300B\uFF09");
-      drop.addOption("aozora", "\u9752\u7A7A\u6587\u5EAB\u5F0F\u306B\u5909\u63DB\uFF08\uFF5C\u6F22\u5B57\u300A\u30EB\u30D3\u300B\uFF09");
-      drop.addOption("denden", "\u3067\u3093\u3067\u3093\u5F0F\u306B\u5909\u63DB\uFF08{\u6F22\u5B57|\u30EB\u30D3}\uFF09");
-      drop.addOption("html", "HTML\u30BF\u30B0\u306B\u5909\u63DB\uFF08<ruby>\uFF09");
-      drop.addOption("remove", "\u30EB\u30D3\u8A18\u53F7\u3092\u524A\u9664\uFF08\u89AA\u6587\u5B57\u306E\u307F\u6B8B\u3059\uFF09");
-      drop.setValue(this.opts.rubyConvert);
-      drop.onChange((value) => {
-        this.opts.rubyConvert = value;
-        this.updatePreview();
-      });
-    });
-    new import_obsidian5.Setting(settingsEl).setName("\u51FA\u529B\u30D5\u30A1\u30A4\u30EB\u540D").setDesc("Vault \u5185\u306B\u4FDD\u5B58\u3055\u308C\u307E\u3059\uFF08Vault \u30EB\u30FC\u30C8\u76F4\u4E0B\uFF09").addText((text) => {
+    new import_obsidian7.Setting(settingsEl).setName("\u51FA\u529B\u30D5\u30A1\u30A4\u30EB\u540D").setDesc("Vault \u5185\u306B\u4FDD\u5B58\u3055\u308C\u307E\u3059\uFF08Vault \u30EB\u30FC\u30C8\u76F4\u4E0B\uFF09").addText((text) => {
       this.fileNameEl = text.inputEl;
       text.inputEl.addClass("nn-export-filename-input");
-      text.setValue(makeExportFilename(this.sourceFile.name, this.opts.format));
+      text.setValue(makeExportFilename(this.sourceFile.name, this.format));
     });
     const previewWrap = contentEl.createDiv({ cls: "nn-export-preview-wrap" });
     previewWrap.createEl("p", {
@@ -2698,7 +3898,7 @@ var ExportModal = class extends import_obsidian5.Modal {
       cls: "nn-export-preview-label"
     });
     this.previewEl = previewWrap.createEl("pre", { cls: "nn-export-preview" });
-    this.updatePreview();
+    await this.applyRulesSelection();
     const btnArea = contentEl.createDiv({ cls: "nn-export-buttons" });
     const exportBtn = btnArea.createEl("button", { text: "Export \u3059\u308B", cls: "mod-cta" });
     exportBtn.addEventListener("click", () => {
@@ -2710,52 +3910,98 @@ var ExportModal = class extends import_obsidian5.Modal {
   onClose() {
     this.contentEl.empty();
   }
+  // ─────────────────────────────────────────
+  // 定義の選択が変わったときの処理
+  // 空選択（＝組み込みのデフォルト定義）の場合はVaultアクセスなしで即座に確定する。
+  // ─────────────────────────────────────────
+  async applyRulesSelection() {
+    if (!this.selectedRulesFileName) {
+      this.selectedRulesDef = createDefaultManuscriptRulesDefinition();
+      if (this.rulesStatusEl) {
+        this.rulesStatusEl.setText(`\u2713 ${BUILT_IN_DEFAULT_LABEL}\u3092\u4F7F\u7528\u3057\u307E\u3059\u3002`);
+        this.rulesStatusEl.removeClass("nn-export-rules-error");
+      }
+      this.updatePreview();
+      return;
+    }
+    try {
+      this.selectedRulesDef = await readRuleFile(this.app, this.pluginDir, this.selectedRulesFileName);
+      if (this.rulesStatusEl) {
+        this.rulesStatusEl.setText(`\u2713 ${this.selectedRulesFileName} \u3092\u4F7F\u7528\u3057\u307E\u3059\u3002`);
+        this.rulesStatusEl.removeClass("nn-export-rules-error");
+      }
+    } catch (e) {
+      this.selectedRulesDef = null;
+      const message = e instanceof ManuscriptRulesFileError ? e.message : String(e);
+      if (this.rulesStatusEl) {
+        this.rulesStatusEl.setText(`\u26A0\uFE0F \u5B9A\u7FA9\u30D5\u30A1\u30A4\u30EB\u3092\u8AAD\u307F\u8FBC\u3081\u307E\u305B\u3093\u3067\u3057\u305F\uFF1A${message}`);
+        this.rulesStatusEl.addClass("nn-export-rules-error");
+      }
+      new import_obsidian7.Notice(`\u5B9A\u7FA9\u30D5\u30A1\u30A4\u30EB\u3092\u8AAD\u307F\u8FBC\u3081\u307E\u305B\u3093\u3067\u3057\u305F\uFF1A${message}`);
+    }
+    this.updatePreview();
+  }
+  // ─────────────────────────────────────────
+  // 変換本体（常に manuscript-rules エンジンを経由する）
+  // ─────────────────────────────────────────
+  convert() {
+    if (!this.selectedRulesDef) return null;
+    return cleanManuscript(this.sourceText, this.selectedRulesDef.rules, this.settings.rubyStyle);
+  }
   async loadSourceFile(file) {
     this.sourceText = await this.app.vault.read(file);
   }
   updatePreview() {
     if (!this.previewEl || !this.sourceText) return;
-    const converted = exportText(this.sourceText, this.opts);
+    const converted = this.convert();
+    if (converted === null) {
+      this.previewEl.textContent = "\uFF08\u5B9A\u7FA9\u30D5\u30A1\u30A4\u30EB\u3092\u8AAD\u307F\u8FBC\u3081\u306A\u304B\u3063\u305F\u305F\u3081\u3001\u30D7\u30EC\u30D3\u30E5\u30FC\u3067\u304D\u307E\u305B\u3093\uFF09";
+      return;
+    }
     const PREVIEW_LIMIT = 2e3;
     this.previewEl.textContent = converted.length > PREVIEW_LIMIT ? converted.substring(0, PREVIEW_LIMIT) + "\n\n\u2026\uFF08\u4EE5\u4E0B\u7701\u7565\uFF09" : converted;
   }
   updateFileNameSuggestion() {
     if (!this.fileNameEl || !this.sourceFile) return;
-    this.fileNameEl.value = makeExportFilename(this.sourceFile.name, this.opts.format);
+    this.fileNameEl.value = makeExportFilename(this.sourceFile.name, this.format);
   }
   async doExport() {
     var _a;
     if (!this.sourceFile || !this.sourceText) return;
     const rawName = (_a = this.fileNameEl) == null ? void 0 : _a.value.trim();
     if (!rawName) {
-      new import_obsidian5.Notice("\u51FA\u529B\u30D5\u30A1\u30A4\u30EB\u540D\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044\u3002");
+      new import_obsidian7.Notice("\u51FA\u529B\u30D5\u30A1\u30A4\u30EB\u540D\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044\u3002");
       return;
     }
-    const outputName = (0, import_obsidian5.normalizePath)(rawName);
+    const outputName = (0, import_obsidian7.normalizePath)(rawName);
     if (!outputName || outputName === "." || outputName === "/") {
-      new import_obsidian5.Notice("\u51FA\u529B\u30D5\u30A1\u30A4\u30EB\u540D\u304C\u4E0D\u6B63\u3067\u3059\u3002\u6B63\u3057\u3044\u30D5\u30A1\u30A4\u30EB\u540D\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044\u3002");
+      new import_obsidian7.Notice("\u51FA\u529B\u30D5\u30A1\u30A4\u30EB\u540D\u304C\u4E0D\u6B63\u3067\u3059\u3002\u6B63\u3057\u3044\u30D5\u30A1\u30A4\u30EB\u540D\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044\u3002");
       return;
     }
-    const converted = exportText(this.sourceText, this.opts);
+    const converted = this.convert();
+    if (converted === null) {
+      new import_obsidian7.Notice("\u5B9A\u7FA9\u30D5\u30A1\u30A4\u30EB\u3092\u8AAD\u307F\u8FBC\u3081\u306A\u304B\u3063\u305F\u305F\u3081\u3001Export \u3067\u304D\u307E\u305B\u3093\u3002\u9078\u629E\u3057\u3066\u3044\u308B\u5B9A\u7FA9\u3092\u898B\u76F4\u3057\u3066\u304F\u3060\u3055\u3044\u3002");
+      return;
+    }
     try {
       const existing = this.app.vault.getAbstractFileByPath(outputName);
-      if (existing instanceof import_obsidian5.TFile) {
+      if (existing instanceof import_obsidian7.TFile) {
         await this.app.vault.modify(existing, converted);
-        new import_obsidian5.Notice(`\u4E0A\u66F8\u304D\u4FDD\u5B58\u3057\u307E\u3057\u305F\uFF1A${outputName}`);
+        new import_obsidian7.Notice(`\u4E0A\u66F8\u304D\u4FDD\u5B58\u3057\u307E\u3057\u305F\uFF1A${outputName}`);
       } else {
         await this.app.vault.create(outputName, converted);
-        new import_obsidian5.Notice(`Export \u3057\u307E\u3057\u305F\uFF1A${outputName}`);
+        new import_obsidian7.Notice(`Export \u3057\u307E\u3057\u305F\uFF1A${outputName}`);
       }
       this.close();
     } catch (e) {
       console.error("Novels Note JP Export \u30A8\u30E9\u30FC:", e);
-      new import_obsidian5.Notice(`Export \u306B\u5931\u6557\u3057\u307E\u3057\u305F\uFF1A${String(e)}`);
+      new import_obsidian7.Notice(`Export \u306B\u5931\u6557\u3057\u307E\u3057\u305F\uFF1A${String(e)}`);
     }
   }
 };
 
 // src/views/verticalPreview.ts
-var import_obsidian6 = require("obsidian");
+var import_obsidian8 = require("obsidian");
 function applyTcy(text) {
   const parts = text.split(/(<ruby>[\s\S]*?<\/ruby>|<rt>[\s\S]*?<\/rt>)/g);
   return parts.map((part, i) => {
@@ -3069,7 +4315,7 @@ function toVerticalHtml(source, rubyStyle, selectedText = "") {
   flushChunk();
   return { html: parts.join(""), lineSentences, lineSentPlainLengths };
 }
-var _VerticalPreviewView = class _VerticalPreviewView extends import_obsidian6.ItemView {
+var _VerticalPreviewView = class _VerticalPreviewView extends import_obsidian8.ItemView {
   constructor(leaf) {
     super(leaf);
     this.lastFile = null;
@@ -3136,10 +4382,10 @@ var _VerticalPreviewView = class _VerticalPreviewView extends import_obsidian6.I
     const root = this.containerEl.children[1];
     root.empty();
     root.addClass("nn-vertical-root");
-    if (import_obsidian6.Platform.isMobile) {
+    if (import_obsidian8.Platform.isMobile) {
       root.addClass("nn-vertical-root-mobile");
     }
-    if (!import_obsidian6.Platform.isMobile) {
+    if (!import_obsidian8.Platform.isMobile) {
       const toolbar = root.createDiv({ cls: "nn-vertical-toolbar" });
       toolbar.createSpan({ text: "\u7E26\u66F8\u304D\u30D7\u30EC\u30D3\u30E5\u30FC", cls: "nn-vertical-title" });
     }
@@ -3148,11 +4394,11 @@ var _VerticalPreviewView = class _VerticalPreviewView extends import_obsidian6.I
     await this.loadFromActiveEditor();
     this.registerEvent(
       this.app.workspace.on("active-leaf-change", () => {
-        const mdView = this.app.workspace.getActiveViewOfType(import_obsidian6.MarkdownView);
+        const mdView = this.app.workspace.getActiveViewOfType(import_obsidian8.MarkdownView);
         if (mdView == null ? void 0 : mdView.file) void this.loadFromActiveEditor();
       })
     );
-    if (!import_obsidian6.Platform.isMobile && this.cursorSyncStore) {
+    if (!import_obsidian8.Platform.isMobile && this.cursorSyncStore) {
       this.unsubscribeCursorSync = this.cursorSyncStore.subscribe(
         (snapshot) => this.onCursorSync(snapshot)
       );
@@ -3173,7 +4419,7 @@ var _VerticalPreviewView = class _VerticalPreviewView extends import_obsidian6.I
   // ─────────────────────────────────────────
   async loadFromActiveEditor() {
     var _a, _b, _c;
-    const mdView = this.app.workspace.getActiveViewOfType(import_obsidian6.MarkdownView);
+    const mdView = this.app.workspace.getActiveViewOfType(import_obsidian8.MarkdownView);
     let file = (_a = mdView == null ? void 0 : mdView.file) != null ? _a : null;
     let editorValue = mdView ? mdView.editor.getValue() : null;
     let selection = mdView ? (_b = mdView.editor.getSelection()) != null ? _b : "" : "";
@@ -3314,7 +4560,7 @@ var _VerticalPreviewView = class _VerticalPreviewView extends import_obsidian6.I
       this.syncCursorHighlight(stored.line, stored.ch, stored.selection, true);
       return;
     }
-    const mdView = this.app.workspace.getActiveViewOfType(import_obsidian6.MarkdownView);
+    const mdView = this.app.workspace.getActiveViewOfType(import_obsidian8.MarkdownView);
     if ((mdView == null ? void 0 : mdView.file) !== this.lastFile) return;
     const cursor = mdView.editor.getCursor();
     const selection = (_b = mdView.editor.getSelection()) != null ? _b : "";
@@ -3457,7 +4703,7 @@ _VerticalPreviewView.PUNCTUATION_MARGIN_EM = 0.5;
 var VerticalPreviewView = _VerticalPreviewView;
 
 // src/views/novelReadingView.ts
-var import_obsidian7 = require("obsidian");
+var import_obsidian9 = require("obsidian");
 function stripFrontmatter(source) {
   return source.replace(/^---[ \t]*\n[\s\S]*?\n---[ \t]*\n?/, "");
 }
@@ -3507,7 +4753,7 @@ function toReadingHtml(source, rubyStyle) {
   }
   return parts.join("\n");
 }
-var _NovelReadingView = class _NovelReadingView extends import_obsidian7.ItemView {
+var _NovelReadingView = class _NovelReadingView extends import_obsidian9.ItemView {
   constructor(leaf) {
     super(leaf);
     /** このビューが表示するファイル（タブ切り替え後も保持） */
@@ -3515,6 +4761,10 @@ var _NovelReadingView = class _NovelReadingView extends import_obsidian7.ItemVie
     this.getRubyStyle = () => "narou";
     this.getWrapColumn = () => 40;
     this.getFontSize = () => 16;
+    /** Export モーダルへ渡すプラグイン設定全体（登録済み原稿クリーニング定義の参照用） */
+    this.getSettings = () => null;
+    /** Export モーダルへ渡すプラグイン専用フォルダのパス（定義ファイルの実体はこの配下 rules/ にある） */
+    this.getPluginDir = () => ".obsidian/plugins/novels-note-jp";
   }
   /** ファイルを外から設定する（activateNovelReadingView から呼ぶ） */
   setFile(file) {
@@ -3528,6 +4778,12 @@ var _NovelReadingView = class _NovelReadingView extends import_obsidian7.ItemVie
   }
   setFontSizeGetter(fn) {
     this.getFontSize = fn;
+  }
+  setSettingsGetter(fn) {
+    this.getSettings = fn;
+  }
+  setPluginDirGetter(fn) {
+    this.getPluginDir = fn;
   }
   getViewType() {
     return NOVEL_READING_VIEW_TYPE;
@@ -3550,7 +4806,7 @@ var _NovelReadingView = class _NovelReadingView extends import_obsidian7.ItemVie
     const filePath = state == null ? void 0 : state.filePath;
     if (typeof filePath === "string") {
       const file = this.app.vault.getAbstractFileByPath(filePath);
-      if (file instanceof import_obsidian7.TFile) {
+      if (file instanceof import_obsidian9.TFile) {
         this._file = file;
       }
     }
@@ -3569,16 +4825,18 @@ var _NovelReadingView = class _NovelReadingView extends import_obsidian7.ItemVie
       cls: "nn-btn",
       title: "\u73FE\u5728\u306E\u30D5\u30A1\u30A4\u30EB\u3092\u539F\u7A3F Export \u3059\u308B"
     });
-    (0, import_obsidian7.setIcon)(exportBtn, "file-output");
+    (0, import_obsidian9.setIcon)(exportBtn, "file-output");
     exportBtn.addEventListener("click", () => {
+      var _a2;
       if (!this._file) return;
-      new ExportModal(this.app, this._file, this.getRubyStyle()).open();
+      const settings = (_a2 = this.getSettings()) != null ? _a2 : { ...DEFAULT_SETTINGS, rubyStyle: this.getRubyStyle() };
+      new ExportModal(this.app, this._file, settings, this.getPluginDir()).open();
     });
     const editBtn = btnWrap.createEl("button", {
       cls: "nn-btn",
       title: "\u7DE8\u96C6\u30E2\u30FC\u30C9\u306B\u623B\u308B"
     });
-    (0, import_obsidian7.setIcon)(editBtn, "pencil");
+    (0, import_obsidian9.setIcon)(editBtn, "pencil");
     editBtn.addEventListener("click", () => {
       void this.switchToEdit();
     });
@@ -3596,7 +4854,7 @@ var _NovelReadingView = class _NovelReadingView extends import_obsidian7.ItemVie
     );
     this.registerEvent(
       this.app.vault.on("modify", (file) => {
-        if (file instanceof import_obsidian7.TFile && file === this._file) {
+        if (file instanceof import_obsidian9.TFile && file === this._file) {
           void this.loadCurrentFile();
         }
       })
@@ -3687,7 +4945,7 @@ _NovelReadingView.WRAP_MARGIN_EM = 1.2;
 var NovelReadingView = _NovelReadingView;
 
 // src/views/writingStatsView.ts
-var import_obsidian8 = require("obsidian");
+var import_obsidian10 = require("obsidian");
 
 // src/core/readingTime.ts
 function estimateReadingMinutes(novelChars, charsPerMinute) {
@@ -3757,7 +5015,7 @@ function renderPieChart(container, narrativeChars, dialogueChars, mini) {
 function renderColorDot(labelEl, colorClass) {
   labelEl.createSpan({ cls: `nn-stats-label-dot ${colorClass}` });
 }
-var WritingStatsView = class extends import_obsidian8.ItemView {
+var WritingStatsView = class extends import_obsidian10.ItemView {
   constructor(leaf, fetchEntries, getReadingSpeed) {
     super(leaf);
     this.entries = [];
@@ -3816,6 +5074,7 @@ var WritingStatsView = class extends import_obsidian8.ItemView {
     const container = this.contentEl;
     container.empty();
     container.addClass("nn-stats-view");
+    if (import_obsidian10.Platform.isMobile) container.addClass("nn-stats-view-mobile");
     const headerEl = container.createDiv({ cls: "nn-stats-header" });
     const scrollEl = container.createDiv({ cls: "nn-stats-scroll" });
     this.scrollEl = scrollEl;
@@ -3918,7 +5177,7 @@ var WritingStatsView = class extends import_obsidian8.ItemView {
   renderViewToggle(container) {
     const toggle = container.createDiv({ cls: "nn-stats-viewmode-toggle" });
     toggle.createSpan({
-      text: import_obsidian8.Platform.isMobile ? "\u8868\u793A\u5207\u66FF" : "\u8868\u793A\u5207\u66FF:",
+      text: import_obsidian10.Platform.isMobile ? "\u8868\u793A\u5207\u66FF" : "\u8868\u793A\u5207\u66FF:",
       cls: "nn-stats-toolbar-label"
     });
     const addToggleButton = (mode, label) => {
@@ -3935,7 +5194,7 @@ var WritingStatsView = class extends import_obsidian8.ItemView {
     };
     addToggleButton("list", "\u5404\u539F\u7A3F\u8A73\u7D30");
     addToggleButton("chart", "\u6587\u5B57\u6570\u30B0\u30E9\u30D5");
-    if (import_obsidian8.Platform.isMobile) return;
+    if (import_obsidian10.Platform.isMobile) return;
     const refreshBtn = toggle.createEl("button", {
       text: "\u518D\u96C6\u8A08",
       cls: "nn-stats-refresh-btn"
@@ -3957,17 +5216,21 @@ var WritingStatsView = class extends import_obsidian8.ItemView {
     let narrativeChars = 0;
     let dialogueChars = 0;
     let novelChars = 0;
+    let totalPages = 0;
     for (const e of filtered) {
       totalChars += e.totalChars;
       narrativeChars += e.narrativeChars;
       dialogueChars += e.dialogueChars;
       novelChars += e.novelChars;
+      totalPages += e.pageEquivalent;
     }
     const summary = container.createDiv({ cls: "nn-stats-summary" });
     summary.createDiv({ text: "\u5168\u539F\u7A3F\u306E\u5408\u8A08", cls: "nn-stats-summary-label" });
     const body = summary.createDiv({ cls: "nn-stats-summary-body" });
-    const grid = body.createDiv({ cls: "nn-stats-summary-grid" });
-    const addMetric = (label, value, dotColorClass) => {
+    const rows = body.createDiv({ cls: "nn-stats-summary-rows" });
+    const topRow = rows.createDiv({ cls: "nn-stats-summary-grid" });
+    const bottomRow = rows.createDiv({ cls: "nn-stats-summary-grid" });
+    const addMetric = (grid, label, value, dotColorClass) => {
       const metric = grid.createDiv({ cls: "nn-stats-metric" });
       const labelEl = metric.createDiv({ cls: "nn-stats-metric-label" });
       if (dotColorClass) renderColorDot(labelEl, dotColorClass);
@@ -3975,15 +5238,18 @@ var WritingStatsView = class extends import_obsidian8.ItemView {
       metric.createDiv({ text: value, cls: "nn-stats-metric-value" });
     };
     const readingMinutes = estimateReadingMinutes(novelChars, this.getReadingSpeed());
-    addMetric("\u5BFE\u8C61\u30CE\u30FC\u30C8\u6570", `${totalNotes.toLocaleString()} \u4EF6`);
-    addMetric("\u57F7\u7B46\u6587\u5B57\u6570", `${totalChars.toLocaleString()} \u5B57`);
-    addMetric("\u63A8\u5B9A\u8AAD\u4E86\u6642\u9593", formatReadingTime(readingMinutes));
+    addMetric(topRow, "\u5BFE\u8C61\u30CE\u30FC\u30C8\u6570", `${totalNotes.toLocaleString()} \u4EF6`);
+    addMetric(topRow, "\u7DCF\u30DA\u30FC\u30B8\u6570", `${totalPages.toLocaleString()} \u679A`);
+    addMetric(topRow, "\u63A8\u5B9A\u8AAD\u4E86\u6642\u9593", formatReadingTime(readingMinutes));
+    addMetric(bottomRow, "\u57F7\u7B46\u6587\u5B57\u6570", `${totalChars.toLocaleString()} \u5B57`);
     addMetric(
+      bottomRow,
       "\u5730\u306E\u6587",
       `${narrativeChars.toLocaleString()} \u5B57 (${formatRatio(narrativeChars, totalChars)})`,
       "nn-stats-label-dot-narrative"
     );
     addMetric(
+      bottomRow,
       "\u4F1A\u8A71\u6587",
       `${dialogueChars.toLocaleString()} \u5B57 (${formatRatio(dialogueChars, totalChars)})`,
       "nn-stats-label-dot-dialogue"
@@ -3995,10 +5261,10 @@ var WritingStatsView = class extends import_obsidian8.ItemView {
   // ─────────────────────────────────────────
   renderToolbar(container) {
     const toolbar = container.createDiv({
-      cls: "nn-stats-toolbar" + (import_obsidian8.Platform.isMobile ? " nn-stats-toolbar-mobile" : "")
+      cls: "nn-stats-toolbar" + (import_obsidian10.Platform.isMobile ? " nn-stats-toolbar-mobile" : "")
     });
     toolbar.createSpan({
-      text: import_obsidian8.Platform.isMobile ? "\u4E26\u3073\u66FF\u3048" : "\u4E26\u3073\u66FF\u3048:",
+      text: import_obsidian10.Platform.isMobile ? "\u4E26\u3073\u66FF\u3048" : "\u4E26\u3073\u66FF\u3048:",
       cls: "nn-stats-toolbar-label"
     });
     const addSortButton = (key, label) => {
@@ -4074,8 +5340,10 @@ var WritingStatsView = class extends import_obsidian8.ItemView {
       row2.createDiv({ text: `\u4F5C\u6210: ${formatDateTime(entry.createdAt)}` });
       row2.createDiv({ text: `\u66F4\u65B0: ${formatDateTime(entry.modifiedAt)}` });
       const row3 = card.createDiv({ cls: "nn-stats-card-row3" });
-      const statsCol = row3.createDiv({ cls: "nn-stats-card-stats" });
-      const addStat = (label, text, dotColorClass) => {
+      const statsRows = row3.createDiv({ cls: "nn-stats-card-stats-rows" });
+      const topStatsRow = statsRows.createDiv({ cls: "nn-stats-card-stats nn-stats-card-stats-top" });
+      const bottomStatsRow = statsRows.createDiv({ cls: "nn-stats-card-stats nn-stats-card-stats-bottom" });
+      const addStat = (statsCol, label, text, dotColorClass) => {
         const stat = statsCol.createDiv({ cls: "nn-stats-card-stat" });
         const labelEl = stat.createDiv({ cls: "nn-stats-card-stat-label" });
         if (dotColorClass) renderColorDot(labelEl, dotColorClass);
@@ -4083,14 +5351,17 @@ var WritingStatsView = class extends import_obsidian8.ItemView {
         stat.createDiv({ text, cls: "nn-stats-card-stat-value" });
       };
       const readingMinutes = estimateReadingMinutes(entry.novelChars, this.getReadingSpeed());
-      addStat("\u57F7\u7B46\u6587\u5B57\u6570", `${entry.totalChars.toLocaleString()} \u5B57`);
-      addStat("\u63A8\u5B9A\u8AAD\u4E86\u6642\u9593", formatReadingTime(readingMinutes));
+      addStat(topStatsRow, "\u57F7\u7B46\u6587\u5B57\u6570", `${entry.totalChars.toLocaleString()} \u5B57`);
+      addStat(topStatsRow, "\u30DA\u30FC\u30B8\u6570", `${entry.pageEquivalent.toLocaleString()} \u679A`);
+      addStat(topStatsRow, "\u63A8\u5B9A\u8AAD\u4E86\u6642\u9593", formatReadingTime(readingMinutes));
       addStat(
+        bottomStatsRow,
         "\u5730\u306E\u6587",
         `${entry.narrativeChars.toLocaleString()} \u5B57 (${formatRatio(entry.narrativeChars, entry.totalChars)})`,
         "nn-stats-label-dot-narrative"
       );
       addStat(
+        bottomStatsRow,
         "\u4F1A\u8A71\u6587",
         `${entry.dialogueChars.toLocaleString()} \u5B57 (${formatRatio(entry.dialogueChars, entry.totalChars)})`,
         "nn-stats-label-dot-dialogue"
@@ -4173,13 +5444,13 @@ var WritingStatsView = class extends import_obsidian8.ItemView {
   // ─────────────────────────────────────────
   openEntryFile(entry) {
     const file = this.app.vault.getAbstractFileByPath(entry.filePath);
-    if (!(file instanceof import_obsidian8.TFile)) return;
+    if (!(file instanceof import_obsidian10.TFile)) return;
     void this.app.workspace.getLeaf(false).openFile(file);
   }
 };
 
 // src/editor/rubyInserter.ts
-var import_obsidian9 = require("obsidian");
+var import_obsidian11 = require("obsidian");
 function buildRubyText(base, ruby, style) {
   switch (style) {
     case "narou":
@@ -4195,7 +5466,7 @@ function buildRubyText(base, ruby, style) {
 function buildBoutenText(selected, style) {
   return Array.from(selected).map((ch) => buildRubyText(ch, "\u30FB", style)).join("");
 }
-var RubyInputModal = class extends import_obsidian9.Modal {
+var RubyInputModal = class extends import_obsidian11.Modal {
   constructor(app, baseText, style, onSubmit) {
     super(app);
     this.baseText = baseText;
@@ -4206,7 +5477,7 @@ var RubyInputModal = class extends import_obsidian9.Modal {
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass("nn-ruby-modal");
-    if (import_obsidian9.Platform.isMobile) {
+    if (import_obsidian11.Platform.isMobile) {
       this.modalEl.addClass("nn-modal-top-aligned");
     }
     contentEl.createEl("h3", { text: "\u30EB\u30D3\u3092\u632F\u308B", cls: "nn-modal-title" });
@@ -4275,13 +5546,13 @@ function registerRubyCommands(plugin, app, getSettings) {
     editorCallback: (editor) => {
       const selected = editor.getSelection();
       if (!selected || selected.length === 0) {
-        new import_obsidian9.Notice("\u30EB\u30D3\u3092\u632F\u308B\u6587\u5B57\u5217\u3092\u9078\u629E\u3057\u3066\u304F\u3060\u3055\u3044\u3002");
+        new import_obsidian11.Notice("\u30EB\u30D3\u3092\u632F\u308B\u6587\u5B57\u5217\u3092\u9078\u629E\u3057\u3066\u304F\u3060\u3055\u3044\u3002");
         return;
       }
       const settings = getSettings();
       new RubyInputModal(app, selected, settings.rubyStyle, (rubyText) => {
         editor.replaceSelection(rubyText);
-        new import_obsidian9.Notice(`\u30EB\u30D3\u3092\u633F\u5165\u3057\u307E\u3057\u305F\u3002`);
+        new import_obsidian11.Notice(`\u30EB\u30D3\u3092\u633F\u5165\u3057\u307E\u3057\u305F\u3002`);
       }).open();
     }
   });
@@ -4291,13 +5562,13 @@ function registerRubyCommands(plugin, app, getSettings) {
     editorCallback: (editor) => {
       const selected = editor.getSelection();
       if (!selected || selected.length === 0) {
-        new import_obsidian9.Notice("\u508D\u70B9\u3092\u632F\u308B\u6587\u5B57\u5217\u3092\u9078\u629E\u3057\u3066\u304F\u3060\u3055\u3044\u3002");
+        new import_obsidian11.Notice("\u508D\u70B9\u3092\u632F\u308B\u6587\u5B57\u5217\u3092\u9078\u629E\u3057\u3066\u304F\u3060\u3055\u3044\u3002");
         return;
       }
       const settings = getSettings();
       const boutenText = buildBoutenText(selected, settings.rubyStyle);
       editor.replaceSelection(boutenText);
-      new import_obsidian9.Notice(`\u508D\u70B9\u3092\u633F\u5165\u3057\u307E\u3057\u305F\u3002`);
+      new import_obsidian11.Notice(`\u508D\u70B9\u3092\u633F\u5165\u3057\u307E\u3057\u305F\u3002`);
     }
   });
 }
@@ -4310,7 +5581,7 @@ function onEditorMenuForRuby(app, getSettings, menu, editor, _info) {
       const settings = getSettings();
       new RubyInputModal(app, selected, settings.rubyStyle, (rubyText) => {
         editor.replaceSelection(rubyText);
-        new import_obsidian9.Notice(`\u30EB\u30D3\u3092\u633F\u5165\u3057\u307E\u3057\u305F\u3002`);
+        new import_obsidian11.Notice(`\u30EB\u30D3\u3092\u633F\u5165\u3057\u307E\u3057\u305F\u3002`);
       }).open();
     });
   });
@@ -4319,20 +5590,20 @@ function onEditorMenuForRuby(app, getSettings, menu, editor, _info) {
       const settings = getSettings();
       const boutenText = buildBoutenText(selected, settings.rubyStyle);
       editor.replaceSelection(boutenText);
-      new import_obsidian9.Notice(`\u508D\u70B9\u3092\u633F\u5165\u3057\u307E\u3057\u305F\u3002`);
+      new import_obsidian11.Notice(`\u508D\u70B9\u3092\u633F\u5165\u3057\u307E\u3057\u305F\u3002`);
     });
   });
 }
 
 // src/core/termPreviewModal.ts
-var import_obsidian10 = require("obsidian");
-var TermPreviewModal = class extends import_obsidian10.Modal {
+var import_obsidian12 = require("obsidian");
+var TermPreviewModal = class extends import_obsidian12.Modal {
   constructor(app, term, onOpenNote) {
     super(app);
     // MarkdownRenderer.render() はライフサイクル管理用に Component を
     // 要求する。Modal 自体は Component ではないため、専用に用意し、
     // モーダルを閉じるタイミングで unload してレンダリングを破棄する。
-    this.renderComponent = new import_obsidian10.Component();
+    this.renderComponent = new import_obsidian12.Component();
     this.term = term;
     this.onOpenNote = onOpenNote;
   }
@@ -4369,7 +5640,7 @@ var TermPreviewModal = class extends import_obsidian10.Modal {
   }
   async renderNoteContent(previewEl) {
     const file = this.app.vault.getAbstractFileByPath(this.term.filePath);
-    if (!(file instanceof import_obsidian10.TFile)) {
+    if (!(file instanceof import_obsidian12.TFile)) {
       previewEl.createEl("p", {
         text: "\u30CE\u30FC\u30C8\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3067\u3057\u305F\u3002",
         cls: "nn-empty nn-empty-hint"
@@ -4386,7 +5657,7 @@ var TermPreviewModal = class extends import_obsidian10.Modal {
         });
         return;
       }
-      await import_obsidian10.MarkdownRenderer.render(
+      await import_obsidian12.MarkdownRenderer.render(
         this.app,
         body,
         previewEl,
@@ -4394,7 +5665,7 @@ var TermPreviewModal = class extends import_obsidian10.Modal {
         this.renderComponent
       );
     } catch (e) {
-      new import_obsidian10.Notice("\u7528\u8A9E\u30CE\u30FC\u30C8\u306E\u8AAD\u307F\u8FBC\u307F\u306B\u5931\u6557\u3057\u307E\u3057\u305F\u3002");
+      new import_obsidian12.Notice("\u7528\u8A9E\u30CE\u30FC\u30C8\u306E\u8AAD\u307F\u8FBC\u307F\u306B\u5931\u6557\u3057\u307E\u3057\u305F\u3002");
       previewEl.createEl("p", {
         text: "\u672C\u6587\u306E\u8AAD\u307F\u8FBC\u307F\u306B\u5931\u6557\u3057\u307E\u3057\u305F\u3002",
         cls: "nn-empty nn-empty-hint"
@@ -4409,14 +5680,14 @@ var TermPreviewModal = class extends import_obsidian10.Modal {
 
 // src/editor/glossaryPalette.ts
 var import_view3 = require("@codemirror/view");
-var import_obsidian13 = require("obsidian");
+var import_obsidian15 = require("obsidian");
 
 // src/core/glossaryHistory.ts
-var import_obsidian11 = require("obsidian");
+var import_obsidian13 = require("obsidian");
 var HISTORY_FILE_NAME = "glossary-history.json";
 var MAX_HISTORY_ENTRIES = 50;
 function historyFilePath(pluginDir) {
-  return (0, import_obsidian11.normalizePath)(`${pluginDir}/${HISTORY_FILE_NAME}`);
+  return (0, import_obsidian13.normalizePath)(`${pluginDir}/${HISTORY_FILE_NAME}`);
 }
 async function loadGlossaryHistory(app, pluginDir) {
   const path = historyFilePath(pluginDir);
@@ -4472,7 +5743,7 @@ function iconForTag(tag) {
   var _a;
   return (_a = CATEGORY_ICONS[tag]) != null ? _a : "\u{1F4D7}";
 }
-function fileBaseName(filePath) {
+function fileBaseName2(filePath) {
   var _a;
   const last = (_a = filePath.split("/").pop()) != null ? _a : filePath;
   return last.replace(/\.md$/, "");
@@ -4710,7 +5981,7 @@ var GlossaryPaletteView = class {
         filePath: term.filePath
       };
     }
-    const fileName = fileBaseName(term.filePath);
+    const fileName = fileBaseName2(term.filePath);
     return {
       icon: "\u{1F4C4}",
       label: fileName,
@@ -4724,7 +5995,7 @@ var GlossaryPaletteView = class {
    * name がファイル名と同じ場合は🪪行を省略する（重複表示回避）。
    */
   notationCandidates(term) {
-    const base = fileBaseName(term.filePath);
+    const base = fileBaseName2(term.filePath);
     const list = [{ icon: "\u{1F4C4}", label: base }];
     if (term.name && term.name !== base) {
       list.push({ icon: "\u{1FAAA}", label: term.name });
@@ -4740,7 +6011,7 @@ var GlossaryPaletteView = class {
       const matched = this.notationCandidates(term).filter((c) => c.label.includes(query));
       if (matched.length > 0) {
         groups.push({
-          sortKey: term.name || fileBaseName(term.filePath),
+          sortKey: term.name || fileBaseName2(term.filePath),
           term,
           matched
         });
@@ -4847,7 +6118,7 @@ var GlossaryPaletteView = class {
       case "folder":
         return `\u{1F4C1} ${segment.node.name}`;
       case "term":
-        return `\u{1F4C4} ${fileBaseName(segment.term.filePath)}`;
+        return `\u{1F4C4} ${fileBaseName2(segment.term.filePath)}`;
     }
   }
   renderBreadcrumb() {
@@ -4913,8 +6184,8 @@ var GlossaryPaletteView = class {
 };
 
 // src/views/glossaryPaletteModal.ts
-var import_obsidian12 = require("obsidian");
-var GlossaryPaletteModal = class extends import_obsidian12.Modal {
+var import_obsidian14 = require("obsidian");
+var GlossaryPaletteModal = class extends import_obsidian14.Modal {
   constructor(app, categories, recentFilePaths, allTerms, callbacks) {
     super(app);
     this.categories = categories;
@@ -4961,7 +6232,7 @@ function findFileForView(app, view) {
   const ref = { file: null };
   app.workspace.iterateAllLeaves((leaf) => {
     if (ref.file) return;
-    if (leaf.view instanceof import_obsidian13.MarkdownView) {
+    if (leaf.view instanceof import_obsidian15.MarkdownView) {
       const cm = leaf.view.editor.cm;
       if (cm === view) ref.file = leaf.view.file;
     }
@@ -5033,19 +6304,19 @@ function buildGlossaryPaletteExtension(deps) {
       if (this.isOpen) return;
       const settings = deps.getSettings();
       if (!settings.glossaryPaletteEnabled) {
-        new import_obsidian13.Notice("\u7528\u8A9E\u5165\u529B\u30D1\u30EC\u30C3\u30C8\u306F\u8A2D\u5B9A\u3067\u7121\u52B9\u306B\u306A\u3063\u3066\u3044\u307E\u3059\u3002");
+        new import_obsidian15.Notice("\u7528\u8A9E\u5165\u529B\u30D1\u30EC\u30C3\u30C8\u306F\u8A2D\u5B9A\u3067\u7121\u52B9\u306B\u306A\u3063\u3066\u3044\u307E\u3059\u3002");
         return;
       }
       const sel = this.view.state.selection.main;
       if (!sel.empty) {
-        new import_obsidian13.Notice("\u30C6\u30AD\u30B9\u30C8\u3092\u9078\u629E\u3057\u305F\u72B6\u614B\u3067\u306F\u5B9F\u884C\u3067\u304D\u307E\u305B\u3093\u3002\u30AB\u30FC\u30BD\u30EB\u3092\u7F6E\u3044\u3066\u304B\u3089\u304A\u8A66\u3057\u304F\u3060\u3055\u3044\u3002");
+        new import_obsidian15.Notice("\u30C6\u30AD\u30B9\u30C8\u3092\u9078\u629E\u3057\u305F\u72B6\u614B\u3067\u306F\u5B9F\u884C\u3067\u304D\u307E\u305B\u3093\u3002\u30AB\u30FC\u30BD\u30EB\u3092\u7F6E\u3044\u3066\u304B\u3089\u304A\u8A66\u3057\u304F\u3060\u3055\u3044\u3002");
         return;
       }
       const file = findFileForView(deps.app, this.view);
       const isNovel = (_a = this.view.state.field(novelModeField, false)) != null ? _a : false;
       const allowed = isPaletteAllowed(settings.glossaryPaletteScope, isNovel, file, deps.app, deps.getTagDefinitions());
       if (!allowed) {
-        new import_obsidian13.Notice("\u3053\u306E\u30CE\u30FC\u30C8\u3067\u306F\u8D77\u52D5\u7BC4\u56F2\u306E\u8A2D\u5B9A\u306B\u3088\u308A\u7528\u8A9E\u5165\u529B\u30D1\u30EC\u30C3\u30C8\u3092\u5229\u7528\u3067\u304D\u307E\u305B\u3093\u3002");
+        new import_obsidian15.Notice("\u3053\u306E\u30CE\u30FC\u30C8\u3067\u306F\u8D77\u52D5\u7BC4\u56F2\u306E\u8A2D\u5B9A\u306B\u3088\u308A\u7528\u8A9E\u5165\u529B\u30D1\u30EC\u30C3\u30C8\u3092\u5229\u7528\u3067\u304D\u307E\u305B\u3093\u3002");
         return;
       }
       this.openPalette(this.view, sel.head, file, 0);
@@ -5097,7 +6368,7 @@ function buildGlossaryPaletteExtension(deps) {
         onInsert: (text, filePath) => this.commitInsert(text, filePath),
         onClose: () => this.closePalette()
       };
-      if (import_obsidian13.Platform.isMobile) {
+      if (import_obsidian15.Platform.isMobile) {
         this.paletteModal = new GlossaryPaletteModal(deps.app, categories, recentFilePaths, terms, callbacks);
         this.paletteModal.open();
         return;
@@ -5265,7 +6536,7 @@ function areTermListsEqual(a, b) {
   }
   return true;
 }
-var NovelsNoteJP = class extends import_obsidian14.Plugin {
+var NovelsNoteJP = class extends import_obsidian16.Plugin {
   constructor() {
     super(...arguments);
     this.terms = [];
@@ -5288,6 +6559,46 @@ var NovelsNoteJP = class extends import_obsidian14.Plugin {
     // メモリ上キャッシュへも反映するために保持する（詳細は
     // clearGlossaryPaletteHistory() を参照）。
     this.glossaryPaletteBundle = null;
+    // ─────────────────────────────────────────
+    // 原稿クリーニング定義（manuscript-rules）のキャッシュ
+    //
+    // 文字数カウントはエディタの編集のたびに同期的に呼ばれるため、
+    // 定義ファイルをその都度読み直すことはできない。そのため、
+    // settings.defaultManuscriptRulesFileName が指す定義（未設定時は
+    // 組み込みのデフォルト定義）をここにキャッシュしておき、
+    // countCharacters() 等はこのキャッシュを同期的に参照する。
+    //
+    // 定義ファイルはプラグイン専用フォルダ
+    // （.obsidian/plugins/novels-note-jp/rules/）に保存する
+    // （Novels Bookcrafter 開発計画の凍結に伴う設計変更）。
+    //
+    // キャッシュは onload 時、および定義ファイルの選択・内容が
+    // 変わったとき（settingTab.ts から呼ばれる）に更新する。
+    // ─────────────────────────────────────────
+    this.activeManuscriptRules = createDefaultManuscriptRulesDefinition().rules;
+  }
+  /** プラグイン専用フォルダのパス（Vaultルートからの相対パス）。 */
+  get pluginDir() {
+    var _a;
+    return (_a = this.manifest.dir) != null ? _a : `.obsidian/plugins/${this.manifest.id}`;
+  }
+  /** アクティブな原稿クリーニング定義のキャッシュを再読み込みする。 */
+  async refreshActiveManuscriptRules() {
+    const fileName = this.settings.defaultManuscriptRulesFileName;
+    if (!fileName) {
+      this.activeManuscriptRules = createDefaultManuscriptRulesDefinition().rules;
+      this.updateWordCount();
+      return;
+    }
+    try {
+      const def = await readRuleFile(this.app, this.pluginDir, fileName);
+      this.activeManuscriptRules = def.rules;
+    } catch (e) {
+      const message = e instanceof ManuscriptRulesFileError ? e.message : String(e);
+      new import_obsidian16.Notice(`\u539F\u7A3F\u30AF\u30EA\u30FC\u30CB\u30F3\u30B0\u5B9A\u7FA9\u3092\u8AAD\u307F\u8FBC\u3081\u307E\u305B\u3093\u3067\u3057\u305F\uFF08\u7D44\u307F\u8FBC\u307F\u306E\u521D\u671F\u8A2D\u5B9A\u3092\u4F7F\u7528\u3057\u307E\u3059\uFF09\uFF1A${message}`);
+      this.activeManuscriptRules = createDefaultManuscriptRulesDefinition().rules;
+    }
+    this.updateWordCount();
   }
   // ─────────────────────────────────────────
   // ロード
@@ -5323,6 +6634,8 @@ var NovelsNoteJP = class extends import_obsidian14.Plugin {
         view.setRubyStyleGetter(() => this.settings.rubyStyle);
         view.setWrapColumnGetter(() => this.settings.wrapColumn);
         view.setFontSizeGetter(() => this.settings.fontSize);
+        view.setSettingsGetter(() => this.settings);
+        view.setPluginDirGetter(() => this.pluginDir);
         return view;
       }
     );
@@ -5407,17 +6720,17 @@ var NovelsNoteJP = class extends import_obsidian14.Plugin {
       id: "open-glossary-palette",
       name: "\u7528\u8A9E\u5165\u529B\u30D1\u30EC\u30C3\u30C8\u3092\u8D77\u52D5",
       checkCallback: (checking) => {
-        const mdView = this.app.workspace.getActiveViewOfType(import_obsidian14.MarkdownView);
+        const mdView = this.app.workspace.getActiveViewOfType(import_obsidian16.MarkdownView);
         if (!mdView) return false;
         if (checking) return true;
         const cm = mdView.editor.cm;
         if (!cm) {
-          new import_obsidian14.Notice("\u7DE8\u96C6\u753B\u9762\uFF08\u30BD\u30FC\u30B9\u30E2\u30FC\u30C9\uFF0FLive Preview\uFF09\u3067\u304A\u8A66\u3057\u304F\u3060\u3055\u3044\u3002");
+          new import_obsidian16.Notice("\u7DE8\u96C6\u753B\u9762\uFF08\u30BD\u30FC\u30B9\u30E2\u30FC\u30C9\uFF0FLive Preview\uFF09\u3067\u304A\u8A66\u3057\u304F\u3060\u3055\u3044\u3002");
           return true;
         }
         const instance = cm.plugin(glossaryPaletteBundle.viewPlugin);
         if (!instance) {
-          new import_obsidian14.Notice("\u73FE\u5728\u306E\u30A8\u30C7\u30A3\u30BF\u3067\u306F\u7528\u8A9E\u5165\u529B\u30D1\u30EC\u30C3\u30C8\u3092\u5229\u7528\u3067\u304D\u307E\u305B\u3093\u3002");
+          new import_obsidian16.Notice("\u73FE\u5728\u306E\u30A8\u30C7\u30A3\u30BF\u3067\u306F\u7528\u8A9E\u5165\u529B\u30D1\u30EC\u30C3\u30C8\u3092\u5229\u7528\u3067\u304D\u307E\u305B\u3093\u3002");
           return true;
         }
         instance.openManually();
@@ -5426,7 +6739,7 @@ var NovelsNoteJP = class extends import_obsidian14.Plugin {
     });
     this.registerEvent(
       this.app.workspace.on("editor-menu", (menu, editor, info) => {
-        if (!(info instanceof import_obsidian14.MarkdownView)) return;
+        if (!(info instanceof import_obsidian16.MarkdownView)) return;
         onEditorMenuForRuby(this.app, () => this.settings, menu, editor, info);
       })
     );
@@ -5436,6 +6749,7 @@ var NovelsNoteJP = class extends import_obsidian14.Plugin {
       await this.buildTermIndex();
       this.updateSidebar();
       this.refreshEditors();
+      await this.refreshActiveManuscriptRules();
     });
     this.registerVaultEvents();
     this.initWordCount();
@@ -5479,7 +6793,7 @@ var NovelsNoteJP = class extends import_obsidian14.Plugin {
   registerVaultEvents() {
     this.registerEvent(
       this.app.vault.on("modify", async (file) => {
-        if (file instanceof import_obsidian14.TFile && file.extension === "md") {
+        if (file instanceof import_obsidian16.TFile && file.extension === "md") {
           await this.waitForMetadata(file);
           this.scheduleRebuild();
         }
@@ -5487,7 +6801,7 @@ var NovelsNoteJP = class extends import_obsidian14.Plugin {
     );
     this.registerEvent(
       this.app.vault.on("create", async (file) => {
-        if (file instanceof import_obsidian14.TFile && file.extension === "md") {
+        if (file instanceof import_obsidian16.TFile && file.extension === "md") {
           await this.waitForMetadata(file);
           this.scheduleRebuild();
         }
@@ -5500,7 +6814,7 @@ var NovelsNoteJP = class extends import_obsidian14.Plugin {
     );
     this.registerEvent(
       this.app.vault.on("rename", async (file) => {
-        if (file instanceof import_obsidian14.TFile && file.extension === "md") {
+        if (file instanceof import_obsidian16.TFile && file.extension === "md") {
           await this.waitForMetadata(file);
         }
         this.scheduleRebuild();
@@ -5527,7 +6841,7 @@ var NovelsNoteJP = class extends import_obsidian14.Plugin {
     this.registerEvent(
       this.app.workspace.on("active-leaf-change", (leaf) => {
         this.refreshEditors();
-        if (leaf && leaf.view instanceof import_obsidian14.MarkdownView) {
+        if (leaf && leaf.view instanceof import_obsidian16.MarkdownView) {
           this.lastActiveMarkdownLeaf = leaf;
         }
       })
@@ -5578,7 +6892,7 @@ var NovelsNoteJP = class extends import_obsidian14.Plugin {
     if (!bundle) return;
     this.app.workspace.iterateAllLeaves((leaf) => {
       var _a2;
-      if (!(leaf.view instanceof import_obsidian14.MarkdownView)) return;
+      if (!(leaf.view instanceof import_obsidian16.MarkdownView)) return;
       const cm = leaf.view.editor.cm;
       (_a2 = cm == null ? void 0 : cm.plugin(bundle.viewPlugin)) == null ? void 0 : _a2.resetHistoryCache();
     });
@@ -5715,6 +7029,9 @@ var NovelsNoteJP = class extends import_obsidian14.Plugin {
       } else if (typeof fm.aliases === "string") {
         aliases = [fm.aliases];
       }
+      if (name !== file.basename && !aliases.includes(file.basename)) {
+        aliases.push(file.basename);
+      }
       this.terms.push({ name, aliases, tag: matchedTag, filePath: file.path });
     }
     this.terms.sort((a, b) => b.name.length - a.name.length);
@@ -5741,7 +7058,7 @@ var NovelsNoteJP = class extends import_obsidian14.Plugin {
     this.app.workspace.iterateAllLeaves((leaf) => {
       var _a;
       const view = leaf.view;
-      if (view instanceof import_obsidian14.MarkdownView) {
+      if (view instanceof import_obsidian16.MarkdownView) {
         const file = (_a = view.file) != null ? _a : null;
         const isNovel = this.isNovelModeFile(file);
         const cm = view.editor.cm;
@@ -5771,7 +7088,7 @@ var NovelsNoteJP = class extends import_obsidian14.Plugin {
     this.statusBarEl.title = "\u30AF\u30EA\u30C3\u30AF\u3067\u30AB\u30A6\u30F3\u30C8\u30E2\u30FC\u30C9\u3092\u5207\u308A\u66FF\u3048";
     this.statusBarEl.setCssProps({ cursor: "pointer" });
     this.statusBarEl.addEventListener("click", () => {
-      const modes = ["raw", "novel", "manuscript"];
+      const modes = ["raw", "novel", "page"];
       const current = modes.indexOf(this.settings.countMode);
       this.settings.countMode = modes[(current + 1) % modes.length];
       void this.saveSettings().then(() => this.updateWordCount());
@@ -5795,14 +7112,14 @@ var NovelsNoteJP = class extends import_obsidian14.Plugin {
    */
   updateWordCount() {
     if (!this.statusBarEl) return;
-    const view = this.app.workspace.getActiveViewOfType(import_obsidian14.MarkdownView);
+    const view = this.app.workspace.getActiveViewOfType(import_obsidian16.MarkdownView);
     if (!view) {
       this.statusBarEl.setText("\u2014");
       return;
     }
     const text = view.editor.getValue();
-    const result = countCharacters(text, this.settings);
-    this.statusBarEl.setText(formatCount(result, this.settings.countMode));
+    const result = countCharacters(text, this.settings, this.activeManuscriptRules);
+    this.statusBarEl.setText(formatCount(result, this.settings.countMode, this.settings));
   }
   // ─────────────────────────────────────────
   // サイドバー 開閉・更新
@@ -5878,7 +7195,7 @@ var NovelsNoteJP = class extends import_obsidian14.Plugin {
       name: "\u73FE\u5728\u306E\u30D5\u30A1\u30A4\u30EB\u3092\u539F\u7A3F Export \u3059\u308B",
       callback: () => {
         let file = null;
-        const mdView = this.app.workspace.getActiveViewOfType(import_obsidian14.MarkdownView);
+        const mdView = this.app.workspace.getActiveViewOfType(import_obsidian16.MarkdownView);
         if (mdView == null ? void 0 : mdView.file) {
           file = mdView.file;
         }
@@ -5889,10 +7206,10 @@ var NovelsNoteJP = class extends import_obsidian14.Plugin {
           }
         }
         if (!file) {
-          new import_obsidian14.Notice("\u30A8\u30AF\u30B9\u30DD\u30FC\u30C8\u5BFE\u8C61\u306E\u30D5\u30A1\u30A4\u30EB\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3002");
+          new import_obsidian16.Notice("\u30A8\u30AF\u30B9\u30DD\u30FC\u30C8\u5BFE\u8C61\u306E\u30D5\u30A1\u30A4\u30EB\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3002");
           return;
         }
-        new ExportModal(this.app, file, this.settings.rubyStyle).open();
+        new ExportModal(this.app, file, this.settings, this.pluginDir).open();
       }
     });
   }
@@ -5909,7 +7226,7 @@ var NovelsNoteJP = class extends import_obsidian14.Plugin {
   async activateVerticalPreview() {
     const { workspace } = this.app;
     const existing = workspace.getLeavesOfType(VERTICAL_VIEW_TYPE);
-    if (import_obsidian14.Platform.isMobile) {
+    if (import_obsidian16.Platform.isMobile) {
       for (const leaf3 of existing) {
         leaf3.detach();
       }
@@ -5943,7 +7260,7 @@ var NovelsNoteJP = class extends import_obsidian14.Plugin {
     const activeLeaf = workspace.getMostRecentLeaf();
     let targetLeaf = activeLeaf;
     let targetFile = null;
-    if (activeLeaf && activeLeaf.view.getViewType() === "markdown" && activeLeaf.view.file instanceof import_obsidian14.TFile) {
+    if (activeLeaf && activeLeaf.view.getViewType() === "markdown" && activeLeaf.view.file instanceof import_obsidian16.TFile) {
       targetFile = activeLeaf.view.file;
     }
     if (!targetFile) {
@@ -5952,7 +7269,7 @@ var NovelsNoteJP = class extends import_obsidian14.Plugin {
         if (targetFile) return;
         if (leaf.view.getViewType() !== "markdown") return;
         const f = leaf.view.file;
-        if (!(f instanceof import_obsidian14.TFile)) return;
+        if (!(f instanceof import_obsidian16.TFile)) return;
         const cache2 = this.app.metadataCache.getFileCache(f);
         if (((_a2 = cache2 == null ? void 0 : cache2.frontmatter) == null ? void 0 : _a2.mode) === "novel") {
           targetFile = f;
@@ -5961,12 +7278,12 @@ var NovelsNoteJP = class extends import_obsidian14.Plugin {
       });
     }
     if (!targetFile) {
-      new import_obsidian14.Notice("\u5C0F\u8AAC\u7528\u30D3\u30E5\u30FC\u306E\u5BFE\u8C61\u5916\u3067\u3059\u3002Frontmatter \u306B mode: novel \u306E\u30D7\u30ED\u30D1\u30C6\u30A3\u3092\u8A2D\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044\u3002");
+      new import_obsidian16.Notice("\u5C0F\u8AAC\u7528\u30D3\u30E5\u30FC\u306E\u5BFE\u8C61\u5916\u3067\u3059\u3002Frontmatter \u306B mode: novel \u306E\u30D7\u30ED\u30D1\u30C6\u30A3\u3092\u8A2D\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044\u3002");
       return;
     }
     const cache = this.app.metadataCache.getFileCache(targetFile);
     if (((_a = cache == null ? void 0 : cache.frontmatter) == null ? void 0 : _a.mode) !== "novel") {
-      new import_obsidian14.Notice("\u5C0F\u8AAC\u7528\u30D3\u30E5\u30FC\u306E\u5BFE\u8C61\u5916\u3067\u3059\u3002Frontmatter \u306B mode: novel \u306E\u30D7\u30ED\u30D1\u30C6\u30A3\u3092\u8A2D\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044\u3002");
+      new import_obsidian16.Notice("\u5C0F\u8AAC\u7528\u30D3\u30E5\u30FC\u306E\u5BFE\u8C61\u5916\u3067\u3059\u3002Frontmatter \u306B mode: novel \u306E\u30D7\u30ED\u30D1\u30C6\u30A3\u3092\u8A2D\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044\u3002");
       const existing2 = workspace.getLeavesOfType(NOVEL_READING_VIEW_TYPE);
       if (existing2.length > 0) {
         void workspace.revealLeaf(existing2[0]);
@@ -6050,7 +7367,7 @@ var NovelsNoteJP = class extends import_obsidian14.Plugin {
     const stillOpen = this.app.workspace.getLeavesOfType("markdown").includes(leaf);
     if (!stillOpen) return null;
     const view = leaf.view;
-    if (view instanceof import_obsidian14.MarkdownView) {
+    if (view instanceof import_obsidian16.MarkdownView) {
       return { editor: view.editor, file: (_b = view.file) != null ? _b : null };
     }
     return null;
@@ -6071,20 +7388,20 @@ var NovelsNoteJP = class extends import_obsidian14.Plugin {
       editorCallback: (editor) => {
         const selected = editor.getSelection();
         if (!selected || selected.length === 0) {
-          new import_obsidian14.Notice("\u7528\u8A9E\u3068\u3057\u3066\u958B\u304D\u305F\u3044\u6587\u5B57\u5217\u3092\u9078\u629E\u3057\u3066\u304F\u3060\u3055\u3044\u3002");
+          new import_obsidian16.Notice("\u7528\u8A9E\u3068\u3057\u3066\u958B\u304D\u305F\u3044\u6587\u5B57\u5217\u3092\u9078\u629E\u3057\u3066\u304F\u3060\u3055\u3044\u3002");
           return;
         }
         const term = this.terms.find(
           (t) => t.name === selected || t.aliases.includes(selected)
         );
         if (!term) {
-          new import_obsidian14.Notice(`\u300C${selected}\u300D\u306B\u4E00\u81F4\u3059\u308B\u7528\u8A9E\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3002`);
+          new import_obsidian16.Notice(`\u300C${selected}\u300D\u306B\u4E00\u81F4\u3059\u308B\u7528\u8A9E\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3002`);
           return;
         }
         new TermPreviewModal(this.app, term, () => {
           const file = this.app.vault.getAbstractFileByPath(term.filePath);
-          if (!(file instanceof import_obsidian14.TFile)) {
-            new import_obsidian14.Notice("\u7528\u8A9E\u30CE\u30FC\u30C8\u306E\u8AAD\u307F\u8FBC\u307F\u306B\u5931\u6557\u3057\u307E\u3057\u305F\u3002");
+          if (!(file instanceof import_obsidian16.TFile)) {
+            new import_obsidian16.Notice("\u7528\u8A9E\u30CE\u30FC\u30C8\u306E\u8AAD\u307F\u8FBC\u307F\u306B\u5931\u6557\u3057\u307E\u3057\u305F\u3002");
             return;
           }
           void this.app.workspace.getLeaf(false).openFile(file);
@@ -6110,8 +7427,8 @@ var NovelsNoteJP = class extends import_obsidian14.Plugin {
       const cache = this.app.metadataCache.getFileCache(file);
       if (((_b = cache == null ? void 0 : cache.frontmatter) == null ? void 0 : _b["mode"]) !== "novel") continue;
       const source = await this.app.vault.cachedRead(file);
-      const { raw: totalChars, novel: novelChars } = countCharacters(source, this.settings);
-      const { narrativeChars, dialogueChars } = countNarrativeAndDialogue(source, this.settings);
+      const { raw: totalChars, novel: novelChars, pageEquivalent } = countCharacters(source, this.settings, this.activeManuscriptRules);
+      const { narrativeChars, dialogueChars } = countNarrativeAndDialogue(source, this.settings, this.activeManuscriptRules);
       const slashIdx = file.path.lastIndexOf("/");
       const folderPath = slashIdx === -1 ? "" : file.path.slice(0, slashIdx);
       entries.push({
@@ -6123,7 +7440,8 @@ var NovelsNoteJP = class extends import_obsidian14.Plugin {
         totalChars,
         narrativeChars,
         dialogueChars,
-        novelChars
+        novelChars,
+        pageEquivalent
       });
     }
     return entries;

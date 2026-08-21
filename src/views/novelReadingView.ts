@@ -15,7 +15,7 @@
 
 import { ItemView, WorkspaceLeaf, TFile, setIcon } from "obsidian";
 import { NOVEL_READING_VIEW_TYPE } from "../types";
-import { RubyStyle } from "../settings";
+import { RubyStyle, NovelsNoteSettings, DEFAULT_SETTINGS } from "../settings";
 import { convertRubyAndEscape } from "../core/rubyPatterns";
 import { ExportModal } from "../export/exportModal";
 import { stripHashtags } from "../core/hashtags";
@@ -158,6 +158,10 @@ export class NovelReadingView extends ItemView {
   private getRubyStyle:  () => RubyStyle = () => "narou";
   private getWrapColumn: () => number    = () => 40;
   private getFontSize:   () => number    = () => 16;
+  /** Export モーダルへ渡すプラグイン設定全体（登録済み原稿クリーニング定義の参照用） */
+  private getSettings: () => NovelsNoteSettings | null = () => null;
+  /** Export モーダルへ渡すプラグイン専用フォルダのパス（定義ファイルの実体はこの配下 rules/ にある） */
+  private getPluginDir: () => string = () => ".obsidian/plugins/novels-note-jp";
 
   /** ファイルを外から設定する（activateNovelReadingView から呼ぶ） */
   setFile(file: TFile): void {
@@ -167,6 +171,8 @@ export class NovelReadingView extends ItemView {
   setRubyStyleGetter(fn: () => RubyStyle): void  { this.getRubyStyle  = fn; }
   setWrapColumnGetter(fn: () => number): void     { this.getWrapColumn = fn; }
   setFontSizeGetter(fn: () => number): void       { this.getFontSize   = fn; }
+  setSettingsGetter(fn: () => NovelsNoteSettings): void { this.getSettings = fn; }
+  setPluginDirGetter(fn: () => string): void { this.getPluginDir = fn; }
 
   constructor(leaf: WorkspaceLeaf) { super(leaf); }
 
@@ -215,7 +221,8 @@ export class NovelReadingView extends ItemView {
     setIcon(exportBtn, "file-output");
     exportBtn.addEventListener("click", () => {
       if (!this._file) return;
-      new ExportModal(this.app, this._file, this.getRubyStyle()).open();
+      const settings = this.getSettings() ?? { ...DEFAULT_SETTINGS, rubyStyle: this.getRubyStyle() };
+      new ExportModal(this.app, this._file, settings, this.getPluginDir()).open();
     });
 
     // 編集モードに戻るボタン（pencil-line アイコン）

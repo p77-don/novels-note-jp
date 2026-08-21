@@ -1,111 +1,30 @@
 // ─────────────────────────────────────────
 // Novels Note JP — 文字数カウント
+//
+// 【2026-08 一本化】
+// かつては本ファイル独自の cleanNovelText() で原稿をクリーニングして
+// いたが、Export と判定基準が食い違う（≒メンテナンス時にズレが生じる）
+// リスクがあったため廃止した。現在は Export と同じ
+// manuscript-rules エンジン（cleanManuscript）を使い、常に
+// 「オプション設定で指定されている原稿クリーニング定義（登録済み定義ファイル、
+// または未登録時は組み込みのデフォルト定義）」で処理した後のテキストを
+// カウント対象にする。
 // ─────────────────────────────────────────
 
 import { NovelsNoteSettings } from "../settings";
-import { stripHashtags } from "../core/hashtags";
-import { CJK_PATTERN } from "../core/rubyPatterns";
 import { parseBrackets } from "../editor/bracketParser";
+import { findRubyMatches } from "./rubyPatterns";
+import type { ManuscriptRules } from "../manuscript-rules/types/rules";
+import { cleanManuscript } from "../manuscript-rules/cleaner/manuscriptCleaner";
 
 // ─────────────────────────────────────────
 // カウント結果
 // ─────────────────────────────────────────
 export interface CountResult {
-  raw: number;        // 純粋な文字数
-  novel: number;      // 小説換算（全角1・半角0.5）
-  manuscript: number; // 原稿用紙換算（400字詰め・小数1桁）
+  raw: number;           // 純粋な文字数
+  novel: number;         // 小説換算（全角1・半角0.5）
+  pageEquivalent: number; // ページ換算（設定した1ページあたりの文字数で割った枚数・小数1桁）
 }
-
-// ─────────────────────────────────────────
-// 本文クリーニング
-//
-// 以下を除去し、原稿本文のみを残す。
-//
-// 1. Frontmatter（---〜---）
-// 2. Obsidian コメント（%%〜%%）
-// 3. Wikilink：[[表示名]] → 表示名、[[path|alias]] → alias
-// 4. Markdown 見出し記号（行頭の # 群）
-// 5. Markdown 強調記号（** __ * _ ）
-// 6. Markdown コードブロック・インラインコード（```〜``` `〜`）
-// 7. Markdown 引用記号（行頭の >）
-// 8. Markdown リスト記号（行頭の - * + と数字リスト）
-// 9. HTML タグ（<tag>）
-// 10. aozora ルビ：[|｜]親《ルビ》→ 親（半角バー・全角バーの両方に対応、々を含む語にも対応）
-// 11. denden ルビ：{親|ルビ} → 親
-// 12. HTML ruby タグ：<ruby>親<rt>ルビ</rt></ruby> → 親
-// ─────────────────────────────────────────
-export function cleanNovelText(raw: string): string {
-  let text = raw;
-
-  // 1. Frontmatter（ファイル先頭の ---〜--- ブロック）
-  //    行頭の --- のみにマッチさせ、値に --- を含む YAML キーの誤検出を防ぐ
-  text = text.replace(/^---[ \t]*\n[\s\S]*?\n---[ \t]*\n?/, "");
-
-  // 2. Obsidian コメント %%〜%%（複数行対応）
-  text = text.replace(/%%[\s\S]*?%%/g, "");
-
-  // 3. HTML ruby タグ（<rt>ルビ</rt> を先に除去、<ruby>/<\/ruby> も除去）
-  text = text.replace(/<rt[^>]*>[\s\S]*?<\/rt>/gi, "");
-  text = text.replace(/<\/?ruby[^>]*>/gi, "");
-
-  // 4. その他 HTML タグ
-  text = text.replace(/<[^>]+>/g, "");
-
-  // 5. Markdown コードブロック（```〜```、~~~〜~~~）中身ごと除去
-  text = text.replace(/^```[\s\S]*?^```\s*$/gm, "");
-  text = text.replace(/^~~~[\s\S]*?^~~~\s*$/gm, "");
-
-  // 6. インラインコード（`〜`）
-  text = text.replace(/`[^`]*`/g, "");
-
-  // 7. Wikilink：[[path|alias]] → alias、[[name]] → name
-  text = text.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, "$2");
-  text = text.replace(/\[\[([^\]]+)\]\]/g, "$1");
-
-  // 8. Markdown 見出し記号（行頭の # 群 + 空白）
-  text = text.replace(/^#{1,6}\s+/gm, "");
-
-  // 9. Markdown 引用（行頭の > ）
-  text = text.replace(/^>\s?/gm, "");
-
-  // 10. Markdown リスト記号（行頭の - * + 、または 数字. ）
-  text = text.replace(/^[ \t]*[-*+]\s+/gm, "");
-  text = text.replace(/^[ \t]*\d+\.\s+/gm, "");
-
-  // 11. Markdown 強調（*** ** __ * _ の組み合わせ）
-  //     記号だけ除去し、内側のテキストは保持する
-  text = text.replace(/(\*{1,3}|_{1,3})([\s\S]*?)\1/g, "$2");
-
-  // 12. aozora ルビ：[|｜]親文字《ルビ》→ 親文字（半角バー・全角バーの両方に対応）
-  text = text.replace(/[|｜]([^《\n]+)《[^》]*》/g, "$1");
-  // バーなし aozora：漢字直後《ルビ》→ 漢字
-  //   CJK_PATTERN は core/rubyPatterns.ts の共通定義を使用する
-  //   （エディタ内プレビュー・Export・縦書きプレビューと文字範囲を統一するため）。
-  //   u フラグ: \u{20000}-\u{3FFFF}（BMP外CJK Extension B-G）を正しく解釈するために必須
-  text = text.replace(new RegExp("([" + CJK_PATTERN + "]+)《[^》]*》", "gu"), "$1");
-
-  // 13. denden ルビ：{親文字|ルビ} → 親文字
-  text = text.replace(/\{([^|]+)\|[^}]+\}/g, "$1");
-
-  // 14. Markdown 水平線（--- *** ___）を除去
-  text = text.replace(/^[-*_]{3,}\s*$/gm, "");
-
-  // 15. Markdown 画像 ![alt](url) → 除去（リンク変換より先に処理する）
-  text = text.replace(/!\[[^\]]*\]\([^)]+\)/g, "");
-
-  // 16. Markdown リンク [テキスト](url) → テキスト
-  text = text.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
-
-  return text;
-}
-
-// ─────────────────────────────────────────
-// #tag 除去（文字数カウントから #tag を除外する場合に使用）
-//
-// タグの判定ロジックは hashtags.ts に共通化されている
-// （Export・小説閲覧ビューと判定基準を統一するため）。
-// 判定後に残る連続空白の圧縮はこのファイル独自の処理として維持する。
-// ─────────────────────────────────────────
 
 // ─────────────────────────────────────────
 // 文字数カウント本体
@@ -128,24 +47,18 @@ function charWidth(ch: string): number {
 }
 
 // ─────────────────────────────────────────
-// 設定に応じた本文の絞り込み（#tag・空行・全角スペース・空白・改行）
+// カウント用の最終整形（空白・改行の扱い）
 //
-// countCharacters() と countNarrativeAndDialogue() の両方から呼ばれる。
-// 「原稿本文としてカウント対象にする文字列」の定義を1箇所に集約し、
-// 執筆文字数と地の文／会話文の合計が食い違わないようにするため。
+// manuscript-rules による原稿クリーニング定義の適用（Frontmatter・タグ・
+// Wikilink・見出し記号などの除去/変換）が済んだテキストに対して、
+// 「文字数として数えるかどうか」の最後の調整だけをここで行う。
+//
+// 全角スペースの扱いだけは設定で切り替えられるようにしている
+// （原稿クリーニング定義には「全角スペースをカウントに含めるか」という
+// 概念がないため）。半角スペース・タブ・改行は、原稿の版面制御用の
+// 記号であり文字数そのものではないため、常に除外する。
 // ─────────────────────────────────────────
-function applyCountSettings(cleaned: string, settings: NovelsNoteSettings): string {
-  // #tag を文字数に含めない場合（デフォルト）：#tag を除去
-  if (!settings.countHashtags) {
-    cleaned = stripHashtags(cleaned);
-    cleaned = cleaned.replace(/[ \t\u3000]{2,}/g, " ");
-  }
-
-  // 空行を除外する場合：空行（空白のみの行も含む）を除去
-  if (!settings.countEmptyLines) {
-    cleaned = cleaned.replace(/^[ \t\u3000]*\n/gm, "");
-  }
-
+function finalizeCountText(cleaned: string, settings: NovelsNoteSettings): string {
   // 全角スペースを除外する場合
   if (!settings.countFullWidthSpace) {
     cleaned = cleaned.replace(/\u3000/g, "");
@@ -160,34 +73,133 @@ function applyCountSettings(cleaned: string, settings: NovelsNoteSettings): stri
   return cleaned;
 }
 
+// ─────────────────────────────────────────
+// ルビ記法を「親文字＋（トグルONなら）読み仮名」の平文へ還元する
+//
+// 文字数カウントにおけるルビの扱いは、Export用に選択している定義
+// ファイルの ruby.mode（none/remove/narou/aozora/…）とは独立させる。
+// カウントは常に「親文字のみを基準」とし、トグル設定がオンの場合のみ
+// 読み仮名も文字数に含める。これにより、Export時の出力フォーマット
+// 選択が文字数カウントの結果に影響しないようにしている。
+//
+// ページ換算では「どの行にどれだけ文字があるか」（改行位置）が
+// そのまま結果に影響するため、ここでは改行を保持したまま処理する
+// （raw/novel用に改行を落とすのは呼び出し側で行う）。
+// ─────────────────────────────────────────
+function buildCountableText(
+  text: string,
+  settings: NovelsNoteSettings,
+  rules: ManuscriptRules
+): string {
+  if (!settings.countRubyText) {
+    // 親文字のみ：ruby.mode を強制的に "remove" として扱う
+    const baseRules: ManuscriptRules = {
+      ...rules,
+      inline: { ...rules.inline, ruby: { mode: "remove" } },
+    };
+    return cleanManuscript(text, baseRules, settings.rubyStyle);
+  }
+
+  // 親文字＋読み仮名：記法を変換しない（ruby.mode: "none"）テキストを
+  // 作り、findRubyMatches() で実際に残っているルビペアを抽出して、
+  // 記法記号（｜《》等）を除いた「親文字＋読み仮名」に置き換える
+  // （frontmatter・コメント等に含まれていた「ルビらしき記法」を
+  // 誤って拾わないよう、他ルール適用後のテキストに対して検出する）。
+  const notationRules: ManuscriptRules = {
+    ...rules,
+    inline: { ...rules.inline, ruby: { mode: "none" } },
+  };
+  const withRubyNotation = cleanManuscript(text, notationRules, settings.rubyStyle);
+  const matches = findRubyMatches(withRubyNotation, settings.rubyStyle);
+
+  let rebuilt = "";
+  let cursor = 0;
+  for (const m of matches) {
+    rebuilt += withRubyNotation.slice(cursor, m.from);
+    rebuilt += m.base + m.ruby;
+    cursor = m.to;
+  }
+  rebuilt += withRubyNotation.slice(cursor);
+  return rebuilt;
+}
+
+/** 1行分のテキストから、カウント対象外の空白を除去する（改行はここでは扱わない）。 */
+function finalizeLine(line: string, settings: NovelsNoteSettings): string {
+  let l = line;
+  if (!settings.countFullWidthSpace) {
+    l = l.replace(/\u3000/g, "");
+  }
+  l = l.replace(/[ \t]/g, "");
+  return l;
+}
+
 /**
  * テキストから文字数を集計する。
  * @param text     エディタの生テキスト
- * @param settings プラグイン設定（空白・空行・#tag カウント制御）
+ * @param settings プラグイン設定（全角スペース・ルビ文字カウント制御・ページ換算の設定）
+ * @param rules    カウントに使う原稿クリーニング定義（登録済み定義ファイル、または組み込みのデフォルト）
  */
 export function countCharacters(
   text: string,
-  settings: NovelsNoteSettings
+  settings: NovelsNoteSettings,
+  rules: ManuscriptRules
 ): CountResult {
-  // クリーニング
-  const cleaned = applyCountSettings(cleanNovelText(text), settings);
+  // 改行を保持したまま整形する（ページ換算で行構造が必要なため）
+  const countable = buildCountableText(text, settings, rules);
 
+  // split("\n") は文字列が改行で終わっている場合、末尾に余分な空文字列
+  // （ファイル終端の記号であり、実際の空行ではない）を1つ生成してしまう
+  // （例："a\nb\n".split("\n") === ["a","b",""]）。
+  // document.trailingWhitespace が normalize されている定義では
+  // 常に末尾に改行が1つ付与されるため、この末尾要素をそのまま
+  // 「余分な空行」として数えてしまうと、段落数が多いほどページ数が
+  // 過大に算出されてしまう。末尾が改行で終わっている場合のみ、
+  // split結果の最後の要素（必ず空文字列になる）を1つ取り除く。
+  const rawLines = countable.split("\n");
+  if (rawLines.length > 0 && rawLines[rawLines.length - 1] === "") {
+    rawLines.pop();
+  }
+  const finalizedLines = rawLines.map(line => finalizeLine(line, settings));
+
+  // raw / novel：全行を連結した、従来通りのフラットな文字数集計
+  const flat = finalizedLines.join("");
   // スプレッド構文でコードポイント単位に分解（絵文字・拡張漢字などの
   // サロゲートペアを UTF-16 コードユニット 2 個と誤計上しないため）
-  const raw = [...cleaned].length;
+  const raw = [...flat].length;
 
-  // novel 換算（全角1・半角0.5）
   let novel = 0;
-  for (const ch of cleaned) {
+  for (const ch of flat) {
     novel += charWidth(ch);
   }
   // 小数点以下1桁で丸める（例：123.5）
   novel = Math.round(novel * 10) / 10;
 
-  // 原稿用紙換算（400字詰め）
-  const manuscript = Math.round((raw / 400) * 10) / 10;
+  // ─────────────────────────────────────────
+  // ページ換算：総文字数を1ページの文字数で単純に割るのではなく、
+  // 段落（改行で区切られた行）ごとに実際に必要な行数を積み上げてから
+  // ページ数を算出する。
+  //
+  // 例：1行20文字・1ページ20行（400字詰め）の設定で、1段落が30文字の
+  // 場合、単純な「総文字数 ÷ 400」では計算に含まれない「行末の余白
+  // （20文字分の空白）」が、段落数が多いほど無視できない誤差になる。
+  // 実際の原稿用紙・小説投稿サイトのページ表示と同様に、各段落は
+  // 必ず新しい行から始まり、1行に収まらない分は次の行へ折り返す、
+  // という組版の考え方に合わせて行数を計算する。
+  // ─────────────────────────────────────────
+  const charsPerLine = Math.max(1, settings.wrapColumn);
+  const linesPerPage = Math.max(1, settings.pageLinesPerPage);
 
-  return { raw, novel, manuscript };
+  let totalLines = 0;
+  if (raw > 0) {
+    for (const line of finalizedLines) {
+      const lineLength = [...line].length;
+      // 空行（段落間の区切り）も1行分の版面を占めるため、最低1行として数える
+      totalLines += Math.max(1, Math.ceil(lineLength / charsPerLine));
+    }
+  }
+  const pageEquivalent = Math.round((totalLines / linesPerPage) * 10) / 10;
+
+  return { raw, novel, pageEquivalent };
 }
 
 // ─────────────────────────────────────────
@@ -235,18 +247,29 @@ function mergeRanges(
  * すべてのカッコ種別（鍵カッコ「」・二重鍵カッコ『』など）の内側を対象とする。
  * 「地の文」はそれ以外（カウント対象の本文からカッコ内を除いた残り）。
  *
- * countCharacters() と同じクリーニング・カウント設定
- * （#tag・空行・全角スペースの扱い）を適用するため、
- * narrativeChars + dialogueChars は countCharacters().raw と一致する。
+ * countCharacters() と同じく、ルビは常に「親文字のみ」を基準にカウントする
+ * （Export用の ruby.mode 設定とは独立）。
+ *
+ * 【制限事項】「ルビ文字もカウントする」設定（countRubyText）は、
+ * 地の文／会話文どちらに計上すべきかの判定が複雑になるため、本関数では
+ * 未対応（常に親文字のみで集計する）。そのため countRubyText が
+ * オンの場合、narrativeChars + dialogueChars は countCharacters().raw
+ * より小さくなる（読み仮名の分だけ差が生じる）。
  *
  * @param text     エディタの生テキスト
  * @param settings プラグイン設定
+ * @param rules    カウントに使う原稿クリーニング定義
  */
 export function countNarrativeAndDialogue(
   text: string,
-  settings: NovelsNoteSettings
+  settings: NovelsNoteSettings,
+  rules: ManuscriptRules
 ): NarrativeDialogueCount {
-  const cleaned = applyCountSettings(cleanNovelText(text), settings);
+  const baseRules: ManuscriptRules = {
+    ...rules,
+    inline: { ...rules.inline, ruby: { mode: "remove" } },
+  };
+  const cleaned = finalizeCountText(cleanManuscript(text, baseRules, settings.rubyStyle), settings);
   const totalChars = [...cleaned].length;
 
   const enabledBrackets = settings.bracketDefinitions.filter(bd => bd.enabled);
@@ -270,15 +293,17 @@ export function countNarrativeAndDialogue(
 // ─────────────────────────────────────────
 // ステータスバー表示用のフォーマット
 // ─────────────────────────────────────────
-export function formatCount(result: CountResult, mode: CountMode): string {
+export function formatCount(result: CountResult, mode: CountMode, settings: NovelsNoteSettings): string {
   switch (mode) {
     case "raw":
       return `${result.raw.toLocaleString()} 字`;
     case "novel":
       return `${result.novel.toLocaleString()} 字（小説換算）`;
-    case "manuscript":
-      return `${result.manuscript.toLocaleString()} 枚（400字詰め）`;
+    case "page": {
+      const charsPerPage = Math.max(1, settings.wrapColumn) * Math.max(1, settings.pageLinesPerPage);
+      return `${result.pageEquivalent.toLocaleString()} 枚（${charsPerPage}文字詰め）`;
+    }
   }
 }
 
-export type CountMode = "raw" | "novel" | "manuscript";
+export type CountMode = "raw" | "novel" | "page";

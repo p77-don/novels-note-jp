@@ -567,14 +567,33 @@ export class NovelsNoteSidebarView extends ItemView {
       attr: { draggable: "true" }
     });
 
+    // インデックスにメインで表示するのはファイル名（term.name は
+    // frontmatterのnameプロパティが優先されるため、name を直接
+    // 表示に使うとファイル名が表示されなくなってしまう）。
+    // fm.name（設定されていてファイル名と異なる場合）や実際の
+    // aliasesは、括弧書きの補足表示として続けて示す。
+    //
+    // 【注意】buildTermIndex() 側で、fm.name採用時にファイル名を
+    // ハイライト対象として term.aliases へ追加しているため、
+    // ここでそのまま aliases を表示すると「ファイル名（ファイル名）」
+    // のように重複表示されてしまう。ファイル名と同一のエントリは
+    // 補足表示から除外する。
+    const fileName = (term.filePath.split("/").pop() ?? term.filePath).replace(/\.md$/, "");
     const nameEl = row.createSpan({
-      text: term.name,
+      text: fileName,
       cls: `nn-term-name novel-hl-${tag}`,
       title: term.filePath,
     });
-    if (term.aliases.length > 0) {
+    const supplementalLabels: string[] = [];
+    if (term.name && term.name !== fileName) supplementalLabels.push(term.name);
+    for (const alias of term.aliases) {
+      if (alias && alias !== fileName && !supplementalLabels.includes(alias)) {
+        supplementalLabels.push(alias);
+      }
+    }
+    if (supplementalLabels.length > 0) {
       row.createSpan({
-        text: `（${term.aliases.join("・")}）`,
+        text: `（${supplementalLabels.join("・")}）`,
         cls: "nn-aliases",
       });
     }

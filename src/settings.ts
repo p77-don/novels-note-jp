@@ -51,6 +51,22 @@ export type GlossaryPaletteScope =
   | "all";              // すべてのノート
 
 // ─────────────────────────────────────────
+// 原稿クリーニング定義ファイル（manuscript-rules.json）の登録情報
+//
+// 【2026-08 設計変更】Novels Bookcrafter の開発計画を凍結したことに
+// 伴い、定義ファイルは「Vault内の任意の場所」ではなく、本プラグイン
+// 専用フォルダ（.obsidian/plugins/novels-note-jp/rules/）に固定して
+// 保存する方式へ変更した。保存先フォルダが固定されたため、
+// ユーザーが指定するのはファイル名のみとなる。
+// ─────────────────────────────────────────
+export interface ManuscriptRulesFileRef {
+  /** プラグイン専用フォルダ（rules/）内でのファイル名（例: manuscript-rules.json） */
+  fileName: string;
+  /** UI表示用の任意ラベル（未設定時はファイル名を表示に使う） */
+  label?: string;
+}
+
+// ─────────────────────────────────────────
 // プラグイン全体設定
 // ─────────────────────────────────────────
 export interface NovelsNoteSettings {
@@ -77,10 +93,23 @@ export interface NovelsNoteSettings {
   rubyStyle: RubyStyle;
 
   // 文字数カウント
-  countMode: "raw" | "novel" | "manuscript";
+  // 【2026-08 一本化】カウント対象の絞り込み（#tag・空行の除外）は、
+  // Exportと同じ manuscript-rules エンジンで処理されるようになったため、
+  // 個別トグル（旧 countHashtags / countEmptyLines）は廃止した。
+  // どの原稿クリーニング定義を使うかは defaultManuscriptRulesPath に従う。
+  countMode: "raw" | "novel" | "page";
   countFullWidthSpace: boolean;
-  countEmptyLines: boolean;
-  countHashtags: boolean; // true: #tag も文字数に含める／false（デフォルト）: #tag を除外
+  // ルビ文字（読み仮名）を文字数に含めるか。
+  // false（デフォルト）: 親文字のみカウント（一般的な原稿の文字数の数え方）
+  // true: 親文字に加えてルビの読み仮名部分もカウントする
+  countRubyText: boolean;
+  // ページ換算（旧「原稿用紙換算」）の1ページあたりの設定
+  // 【2026-08 統合】1行あたりの文字数は、エディタの「折り返し文字数」
+  // （wrapColumn）と意味が重複するため、専用フィールドを廃止して
+  // wrapColumn を兼用する。将来、縦書きプレビューを本のページ単位で
+  // 表示する機能を追加する際にも、この2値（wrapColumn・pageLinesPerPage）
+  // をそのままページの寸法として使う想定。
+  pageLinesPerPage: number; // 1ページあたりの行数（デフォルト20＝wrapColumn=20との組み合わせで旧400字詰め相当）
 
   // 縦書きプレビュー
   verticalCursorHighlightColor: string;   // カーソル行の背景色
@@ -99,6 +128,11 @@ export interface NovelsNoteSettings {
   glossaryPaletteEnabled: boolean;         // 機能全体のオン/オフ
   glossaryPaletteScope: GlossaryPaletteScope; // 起動範囲
   glossaryPaletteTrigger: string;          // 起動トリガー文字（デフォルト "/"）
+
+  // 原稿クリーニング定義（manuscript-rules.json）
+  // プラグイン専用フォルダ（.obsidian/plugins/novels-note-jp/rules/）に保存する
+  manuscriptRulesFiles: ManuscriptRulesFileRef[]; // 登録済みの定義ファイル一覧
+  defaultManuscriptRulesFileName?: string;        // Export・文字数カウントで既定として使う定義ファイル名（未設定＝組み込みの初期設定を使う）
 }
 
 // ─────────────────────────────────────────
@@ -147,8 +181,8 @@ export const DEFAULT_SETTINGS: NovelsNoteSettings = {
   // 文字数カウント
   countMode: "raw",
   countFullWidthSpace: false,
-  countEmptyLines: false,
-  countHashtags: false,
+  countRubyText: false,
+  pageLinesPerPage: 20,
 
   // 縦書きプレビュー
   verticalCursorHighlightColor: "#3a5a8a",
@@ -167,6 +201,10 @@ export const DEFAULT_SETTINGS: NovelsNoteSettings = {
   glossaryPaletteEnabled: false,
   glossaryPaletteScope: "novelAndGlossary",
   glossaryPaletteTrigger: "/",
+
+  // 原稿クリーニング定義（manuscript-rules.json）
+  manuscriptRulesFiles: [],
+  defaultManuscriptRulesFileName: undefined,
 };
 
 // ─────────────────────────────────────────

@@ -26,6 +26,7 @@ export interface WritingStatsEntry {
   narrativeChars: number;  // 地の文の文字数
   dialogueChars: number;   // 会話文の文字数
   novelChars: number;      // 小説換算文字数（全角1・半角0.5）。推定読了時間の計算に使用。
+  pageEquivalent: number;  // ページ換算（wordCount.tsのcountCharacters()と同じ計算方法）
 }
 
 // ─────────────────────────────────────────

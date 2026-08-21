@@ -461,6 +461,9 @@
 .nn-export-modal.modal-content {
   width: 100%;
   max-width: 100%;
+  /* 内部の要素（selectの長い選択肢文言など）が万一コンテナ幅を
+     超えてしまっても、モーダル自体が左右に広がらないようにする保険。 */
+  overflow-x: hidden;
 }
 
 .nn-export-modal h2 {
@@ -526,6 +529,151 @@
   border-radius: 5px;
   cursor: pointer;
   font-size: 13px;
+}
+
+/* 原稿クリーニング定義の選択エリア（Exportモーダル） */
+.nn-export-rules-select {
+  margin-bottom: 10px;
+}
+
+.nn-export-rules-status {
+  word-break: break-all;
+}
+
+.nn-export-rules-status.nn-export-rules-error {
+  color: var(--text-error);
+}
+
+/* 原稿処理定義 編集モーダル */
+.nn-rule-editor-modal {
+  width: min(760px, 92vw);
+}
+
+.nn-rule-editor-modal .modal-content,
+.nn-rule-editor-modal.modal-content {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+.nn-rule-editor-modal h2 {
+  margin-bottom: 8px;
+}
+
+.nn-rule-editor-modal h3 {
+  margin: 26px 0 10px;
+  padding: 6px 10px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-accent);
+  background: var(--background-secondary);
+  border-left: 3px solid var(--text-accent);
+  border-radius: 4px;
+  letter-spacing: 0.02em;
+}
+
+.nn-rule-editor-modal h3:first-of-type {
+  margin-top: 4px;
+}
+
+.nn-rule-editor-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.nn-rule-editor-buttons button {
+  padding: 6px 18px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+/* 設定項目：「タイトル＋コントロール」を上段、「説明文」を下段にフル幅表示
+ *
+ * .setting-item は標準で display: flex（折り返しなし・2カラム）のため、
+ * 1) flex-wrap を効かせて3つ目の子要素（説明文）を次の行へ送る
+ * 2) 上段の名前カラム・コントロールカラムをおおむね均等な幅にする
+ * 3) 説明文カラムはフル幅（100%）で下段に表示する
+ * という3点を上書きする。
+ */
+.nn-setting-balanced {
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+
+/* flexアイテムは初期値で min-width: auto のため、中身（特にselectの
+   長い選択肢文言）の実測幅より縮まらず、モバイルでページ全体が
+   横に広がって左右に揺れる原因になっていた。min-width: 0 を明示して
+   コンテナ幅に収まるよう縮小できるようにする。 */
+.nn-setting-balanced .setting-item-info {
+  flex: 1 1 40%;
+  min-width: 0;
+  margin-right: 12px;
+}
+
+.nn-setting-balanced .setting-item-control {
+  flex: 1 1 50%;
+  min-width: 0;
+  justify-content: flex-start;
+}
+
+.nn-setting-balanced .setting-item-control select {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  /* selectの表示文言（ファイルパスなど）が長い場合、はみ出さず
+     省略記号で切り詰めて表示する */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nn-setting-fullwidth-desc {
+  order: 3;
+  flex: 1 1 100%;
+  width: 100%;
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  line-height: 1.5;
+}
+
+/* ─────────────────────────────────────────
+ * モバイルでの横方向オーバーフロー対策
+ *
+ * .nn-setting-balanced（ルビの記法・カウントモード・既定として使う
+ * 定義ファイル）は上で個別に対応済みだが、「原稿クリーニング定義」の
+ * 定義ファイル一覧のように、長いファイルパスの説明文と複数の
+ * アイコンボタン（編集・複製・パス変更・登録解除・削除）が
+ * 1行に並ぶ設定項目は、幅の狭いモバイル画面では折り返せず
+ * ページ全体が横に広がってしまう（左右に揺れる）ことがある。
+ *
+ * .nn-settings-root は update() 内で containerEl に付与している
+ * 本プラグイン専用のスコープ用クラス（他プラグインの設定行に
+ * 影響しないようにするため）。
+ * ───────────────────────────────────────── */
+@media (max-width: 500px) {
+  .nn-settings-root .setting-item:not(.nn-setting-balanced) {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+
+  .nn-settings-root .setting-item:not(.nn-setting-balanced) .setting-item-info,
+  .nn-settings-root .setting-item:not(.nn-setting-balanced) .setting-item-control {
+    min-width: 0;
+  }
+
+  .nn-settings-root .setting-item:not(.nn-setting-balanced) .setting-item-control {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  /* それでも想定外の要素が幅を超えてしまった場合の最終的な保険 */
+  .nn-settings-root {
+    overflow-x: hidden;
+  }
 }
 
 /* ═══════════════════════════════════════════
@@ -1131,6 +1279,21 @@
   margin: 0 auto;
 }
 
+/* モバイルでは「すべての原稿の情報」（サマリー）を上部固定にせず、
+   ヘッダー（サマリー＋ツールバー）と一覧をまとめて1つのスクロール
+   領域として扱う。PC版（このクラスが付かない場合）は、上記の
+   「固定ヘッダー＋一覧のみ独立スクロール」のレイアウトのままにする。 */
+.nn-stats-view.nn-stats-view-mobile {
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.nn-stats-view.nn-stats-view-mobile .nn-stats-scroll {
+  flex: 0 0 auto;
+  min-height: auto;
+  overflow-y: visible;
+}
+
 /* 上部サマリー */
 .nn-stats-summary {
   background: var(--background-secondary);
@@ -1154,11 +1317,19 @@
   flex-wrap: wrap;
 }
 
+/* 上段（対象ノート数・総ページ数・推定読了時間）・
+   下段（執筆文字数・地の文・会話文）を縦に並べるコンテナ */
+.nn-stats-summary-rows {
+  flex: 1 1 260px;
+  min-width: 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
 .nn-stats-summary-grid {
-  flex: 1 1 220px;
-  min-width: 220px;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  grid-template-columns: repeat(3, minmax(100px, 1fr));
   gap: 12px;
 }
 
@@ -1354,7 +1525,7 @@
   margin-bottom: 6px;
 }
 
-/* 3段目：統計値（2列グリッド）＋ミニ円グラフを横並びに配置 */
+/* 3段目：統計値（上段3列・下段2列）＋ミニ円グラフを横並びに配置 */
 .nn-stats-card-row3 {
   display: flex;
   align-items: center;
@@ -1364,12 +1535,27 @@
   padding-top: 6px;
 }
 
-.nn-stats-card-stats {
+/* 上段（執筆文字数・ページ数・推定読了時間）・
+   下段（地の文・会話文）を縦に並べるコンテナ */
+.nn-stats-card-stats-rows {
   flex: 1 1 auto;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.nn-stats-card-stats {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
   gap: 6px 10px;
+}
+
+.nn-stats-card-stats-top {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.nn-stats-card-stats-bottom {
+  grid-template-columns: repeat(2, 1fr);
 }
 
 .nn-stats-card-stat-label {

@@ -9,8 +9,14 @@ import {
 import NovelsNoteJP from "../main";
 import {
   GLOSSARY_PALETTE_FORBIDDEN_TRIGGERS,
-  NovelsNoteSettings, DEFAULT_SETTINGS,
+  NovelsNoteSettings, DEFAULT_SETTINGS, ManuscriptRulesFileRef,
 } from "../settings";
+import type { ManuscriptRulesDefinition } from "../manuscript-rules/types/rules";
+import {
+  readRuleFile, createRuleFile, duplicateRuleFile, renameRuleFile,
+  deleteRuleFile, updateRuleFile, normalizeRuleFileName, ManuscriptRulesFileError,
+} from "../manuscript-rules/adapter/pluginRuleStore";
+import { RuleEditorModal } from "../manuscript-rules/adapter/ruleEditorModal";
 
 // 宣言的設定APIの control.key に渡すキー名を NovelsNoteSettings の
 // プロパティ名に制限し、タイプミスを型エラーとして検出できるようにする。
@@ -94,6 +100,7 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
       case "wrapColumn":
         this.plugin.applyEditorStyles();
         this.plugin.refreshEditors();
+        this.plugin.updateWordCount(); // ページ換算の1行文字数として兼用しているため
         break;
       case "showRuler":
       case "rulerStyle":
@@ -126,8 +133,8 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
         break;
       case "countMode":
       case "countFullWidthSpace":
-      case "countEmptyLines":
-      case "countHashtags":
+      case "countRubyText":
+      case "pageLinesPerPage":
         this.plugin.updateWordCount();
         break;
       case "glossaryPaletteEnabled":
@@ -144,29 +151,61 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
   }
 
   // ─────────────────────────────────────────
+  // 「タイトル＋コントロール」を上段、「説明文」を下段に
+  // フル幅で表示するためのヘルパー。
+  //
+  // 標準の Setting レイアウトでは、名前・説明文が左カラム
+  // （.setting-item-info）に収まり、コントロールが右カラムに
+  // 配置される。説明文が長くドロップダウンの選択肢文言も長い
+  // 項目では、左カラムの幅に対して右カラムが窮屈になり
+  // バランスが悪くなるため、説明文だけを setting-item の外側
+  // （下段・フル幅）に追い出す。
+  //
+  // 【重要】新たに説明文の要素を作るのではなく、フレームワークが
+  // item.desc から自動生成した setting.descEl を「移動」させるだけに
+  // している。新規要素を作って同じ文言を流し込むと、descEl（左カラム内）
+  // とその複製（下段）の2箇所に同じ説明文が表示されてしまうため。
+  // ─────────────────────────────────────────
+  private renderFullWidthDesc(setting: Setting): void {
+    setting.settingEl.addClass("nn-setting-balanced");
+    setting.descEl.addClass("nn-setting-fullwidth-desc");
+    setting.settingEl.appendChild(setting.descEl);
+  }
+
+  // ─────────────────────────────────────────
   // 設定タブ本体（宣言的定義）
   //
   // getSettingDefinitions() を実装したことで display() は完全に
-  // 撤去済み（Obsidian側の仕様上、この配列が空でない限り display() は
-  // 一切呼ばれなくなるため、以前は動的リスト系セクションを
-  // render コールバックで暫定的に包んでいたが、全セクションを
-  // 正式な宣言的表現へ移行済み。minAppVersion: 1.13.0）。
+  // 撤去済み（Obsidian側の仕様上、getSettingDefinitions() が空でない
+  // 配列を返す場合、display() は一切呼ばれなくなる。実際のレンダリング
+  // は非推奨ではない update() 側がトリガーする）。
+  //
+  // containerEl に本プラグイン専用のスコープ用クラスを付与するため
+  // だけに update() をオーバーライドしている（モバイルでの横方向
+  // オーバーフロー対策CSSを、他プラグインの設定行に影響させず
+  // 本プラグインの設定タブ内だけに限定するため）。
   // ─────────────────────────────────────────
+  update(): void {
+    super.update();
+    this.containerEl.addClass("nn-settings-root");
+  }
+
   getSettingDefinitions(): SettingDefinitionItem<SettingKey>[] {
     return [
       this.buildEditorSection(),
       this.buildRulerSection(),
+      this.buildFullWidthSpaceSection(),
       this.buildRubySection(),
       this.buildVerticalPreviewSection(),
-      this.buildFullWidthSpaceSection(),
       this.buildWordCountSection(),
-      this.buildExcludeFoldersGroup(),
-      this.buildStatsExcludeFoldersGroup(),
       this.buildReadingSpeedSection(),
+      this.buildStatsExcludeFoldersGroup(),
       this.buildHighlightSection(),
-      this.buildTagGroup(),
       this.buildBracketGroup(),
+      this.buildTagGroup(),
+      this.buildExcludeFoldersGroup(),
       this.buildGlossaryPaletteSection(),
+      this.buildManuscriptRulesSection(),
     ];
   }
 
@@ -190,8 +229,19 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
         },
         {
           name: "折り返し文字数",
-          desc: "1行に表示する全角文字数（例：40）。",
+          desc: descLines(
+            "1行に表示する全角文字数（例：40）。",
+            "文字数カウントの「ページ換算」でも、1行あたりの文字数としてこの値を使います。"
+          ),
           control: { type: "number", key: "wrapColumn", min: 1, step: 1, defaultValue: DEFAULT_SETTINGS.wrapColumn },
+        },
+        {
+          name: "1ページの行数",
+          desc: descLines(
+            "1ページに表示する行数（例：20）。",
+            "文字数カウントの「ページ換算」で、1ページあたりの文字数（折り返し文字数 × この行数）として使います。"
+          ),
+          control: { type: "number", key: "pageLinesPerPage", min: 1, step: 1, defaultValue: DEFAULT_SETTINGS.pageLinesPerPage },
         },
       ],
     };
@@ -287,7 +337,7 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
           name: "全角スペースを可視化する",
           desc: descLines(
             "段落先頭の全角スペースと、行末の改行位置を目視で確認できます。",
-            "オンにすると全角スペース（\u3000）の位置を記号で表示します。",
+            "オンにすると全角スペースの位置を記号で表示します。",
             "あわせて行末に改行記号（↵）も表示します（オフにすると両方とも非表示になります）。",
             "※改行記号は幅を持たないため、折り返し位置には影響しません。"
           ),
@@ -405,7 +455,7 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
     const folders = this.plugin.settings.excludeFolders ?? [];
     return {
       type: "list",
-      heading: "用語インデックス — 除外フォルダ",
+      heading: "用語インデックス - 除外フォルダ",
       // SettingDefinitionList には group の desc に相当するフィールドが
       // 無いため、常時表示の説明文は持たせられない。最もガイダンスが
       // 必要な「まだ1件も無い」タイミングに表示されるよう、
@@ -460,7 +510,7 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
   private buildReadingSpeedSection(): SettingDefinitionItem<SettingKey> {
     return {
       type: "group",
-      heading: "執筆情報一覧 — 推定読了時間",
+      heading: "執筆情報一覧 - 推定読了時間",
       items: [
         {
           name: "読了速度（字/分）",
@@ -505,7 +555,7 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
     const folders = this.plugin.settings.statsExcludeFolders ?? [];
     return {
       type: "list",
-      heading: "執筆情報一覧 — 除外フォルダ",
+      heading: "執筆情報一覧 - 除外フォルダ",
       emptyState: createFragment(el => {
         el.createEl("p", {
           text:
@@ -552,7 +602,7 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
   private buildHighlightSection(): SettingDefinitionItem<SettingKey> {
     return {
       type: "group",
-      heading: "ハイライト",
+      heading: "ハイライト設定",
       items: [
         {
           name: "ハイライトを有効にする",
@@ -595,7 +645,7 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
 
     return {
       type: "list",
-      heading: "カテゴリ定義",
+      heading: "用語カテゴリ定義",
       emptyState: createFragment(el => {
         el.createEl("p", { text: "用語ノートに付けるカテゴリ名・表示名・色・オン/オフを設定します。" });
       }),
@@ -708,7 +758,7 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
       type: "list",
       heading: "カッコハイライト",
       emptyState: createFragment(el => {
-        el.createEl("p", { text: "内側のカッコが外側より優先されます。用語の強調表示はすべてのカッコより優先されます。" });
+        el.createEl("p", { text: "内側のカッコが外側より優先されます。用語のハイライト表示はすべてのカッコより優先されます。" });
       }),
       items: defs.map((bd, i): SettingGroupItem<SettingKey> => ({
         name: bd.label || "（無題のカッコ）",
@@ -812,15 +862,16 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
             "・でんでん式：{漢字|ルビ}",
             "・HTMLタグ：<ruby>漢字<rt>ルビ</rt></ruby>"
           ),
-          control: {
-            type: "dropdown", key: "rubyStyle",
-            options: {
-              narou: "なろう式（漢字《ルビ》 / |漢字《ルビ》）",
-              aozora: "青空文庫式（漢字《ルビ》 / ｜漢字《ルビ》）",
-              denden: "でんでん式（{漢字|ルビ}）",
-              html: "HTMLタグ（<ruby>）",
-            },
-            defaultValue: DEFAULT_SETTINGS.rubyStyle,
+          render: (setting) => {
+            setting.addDropdown(drop => {
+              drop.addOption("narou", "なろう式（漢字《ルビ》 / |漢字《ルビ》）");
+              drop.addOption("aozora", "青空文庫式（漢字《ルビ》 / ｜漢字《ルビ》）");
+              drop.addOption("denden", "でんでん式（{漢字|ルビ}）");
+              drop.addOption("html", "HTMLタグ（<ruby>）");
+              drop.setValue(this.plugin.settings.rubyStyle);
+              drop.onChange(value => { void this.setControlValue("rubyStyle", value); });
+            });
+            this.renderFullWidthDesc(setting);
           },
         },
       ],
@@ -841,37 +892,37 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
             "ステータスバー（画面下部）に原稿の文字数を表示します。クリックでモードを切り替えられます。",
             "raw: 文字数そのまま",
             "novel: 全角1字・半角0.5字で換算",
-            "manuscript: 400字詰め原稿用紙の枚数"
+            "page: 段落の文字数から行数を算出し、1ページの行数で割ることで総ページ数を算出",
+            "",
+            "文字数のカウントは、Exportと同じ「原稿クリーニング定義」（設定 → 原稿クリーニング定義）で本文をクリーニングした後の文字数を数えます。#tag・Frontmatter・Wikilink などをカウントに含めるかは、使用する定義ファイルのルールに従います。"
           ),
-          control: {
-            type: "dropdown", key: "countMode",
-            options: { raw: "raw（文字数）", novel: "novel（小説換算）", manuscript: "manuscript（原稿用紙換算）" },
-            defaultValue: DEFAULT_SETTINGS.countMode,
+          render: (setting) => {
+            setting.addDropdown(drop => {
+              drop.addOption("raw", "raw（文字数）");
+              drop.addOption("novel", "novel（小説換算）");
+              drop.addOption("page", "page（ページ換算）");
+              drop.setValue(this.plugin.settings.countMode);
+              drop.onChange(value => { void this.setControlValue("countMode", value); });
+            });
+            this.renderFullWidthDesc(setting);
           },
         },
         {
           name: "全角スペースを文字数に含める",
           desc: descLines(
-            "オンにすると段落先頭などの全角スペース（　）も1文字としてカウントします。",
+            "オンにすると段落先頭などの全角スペースも1文字としてカウントします。",
             "オフ（デフォルト）にすると除外します。"
           ),
           control: { type: "toggle", key: "countFullWidthSpace", defaultValue: DEFAULT_SETTINGS.countFullWidthSpace },
         },
         {
-          name: "空行を文字数に含める",
+          name: "ルビ文字も文字数に含める",
           desc: descLines(
-            "オンにすると内容のない行（空行）の改行文字もカウント対象にします。",
-            "通常はオフ（デフォルト）のままで構いません。"
+            "オフ（デフォルト）：ルビの親文字のみをカウントします（一般的な原稿の文字数の数え方です）。",
+            "オン：親文字に加えて、ルビの読み仮名部分も文字数に含めます。",
+            "Exportで使用するルビの出力形式（原稿クリーニング定義のルビ設定）とは独立しています。"
           ),
-          control: { type: "toggle", key: "countEmptyLines", defaultValue: DEFAULT_SETTINGS.countEmptyLines },
-        },
-        {
-          name: "#tag を文字数に含める",
-          desc: descLines(
-            "オンにすると原稿中に書いた #tag（キャラクター登録などの目印）も文字数としてカウントします。",
-            "オフ（デフォルト）にすると #tag を除外します（エクスポート時の除去と同じ扱いになります）。"
-          ),
-          control: { type: "toggle", key: "countHashtags", defaultValue: DEFAULT_SETTINGS.countHashtags },
+          control: { type: "toggle", key: "countRubyText", defaultValue: DEFAULT_SETTINGS.countRubyText },
         },
       ],
     };
@@ -964,5 +1015,349 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
         },
       ],
     };
+  }
+
+  // ─────────────────────────────────────────
+  // 原稿クリーニング定義（manuscript-rules.json）
+  //
+  // 【2026-08 設計変更】Novels Bookcrafter の開発計画を凍結したことに
+  // 伴い、定義ファイルの保存先を「Vault内の任意の場所」から、本
+  // プラグイン専用フォルダ（.obsidian/plugins/novels-note-jp/rules/）
+  // に固定した。保存先が固定されたため、ユーザーが指定するのは
+  // ファイル名のみ（フォルダ階層は指定できない）。
+  //
+  // 「登録解除」（一覧から外すだけ）と「削除」（実ファイルを完全に
+  // 削除する）を明確に分けている。それぞれ行内の専用ボタン＋
+  // （削除のみ）確認ダイアログを経由する操作として扱う。
+  // ─────────────────────────────────────────
+  private buildManuscriptRulesSection(): SettingDefinitionItem<SettingKey> {
+    const files = this.plugin.settings.manuscriptRulesFiles ?? [];
+
+    const fileItems: SettingGroupItem<SettingKey>[] = files.map((ref, i): SettingGroupItem<SettingKey> => ({
+      name: ref.label || ref.fileName,
+      searchable: false,
+      render: (setting) => {
+        setting.setName(ref.label || ref.fileName);
+        setting.setDesc(ref.fileName);
+
+        const capturedI = i;
+        const capturedRef = ref;
+
+        setting.addExtraButton(btn =>
+          btn.setIcon("pencil").setTooltip("編集")
+            .onClick(() => { void this.openRuleEditor(capturedRef); })
+        );
+        setting.addExtraButton(btn =>
+          btn.setIcon("copy").setTooltip("複製")
+            .onClick(() => { this.promptDuplicateRuleFile(capturedRef); })
+        );
+        setting.addExtraButton(btn =>
+          btn.setIcon("file-edit").setTooltip("ファイル名を変更")
+            .onClick(() => { this.promptRenameRuleFile(capturedRef, capturedI); })
+        );
+        setting.addExtraButton(btn =>
+          btn.setIcon("unlink").setTooltip("登録解除（ファイルは削除しません）")
+            .onClick(() => { void this.unregisterRuleFile(capturedI); })
+        );
+        setting.addExtraButton(btn =>
+          btn.setIcon("trash").setTooltip("ファイルを削除")
+            .onClick(() => { this.confirmDeleteRuleFile(capturedRef, capturedI); })
+        );
+      },
+    }));
+
+    return {
+      type: "group",
+      heading: "原稿クリーニング定義",
+      items: [
+        {
+          name: "既定として使う定義ファイル",
+          desc: descLines(
+            "登録済みの原稿クリーニング定義ファイルを、Export と文字数カウントの両方の既定ルールとして使います。",
+            "「組み込みの初期設定を使う」を選ぶと、定義ファイルを作らずに標準的なクリーニングルールで処理します。",
+            "Exportモーダルを開いたときには、その場で一時的に別の定義へ切り替えることもできます（文字数カウントには影響しません）。"
+          ),
+          render: (setting) => {
+            setting.addDropdown(drop => {
+              drop.addOption("", "組み込みの初期設定を使う");
+              for (const f of files) {
+                drop.addOption(f.fileName, f.label ? `${f.label}（${f.fileName}）` : f.fileName);
+              }
+              drop.setValue(this.plugin.settings.defaultManuscriptRulesFileName ?? "");
+              drop.onChange(value => {
+                this.plugin.settings.defaultManuscriptRulesFileName = value || undefined;
+                void this.plugin.saveSettings().then(() => this.plugin.refreshActiveManuscriptRules());
+              });
+            });
+            this.renderFullWidthDesc(setting);
+          },
+        },
+        ...fileItems,
+        {
+          name: "定義ファイルを追加",
+          desc: descLines(
+            "原稿クリーニングのルールをまとめた manuscript-rules.json を新規作成、または既存ファイルを登録します。",
+            `保存先はプラグイン専用フォルダ（${this.plugin.pluginDir}/rules/）に固定されています。`
+          ),
+          render: (setting) => {
+            setting.addButton(btn =>
+              btn.setButtonText("定義ファイルを追加").setCta()
+                .onClick(() => { this.promptAddRuleFile(); })
+            );
+          },
+        },
+      ],
+    };
+  }
+
+  // ─────────────────────────────────────────
+  // 「定義ファイルを追加」ダイアログ
+  // 新規作成／既存ファイルの登録の両方をこの1つのダイアログで扱う。
+  // 保存先フォルダは固定のため、指定するのはファイル名のみ。
+  // ─────────────────────────────────────────
+  private promptAddRuleFile(): void {
+    let name = "新しい定義ファイル";
+    let fileName = "manuscript-rules.json";
+    let registerExisting = false;
+
+    const modal = new ConfirmationModal(this.app);
+    modal.setTitle("定義ファイルを追加");
+    modal.setContent(createFragment(frag => {
+      const el = frag.createDiv();
+
+      new Setting(el)
+        .setName("表示名")
+        .setDesc("一覧に表示する任意のラベルです（省略可）。")
+        .addText(text => {
+          text.setPlaceholder("例：デフォルト定義");
+          text.onChange(v => { name = v; });
+        });
+
+      new Setting(el)
+        .setName("ファイル名")
+        .setDesc(`定義ファイルはプラグイン専用フォルダ（${this.plugin.pluginDir}/rules/）に保存されます。`)
+        .addText(text => {
+          text.setValue(fileName);
+          text.onChange(v => { fileName = v; });
+          window.setTimeout(() => text.inputEl.focus());
+        });
+
+      new Setting(el)
+        .setName("既存のファイルを登録する")
+        .setDesc("オンにすると、プラグイン専用フォルダに既に置かれている同名のファイルを、新規作成せず登録します。")
+        .addToggle(toggle => {
+          toggle.setValue(false).onChange(v => { registerExisting = v; });
+        });
+    }));
+    modal.addButton(b => b.setButtonText("キャンセル").setCancel());
+    modal.addButton(b =>
+      b.setButtonText("追加").setCta()
+        .onClick(() => { void this.addRuleFile(name, fileName, registerExisting); })
+    );
+    modal.open();
+  }
+
+  private async addRuleFile(name: string, rawFileName: string, registerExisting: boolean): Promise<void> {
+    let fileName: string;
+    try {
+      fileName = normalizeRuleFileName(rawFileName);
+    } catch (e) {
+      new Notice(e instanceof ManuscriptRulesFileError ? e.message : String(e));
+      return;
+    }
+    if ((this.plugin.settings.manuscriptRulesFiles ?? []).some(f => f.fileName === fileName)) {
+      new Notice("そのファイル名は既に登録されています。");
+      return;
+    }
+
+    try {
+      if (registerExisting) {
+        // 既存ファイルとして読み込み、内容を検証する（登録するだけで内容は変更しない）
+        await readRuleFile(this.app, this.plugin.pluginDir, fileName);
+      } else {
+        await createRuleFile(this.app, this.plugin.pluginDir, fileName, name || undefined);
+      }
+      if (!this.plugin.settings.manuscriptRulesFiles) this.plugin.settings.manuscriptRulesFiles = [];
+      const ref: ManuscriptRulesFileRef = { fileName, label: name || undefined };
+      this.plugin.settings.manuscriptRulesFiles.push(ref);
+      await this.plugin.saveSettings();
+      await this.plugin.refreshActiveManuscriptRules();
+      new Notice(`定義ファイルを追加しました：${fileName}`);
+      this.update();
+    } catch (e) {
+      const message = e instanceof ManuscriptRulesFileError ? e.message : String(e);
+      new Notice(`定義ファイルの追加に失敗しました：${message}`);
+    }
+  }
+
+  private async openRuleEditor(ref: ManuscriptRulesFileRef): Promise<void> {
+    let def: ManuscriptRulesDefinition;
+    try {
+      def = await readRuleFile(this.app, this.plugin.pluginDir, ref.fileName);
+    } catch (e) {
+      const message = e instanceof ManuscriptRulesFileError ? e.message : String(e);
+      new Notice(`定義ファイルを読み込めませんでした：${message}`);
+      return;
+    }
+
+    new RuleEditorModal(this.app, def, async (updated) => {
+      try {
+        await updateRuleFile(this.app, this.plugin.pluginDir, ref.fileName, updated);
+        // 表示名がエディタ内で変更された場合、登録情報側のラベルも同期する
+        ref.label = updated.name;
+        await this.plugin.saveSettings();
+        await this.plugin.refreshActiveManuscriptRules();
+        new Notice(`保存しました：${ref.fileName}`);
+        this.update();
+      } catch (e) {
+        const message = e instanceof ManuscriptRulesFileError ? e.message : String(e);
+        new Notice(`保存に失敗しました：${message}`);
+      }
+    }).open();
+  }
+
+  private promptDuplicateRuleFile(ref: ManuscriptRulesFileRef): void {
+    const suggestedFileName = ref.fileName.replace(/(\.json)?$/, (m) => `-copy${m || ".json"}`);
+    let destFileName = suggestedFileName;
+    let newName = ref.label ? `${ref.label}のコピー` : "";
+
+    const modal = new ConfirmationModal(this.app);
+    modal.setTitle("定義ファイルを複製");
+    modal.setContent(createFragment(frag => {
+      const el = frag.createDiv();
+      new Setting(el).setName("複製後の表示名").addText(text => {
+        text.setValue(newName);
+        text.onChange(v => { newName = v; });
+      });
+      new Setting(el).setName("複製後のファイル名").addText(text => {
+        text.setValue(destFileName);
+        text.onChange(v => { destFileName = v; });
+        window.setTimeout(() => text.inputEl.focus());
+      });
+    }));
+    modal.addButton(b => b.setButtonText("キャンセル").setCancel());
+    modal.addButton(b =>
+      b.setButtonText("複製").setCta()
+        .onClick(() => { void this.doDuplicateRuleFile(ref, destFileName, newName); })
+    );
+    modal.open();
+  }
+
+  private async doDuplicateRuleFile(ref: ManuscriptRulesFileRef, rawDestFileName: string, newName: string): Promise<void> {
+    let destFileName: string;
+    try {
+      destFileName = normalizeRuleFileName(rawDestFileName);
+    } catch (e) {
+      new Notice(e instanceof ManuscriptRulesFileError ? e.message : String(e));
+      return;
+    }
+    if ((this.plugin.settings.manuscriptRulesFiles ?? []).some(f => f.fileName === destFileName)) {
+      new Notice("そのファイル名は既に登録されています。");
+      return;
+    }
+    try {
+      await duplicateRuleFile(this.app, this.plugin.pluginDir, ref.fileName, destFileName, newName || undefined);
+      this.plugin.settings.manuscriptRulesFiles.push({ fileName: destFileName, label: newName || undefined });
+      await this.plugin.saveSettings();
+      await this.plugin.refreshActiveManuscriptRules();
+      new Notice(`複製しました：${destFileName}`);
+      this.update();
+    } catch (e) {
+      const message = e instanceof ManuscriptRulesFileError ? e.message : String(e);
+      new Notice(`複製に失敗しました：${message}`);
+    }
+  }
+
+  private promptRenameRuleFile(ref: ManuscriptRulesFileRef, index: number): void {
+    let newFileName = ref.fileName;
+    const modal = new ConfirmationModal(this.app);
+    modal.setTitle("ファイル名を変更");
+    modal.setContent(createFragment(frag => {
+      const el = frag.createDiv();
+      new Setting(el)
+        .setName("新しいファイル名")
+        .setDesc(`保存先はプラグイン専用フォルダ（${this.plugin.pluginDir}/rules/）に固定されています。`)
+        .addText(text => {
+          text.setValue(newFileName);
+          text.onChange(v => { newFileName = v; });
+          window.setTimeout(() => text.inputEl.focus());
+        });
+    }));
+    modal.addButton(b => b.setButtonText("キャンセル").setCancel());
+    modal.addButton(b =>
+      b.setButtonText("変更").setCta()
+        .onClick(() => { void this.doRenameRuleFile(ref, index, newFileName); })
+    );
+    modal.open();
+  }
+
+  private async doRenameRuleFile(ref: ManuscriptRulesFileRef, index: number, rawNewFileName: string): Promise<void> {
+    let newFileName: string;
+    try {
+      newFileName = normalizeRuleFileName(rawNewFileName);
+    } catch (e) {
+      new Notice(e instanceof ManuscriptRulesFileError ? e.message : String(e));
+      return;
+    }
+    if (newFileName === ref.fileName) return;
+    if ((this.plugin.settings.manuscriptRulesFiles ?? []).some((f, i) => i !== index && f.fileName === newFileName)) {
+      new Notice("そのファイル名は既に登録されています。");
+      return;
+    }
+    try {
+      await renameRuleFile(this.app, this.plugin.pluginDir, ref.fileName, newFileName);
+      const oldFileName = ref.fileName;
+      this.plugin.settings.manuscriptRulesFiles[index] = { ...ref, fileName: newFileName };
+      if (this.plugin.settings.defaultManuscriptRulesFileName === oldFileName) {
+        this.plugin.settings.defaultManuscriptRulesFileName = newFileName;
+      }
+      await this.plugin.saveSettings();
+      await this.plugin.refreshActiveManuscriptRules();
+      new Notice(`ファイル名を変更しました：${newFileName}`);
+      this.update();
+    } catch (e) {
+      const message = e instanceof ManuscriptRulesFileError ? e.message : String(e);
+      new Notice(`変更に失敗しました：${message}`);
+    }
+  }
+
+  // 一覧からの登録解除のみ（実ファイルは削除しない）
+  private async unregisterRuleFile(index: number): Promise<void> {
+    const files = this.plugin.settings.manuscriptRulesFiles ?? [];
+    const removed = files.splice(index, 1)[0];
+    if (removed && this.plugin.settings.defaultManuscriptRulesFileName === removed.fileName) {
+      this.plugin.settings.defaultManuscriptRulesFileName = undefined;
+    }
+    await this.plugin.saveSettings();
+    await this.plugin.refreshActiveManuscriptRules();
+    if (removed) new Notice(`登録を解除しました：${removed.fileName}`);
+    this.update();
+  }
+
+  private confirmDeleteRuleFile(ref: ManuscriptRulesFileRef, index: number): void {
+    new ConfirmationModal(this.app)
+      .setTitle("定義ファイルを削除")
+      .setContent(`${ref.fileName} を完全に削除します。よろしいですか？（この操作は一覧からの登録解除も同時に行います）`)
+      .addButton(b => b.setButtonText("キャンセル").setCancel().setInitialFocus())
+      .addButton(b =>
+        b.setButtonText("削除").setDestructive()
+          .onClick(async () => {
+            try {
+              await deleteRuleFile(this.app, this.plugin.pluginDir, ref.fileName);
+              this.plugin.settings.manuscriptRulesFiles.splice(index, 1);
+              if (this.plugin.settings.defaultManuscriptRulesFileName === ref.fileName) {
+                this.plugin.settings.defaultManuscriptRulesFileName = undefined;
+              }
+              await this.plugin.saveSettings();
+              await this.plugin.refreshActiveManuscriptRules();
+              new Notice(`削除しました：${ref.fileName}`);
+              this.update();
+            } catch (e) {
+              const message = e instanceof ManuscriptRulesFileError ? e.message : String(e);
+              new Notice(`削除に失敗しました：${message}`);
+            }
+          })
+      )
+      .open();
   }
 }

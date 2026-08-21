@@ -38,6 +38,9 @@ import { CursorSyncStore } from "./editor/cursorSyncStore";
 import { NovelsNoteSidebarView } from "./views/sidebarView";
 import { NovelsNoteSettingTab } from "./core/settingTab";
 import { countCharacters, countNarrativeAndDialogue, formatCount, CountMode } from "./core/wordCount";
+import type { ManuscriptRules } from "./manuscript-rules/types/rules";
+import { createDefaultManuscriptRulesDefinition } from "./manuscript-rules/rules/ruleDefaults";
+import { readRuleFile, ManuscriptRulesFileError } from "./manuscript-rules/adapter/pluginRuleStore";
 import { ExportModal } from "./export/exportModal";
 import { VerticalPreviewView } from "./views/verticalPreview";
 import { NovelReadingView } from "./views/novelReadingView";
@@ -127,6 +130,48 @@ export default class NovelsNoteJP extends Plugin {
   private glossaryPaletteBundle: GlossaryPaletteBundle | null = null;
 
   // ─────────────────────────────────────────
+  // 原稿クリーニング定義（manuscript-rules）のキャッシュ
+  //
+  // 文字数カウントはエディタの編集のたびに同期的に呼ばれるため、
+  // 定義ファイルをその都度読み直すことはできない。そのため、
+  // settings.defaultManuscriptRulesFileName が指す定義（未設定時は
+  // 組み込みのデフォルト定義）をここにキャッシュしておき、
+  // countCharacters() 等はこのキャッシュを同期的に参照する。
+  //
+  // 定義ファイルはプラグイン専用フォルダ
+  // （.obsidian/plugins/novels-note-jp/rules/）に保存する
+  // （Novels Bookcrafter 開発計画の凍結に伴う設計変更）。
+  //
+  // キャッシュは onload 時、および定義ファイルの選択・内容が
+  // 変わったとき（settingTab.ts から呼ばれる）に更新する。
+  // ─────────────────────────────────────────
+  activeManuscriptRules: ManuscriptRules = createDefaultManuscriptRulesDefinition().rules;
+
+  /** プラグイン専用フォルダのパス（Vaultルートからの相対パス）。 */
+  get pluginDir(): string {
+    return this.manifest.dir ?? `.obsidian/plugins/${this.manifest.id}`;
+  }
+
+  /** アクティブな原稿クリーニング定義のキャッシュを再読み込みする。 */
+  async refreshActiveManuscriptRules(): Promise<void> {
+    const fileName = this.settings.defaultManuscriptRulesFileName;
+    if (!fileName) {
+      this.activeManuscriptRules = createDefaultManuscriptRulesDefinition().rules;
+      this.updateWordCount();
+      return;
+    }
+    try {
+      const def = await readRuleFile(this.app, this.pluginDir, fileName);
+      this.activeManuscriptRules = def.rules;
+    } catch (e) {
+      const message = e instanceof ManuscriptRulesFileError ? e.message : String(e);
+      new Notice(`原稿クリーニング定義を読み込めませんでした（組み込みの初期設定を使用します）：${message}`);
+      this.activeManuscriptRules = createDefaultManuscriptRulesDefinition().rules;
+    }
+    this.updateWordCount();
+  }
+
+  // ─────────────────────────────────────────
   // ロード
   // ─────────────────────────────────────────
   async onload(): Promise<void> {
@@ -163,6 +208,8 @@ export default class NovelsNoteJP extends Plugin {
         view.setRubyStyleGetter(()  => this.settings.rubyStyle);
         view.setWrapColumnGetter(() => this.settings.wrapColumn);
         view.setFontSizeGetter(()   => this.settings.fontSize);
+        view.setSettingsGetter(()   => this.settings);
+        view.setPluginDirGetter(()  => this.pluginDir);
         return view;
       }
     );
@@ -346,6 +393,11 @@ export default class NovelsNoteJP extends Plugin {
       await this.buildTermIndex();
       this.updateSidebar();
       this.refreshEditors();
+      // Vaultのファイルインデックスが構築される前に読み込むと、
+      // 実在する定義ファイルでも getAbstractFileByPath が見つけられず
+      // 誤って「読み込めませんでした」という通知が出てしまうため、
+      // onLayoutReady（Vault準備完了後）まで遅延させる。
+      await this.refreshActiveManuscriptRules();
     });
 
     this.registerVaultEvents();
@@ -737,6 +789,16 @@ export default class NovelsNoteJP extends Plugin {
         aliases = [fm.aliases];
       }
 
+      // frontmatter の name プロパティを採用した場合、name には
+      // file.basename（ファイル名）が入らず、ファイル名がハイライト
+      // 対象から漏れてしまう。name とは別に aliases へファイル名を
+      // 追加することで、「ファイル名」「name」「aliases」の
+      // すべてがハイライトされるようにする
+      // （name と同一の場合や、既に aliases に含まれる場合は重複を避ける）。
+      if (name !== file.basename && !aliases.includes(file.basename)) {
+        aliases.push(file.basename);
+      }
+
       this.terms.push({ name, aliases, tag: matchedTag, filePath: file.path });
     }
 
@@ -802,9 +864,9 @@ export default class NovelsNoteJP extends Plugin {
     this.statusBarEl.title = "クリックでカウントモードを切り替え";
     this.statusBarEl.setCssProps({ cursor: "pointer" });
     
-    // クリックでモード切り替え（raw → novel → manuscript → raw ...）
+    // クリックでモード切り替え（raw → novel → page → raw ...）
     this.statusBarEl.addEventListener("click", () => {
-      const modes: CountMode[] = ["raw", "novel", "manuscript"];
+      const modes: CountMode[] = ["raw", "novel", "page"];
       const current = modes.indexOf(this.settings.countMode);
       this.settings.countMode = modes[(current + 1) % modes.length];
       void this.saveSettings().then(() => this.updateWordCount());
@@ -843,8 +905,8 @@ export default class NovelsNoteJP extends Plugin {
     }
 
     const text = view.editor.getValue();
-    const result = countCharacters(text, this.settings);
-    this.statusBarEl.setText(formatCount(result, this.settings.countMode));
+    const result = countCharacters(text, this.settings, this.activeManuscriptRules);
+    this.statusBarEl.setText(formatCount(result, this.settings.countMode, this.settings));
   }
 
   // ─────────────────────────────────────────
@@ -942,7 +1004,7 @@ export default class NovelsNoteJP extends Plugin {
           return;
         }
 
-        new ExportModal(this.app, file, this.settings.rubyStyle).open();
+        new ExportModal(this.app, file, this.settings, this.pluginDir).open();
       },
     });
   }
@@ -1226,8 +1288,8 @@ export default class NovelsNoteJP extends Plugin {
       if (cache?.frontmatter?.["mode"] !== "novel") continue;
 
       const source = await this.app.vault.cachedRead(file);
-      const { raw: totalChars, novel: novelChars } = countCharacters(source, this.settings);
-      const { narrativeChars, dialogueChars } = countNarrativeAndDialogue(source, this.settings);
+      const { raw: totalChars, novel: novelChars, pageEquivalent } = countCharacters(source, this.settings, this.activeManuscriptRules);
+      const { narrativeChars, dialogueChars } = countNarrativeAndDialogue(source, this.settings, this.activeManuscriptRules);
 
       const slashIdx = file.path.lastIndexOf("/");
       const folderPath = slashIdx === -1 ? "" : file.path.slice(0, slashIdx);
@@ -1242,6 +1304,7 @@ export default class NovelsNoteJP extends Plugin {
         narrativeChars,
         dialogueChars,
         novelChars,
+        pageEquivalent,
       });
     }
 
