@@ -1,7 +1,7 @@
 {
   "id": "novels-note-jp",
   "name": "Novels Note JP",
-  "version": "0.13.0",
+  "version": "0.13.1",
   "minAppVersion": "1.13.0",
   "description": "Japanese novel writing support plugin with vertical preview, ruby, and highlight tools.",
   "author": "p77-don",

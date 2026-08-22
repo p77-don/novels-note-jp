@@ -160,8 +160,13 @@ export class NovelReadingView extends ItemView {
   private getFontSize:   () => number    = () => 16;
   /** Export モーダルへ渡すプラグイン設定全体（登録済み原稿クリーニング定義の参照用） */
   private getSettings: () => NovelsNoteSettings | null = () => null;
-  /** Export モーダルへ渡すプラグイン専用フォルダのパス（定義ファイルの実体はこの配下 rules/ にある） */
-  private getPluginDir: () => string = () => ".obsidian/plugins/novels-note-jp";
+  /**
+   * Export モーダルへ渡すプラグイン専用フォルダのパス（定義ファイルの実体はこの配下 rules/ にある）。
+   * main.ts の setPluginDirGetter() で実際の manifest.dir に基づく値へ差し替えられるまでの、
+   * 暫定フォールバック値。ハードコードした ".obsidian" ではなく Vault#configDir を参照する。
+   */
+  private getPluginDir: () => string = () =>
+    `${this.app.vault.configDir}/plugins/novels-note-jp`;
 
   /** ファイルを外から設定する（activateNovelReadingView から呼ぶ） */
   setFile(file: TFile): void {

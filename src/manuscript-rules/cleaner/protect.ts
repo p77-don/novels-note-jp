@@ -29,8 +29,7 @@ export function protectMatches(
   source: string,
   regex: RegExp,
   prefix: string,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  replacer?: (match: string, ...groups: any[]) => string
+  replacer?: (match: string, ...groups: unknown[]) => string
 ): ProtectionSession {
   const preserved: string[] = [];
   const text = source.replace(regex, (...args: unknown[]) => {

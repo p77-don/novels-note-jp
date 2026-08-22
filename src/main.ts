@@ -149,7 +149,7 @@ export default class NovelsNoteJP extends Plugin {
 
   /** プラグイン専用フォルダのパス（Vaultルートからの相対パス）。 */
   get pluginDir(): string {
-    return this.manifest.dir ?? `.obsidian/plugins/${this.manifest.id}`;
+    return this.manifest.dir ?? `${this.app.vault.configDir}/plugins/${this.manifest.id}`;
   }
 
   /** アクティブな原稿クリーニング定義のキャッシュを再読み込みする。 */
@@ -329,7 +329,7 @@ export default class NovelsNoteJP extends Plugin {
       getTerms: () => this.terms,
       getTagDefinitions: () => this.settings.tagDefinitions,
       getSettings: () => this.settings,
-      pluginDir: this.manifest.dir ?? `.obsidian/plugins/${this.manifest.id}`,
+      pluginDir: this.pluginDir,
     });
     this.glossaryPaletteBundle = glossaryPaletteBundle;
     this.registerEditorExtension(glossaryPaletteBundle.extension);
@@ -565,8 +565,7 @@ export default class NovelsNoteJP extends Plugin {
    * ノートを切り替えるまで「クリアされていない」ように見えてしまう。
    */
   async clearGlossaryPaletteHistory(): Promise<void> {
-    const pluginDir = this.manifest.dir ?? `.obsidian/plugins/${this.manifest.id}`;
-    await clearGlossaryHistory(this.app, pluginDir);
+    await clearGlossaryHistory(this.app, this.pluginDir);
 
     const bundle = this.glossaryPaletteBundle;
     if (!bundle) return;

@@ -4777,8 +4777,12 @@ var _NovelReadingView = class _NovelReadingView extends import_obsidian9.ItemVie
     this.getFontSize = () => 16;
     /** Export モーダルへ渡すプラグイン設定全体（登録済み原稿クリーニング定義の参照用） */
     this.getSettings = () => null;
-    /** Export モーダルへ渡すプラグイン専用フォルダのパス（定義ファイルの実体はこの配下 rules/ にある） */
-    this.getPluginDir = () => ".obsidian/plugins/novels-note-jp";
+    /**
+     * Export モーダルへ渡すプラグイン専用フォルダのパス（定義ファイルの実体はこの配下 rules/ にある）。
+     * main.ts の setPluginDirGetter() で実際の manifest.dir に基づく値へ差し替えられるまでの、
+     * 暫定フォールバック値。ハードコードした ".obsidian" ではなく Vault#configDir を参照する。
+     */
+    this.getPluginDir = () => `${this.app.vault.configDir}/plugins/novels-note-jp`;
   }
   /** ファイルを外から設定する（activateNovelReadingView から呼ぶ） */
   setFile(file) {
@@ -6594,7 +6598,7 @@ var NovelsNoteJP = class extends import_obsidian16.Plugin {
   /** プラグイン専用フォルダのパス（Vaultルートからの相対パス）。 */
   get pluginDir() {
     var _a;
-    return (_a = this.manifest.dir) != null ? _a : `.obsidian/plugins/${this.manifest.id}`;
+    return (_a = this.manifest.dir) != null ? _a : `${this.app.vault.configDir}/plugins/${this.manifest.id}`;
   }
   /** アクティブな原稿クリーニング定義のキャッシュを再読み込みする。 */
   async refreshActiveManuscriptRules() {
@@ -6618,7 +6622,6 @@ var NovelsNoteJP = class extends import_obsidian16.Plugin {
   // ロード
   // ─────────────────────────────────────────
   async onload() {
-    var _a;
     await this.loadSettings();
     this.registerExtensions(["txt"], "markdown");
     this.registerView(
@@ -6726,7 +6729,7 @@ var NovelsNoteJP = class extends import_obsidian16.Plugin {
       getTerms: () => this.terms,
       getTagDefinitions: () => this.settings.tagDefinitions,
       getSettings: () => this.settings,
-      pluginDir: (_a = this.manifest.dir) != null ? _a : `.obsidian/plugins/${this.manifest.id}`
+      pluginDir: this.pluginDir
     });
     this.glossaryPaletteBundle = glossaryPaletteBundle;
     this.registerEditorExtension(glossaryPaletteBundle.extension);
@@ -6899,16 +6902,14 @@ var NovelsNoteJP = class extends import_obsidian16.Plugin {
    * ノートを切り替えるまで「クリアされていない」ように見えてしまう。
    */
   async clearGlossaryPaletteHistory() {
-    var _a;
-    const pluginDir = (_a = this.manifest.dir) != null ? _a : `.obsidian/plugins/${this.manifest.id}`;
-    await clearGlossaryHistory(this.app, pluginDir);
+    await clearGlossaryHistory(this.app, this.pluginDir);
     const bundle = this.glossaryPaletteBundle;
     if (!bundle) return;
     this.app.workspace.iterateAllLeaves((leaf) => {
-      var _a2;
+      var _a;
       if (!(leaf.view instanceof import_obsidian16.MarkdownView)) return;
       const cm = leaf.view.editor.cm;
-      (_a2 = cm == null ? void 0 : cm.plugin(bundle.viewPlugin)) == null ? void 0 : _a2.resetHistoryCache();
+      (_a = cm == null ? void 0 : cm.plugin(bundle.viewPlugin)) == null ? void 0 : _a.resetHistoryCache();
     });
   }
   // ─────────────────────────────────────────
