@@ -79,6 +79,15 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
   // オーバーライドする。
   // ─────────────────────────────────────────
   getControlValue(key: string): unknown {
+    // モバイルでは機能しない（意味を持たない）設定は、トグルの表示自体を
+    // 強制的にOFFにする。disabled指定と組み合わせて「操作できない・OFF固定」
+    // に見せるためのもので、実際の保存値（他プラットフォームと同期される
+    // 可能性がある値）は書き換えない。あくまで表示上の上書き。
+    if (Platform.isMobile) {
+      if (key === "verticalCursorHighlightEnabled" || key === "termHoverPreviewEnabled") {
+        return false;
+      }
+    }
     return (this.plugin.settings as unknown as Record<string, unknown>)[key];
   }
 
@@ -94,6 +103,11 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
 
     switch (key) {
       case "fontSize":
+        this.plugin.applyEditorStyles();
+        // 縦書きプレビューのフォントサイズ（折り返し文字数の基準となる
+        // em の実寸）にも使われているため、開いていれば即時反映する。
+        this.plugin.refreshVerticalPreview();
+        break;
       case "lineHeight":
         this.plugin.applyEditorStyles();
         break;
@@ -101,6 +115,12 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
         this.plugin.applyEditorStyles();
         this.plugin.refreshEditors();
         this.plugin.updateWordCount(); // ページ換算の1行文字数として兼用しているため
+        // 縦書きプレビューの1列の文字数（max-height: wrapColumn em）にも
+        // 使われている。開いたまま設定変更しても、テキスト編集や
+        // タブ切り替えなど別のきっかけがない限り再描画されず、
+        // 古い折り返し幅のまま表示され続けてしまうため、ここで
+        // 強制的に再読み込みする。
+        this.plugin.refreshVerticalPreview();
         break;
       case "showRuler":
       case "rulerStyle":
@@ -611,12 +631,18 @@ export class NovelsNoteSettingTab extends PluginSettingTab {
         },
         {
           name: "用語ハイライトのホバープレビュー",
-          desc: descLines(
-            "エディタ上でハイライトされた用語にマウスを合わせると、対応する用語ノートを" +
-            "Obsidian標準のページプレビュー（Hover Preview）で表示します。",
-            "※WikiLinkを書く必要はありません。"
-          ),
-          control: { type: "toggle", key: "termHoverPreviewEnabled", defaultValue: DEFAULT_SETTINGS.termHoverPreviewEnabled },
+          desc: Platform.isMobile
+            ? "モバイルでは使用できません。"
+            : descLines(
+                "エディタ上でハイライトされた用語にマウスを合わせると、対応する用語ノートを" +
+                "Obsidian標準のページプレビュー（Hover Preview）で表示します。",
+                "※WikiLinkを書く必要はありません。"
+              ),
+          control: {
+            type: "toggle", key: "termHoverPreviewEnabled",
+            defaultValue: DEFAULT_SETTINGS.termHoverPreviewEnabled,
+            disabled: Platform.isMobile,
+          },
         },
       ],
     };

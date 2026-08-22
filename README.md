@@ -6,7 +6,7 @@
 
 ## English
 
-**Novels Note JP** is an editor extension plugin specialized for writing Japanese novels. It offers not only essential features like paragraph indentation and ruby ​​support, but also tools to assist with writing—such as terminology registration, input, and highlighting—as well as vertical-text previews, writing statistics, and manuscript export in specific ruby ​​formats. It supports both desktop and mobile platforms.
+**Novels Note JP** is an editor extension plugin specialized for writing Japanese novels. It offers not only essential features like paragraph indentation and ruby ​​support, but also tools to assist with writing—such as terminology registration, input, and highlighting—as well as vertical-text previews, writing statistics, and manuscript export driven by fully customizable manuscript cleaning rules. It supports both desktop and mobile platforms.
 
 ---
 
@@ -102,11 +102,26 @@ You can specify a folder path when creating a new term note. If the specified fo
 
 > **On mobile:** Long-press a category or folder to open the "create new" menu (in place of right-click). Drag-and-drop of terms works for moving between folders, but inserting into the main pane (as a WikiLink into the manuscript) doesn't work due to drag-and-drop limitations on mobile. Instead, **tap a term** to open a menu where you can choose "Open note," "Insert into manuscript," or "Copy link to clipboard." "Insert into manuscript" inserts at the cursor position of the manuscript note you were most recently editing (if no manuscript is open, it's copied to the clipboard automatically instead).
 
+#### Manuscript Cleaning Rules
+A rule set that defines how Markdown notation and Obsidian-specific elements (frontmatter, callouts, WikiLinks, etc.) should be handled — kept, removed, or converted — during export and word counting. Create and edit these rules in a dedicated editor from the settings screen, and switch between multiple rule sets depending on the task.
+
+- Covers metadata (frontmatter), block elements (callouts, headings, blockquotes, lists, code blocks, horizontal rules, HTML tags), inline elements (WikiLinks, tags, emphasis, Markdown links, images, ruby, inline code, HTML tags), and document-wide formatting (collapsing consecutive blank lines, trimming trailing whitespace).
+- For most elements, you can choose "keep," "remove," or (for many elements) "convert" — stripping the notation while keeping the underlying text.
+- WikiLinks can be set to prefer the alias, or always keep the filename.
+- Ruby can be "kept," "removed" (leaving only the base text), or converted to one of four output styles — Narou, Aozora Bunko, Denden, or HTML (independent of the ruby setting used during export).
+- From **Settings** → "Manuscript Cleaning Rules," you can create, duplicate, rename, and delete rule files (`manuscript-rules.json`), and switch between multiple files. Rule files are stored in the plugin's own folder rather than the vault, so they won't appear in your note list.
+- Selecting a "default rules file" applies it automatically to both export and word counting (you can still switch to a different rule file temporarily from within the export dialog).
+- If you haven't created any rule files, a built-in default (a standard set of cleaning rules) is used automatically.
+
+| Metadata / Block-level elements | Inline elements / Document-wide formatting |
+|----|----|
+| ![rules-a](./docs/rules-a.png) | ![rules-b](./docs/rules-b.png) |
+
 #### Word Count
 Displays three counting modes in the status bar (desktop only; this display is unavailable on mobile due to Obsidian's own limitations, which don't provide a status bar there).
 
 - **Raw character count** — Total character count
-- **Novel-weighted count** — Counts only body text (excludes frontmatter, tags, WikiLinks, etc.)
+- **Novel-weighted count** — Counts the body text after cleaning it with your manuscript cleaning rules (by default this excludes frontmatter, tags, WikiLinks, etc.; exactly what's excluded depends on the rules in the selected rule file)
 - **Manuscript-paper equivalent** — Converted to sheets of 400-character Japanese manuscript paper (**Note:** this is a simple character-count-based conversion, so it may differ from an actual manuscript-paper page count)
 
 Whether to include full-width spaces, blank lines, and hashtags in the count is also configurable.
@@ -128,12 +143,10 @@ A clean reading view with WikiLinks, tags, and non-body content stripped out. Sh
 ![novelReadingView](docs/novelReadingView.png)
 
 #### Export
-Exports the current note as clean manuscript text from a dedicated export dialog.
+Exports the current note as clean manuscript text from a dedicated export dialog, based on your manuscript cleaning rules.
 
-- Strips Markdown/Obsidian syntax (WikiLinks, tags, frontmatter, etc.)
+- Switch which cleaning rules to use right from within the dialog (independent of the default set in settings)
 - Choose the output format (`.txt` / `.md`)
-- Choose how ruby notation is handled (keep as-is / convert to another style / strip and keep only the base text)
-- Option to collapse consecutive blank lines into one
 - Always available from the command palette
 - **Never modifies the original file**
 
@@ -143,10 +156,11 @@ Exports the current note as clean manuscript text from a dedicated export dialog
 Aggregates all `mode: novel` notes across your vault and lists them in the main pane.
 
 - Run **Open writing stats** from the command palette to open it as a new tab.
-- The top of the view shows a fixed summary across all manuscripts (word count, and the character count/ratio of narration vs. dialogue).
-- Below that, a card is shown for each matching manuscript note, with its word count, narration/dialogue character count and ratio, creation date, and last-modified date.
+- The top of the view shows a fixed summary across all manuscripts: word count, page count, estimated reading time, and the character count/ratio of narration vs. dialogue with a pie chart.
+- Switch between two views: "Manuscript Details" and "Character Count Chart." "Manuscript Details" shows a card for each matching manuscript note with its word count, page count, estimated reading time, narration/dialogue character count and ratio (with a pie chart), creation date, and last-modified date. "Character Count Chart" compares narration and dialogue across all manuscripts as a stacked bar chart.
+- Estimated reading time is a rough estimate based on your configured reading speed (characters per minute, 400 by default).
 - Dialogue detection is based on which bracket types are enabled in your bracket-highlighting settings (「」『』, etc.).
-- Sortable by filename, creation date, or last-modified date. When sorting, only the list of manuscripts scrolls — the summary and sort buttons stay fixed in place.
+- Sortable by filename, creation date, last-modified date, or character count. You can also filter by filename or folder name. When sorting or filtering, only the list of manuscripts scrolls — the summary and the sort/search toolbar stay fixed in place.
 - Click a filename to open that note directly.
 - The **Recalculate** button refreshes the view with the latest data at any time (this button isn't shown on mobile).
 - You can specify folders to exclude from aggregation in settings (managed separately from the term index's excluded folders).
@@ -214,6 +228,9 @@ Run **Novels Note JP: Open vertical preview** from the command palette (`Ctrl/Cm
 #### Novel Reading View
 Run **Novels Note JP: Open novel reading view** from the command palette to switch the current note to the novel reading view.
 
+#### Creating a Manuscript Cleaning Rules Definition
+Go to **Settings** → **Novels Note JP** → "Manuscript Cleaning Rules" → "Add rules file" to create one. In the editor that opens, choose "keep / remove / convert" for each element, then click "Save." Once you select it as the "default rules file," it's applied automatically to future exports and word counts.
+
 #### Export
 Run **Novels Note JP: Export current file as manuscript** from the command palette.
 
@@ -237,6 +254,8 @@ Run **Novels Note JP: Open writing stats** from the command palette to open the 
 | Word count options | Whether to include full-width spaces, blank lines, and hashtags in the count |
 | Term index excluded folders | Folders excluded from the term index |
 | Writing stats excluded folders | Folders excluded from writing-stats aggregation (managed separately from the term index's excluded folders) |
+| Default manuscript cleaning rules | The default rules file used for export and word counting (falls back to the built-in default if none is set) |
+| Reading speed (chars/min) | Reading speed used to estimate reading time in writing stats (default: 400 chars/min) |
 | Term highlighting: master toggle | Turns all highlighting features on/off at once |
 | Term category colors & toggles | Color and on/off for each term category |
 | Bracket colors & toggles | Color and on/off for each bracket type |
@@ -260,7 +279,7 @@ As of version 0.9.0, this plugin supports the mobile versions of Obsidian.Core w
 
 ### Requirements
 
-- Obsidian v1.8.7 or later
+- Obsidian v1.13.0 or later
 - Supports desktop and mobile
 
 ---
@@ -268,7 +287,7 @@ As of version 0.9.0, this plugin supports the mobile versions of Obsidian.Core w
 
 ## 日本語
 
-**Novels Note JP**は日本語小説の執筆に特化したエディタ拡張系プラグインです。執筆に欠かせない先頭字下げやルビ機能だけでなく、執筆を補助するための用語の登録・入力・ハイライト機能、原稿を確認するための縦書きプレビューや執筆情報の表示機能、指定ルビ形式での原稿エクスポート機能も提供しています。デスクトップ・モバイルの両方に対応しています。
+**Novels Note JP**は日本語小説の執筆に特化したエディタ拡張系プラグインです。執筆に欠かせない先頭字下げやルビ機能だけでなく、執筆を補助するための用語の登録・入力・ハイライト機能、原稿を確認するための縦書きプレビューや執筆情報の表示機能、細かくルールをカスタマイズできる原稿クリーニング機能に基づくエクスポート機能も提供しています。デスクトップ・モバイルの両方に対応しています。
 
 ---
 
@@ -364,11 +383,26 @@ aliases: （別名を登録）
 
 > **モバイルでは：** カテゴリ・フォルダの長押しで新規作成メニューが開きます（右クリックの代わり）。用語のドラッグ＆ドロップは、フォルダ間の移動には対応していますが、メインペインへの挿入（原稿へのWikiLink挿入）はモバイル環境のドラッグ＆ドロップの制約により動作しません。代わりに、**用語をタップ**するとメニューが開き、「ノートを開く」「原稿に挿入」「リンクをクリップボードへコピー」を選択できます。「原稿に挿入」は、直前まで編集していた原稿ノートのカーソル位置に挿入されます（原稿を開いていない場合は自動的にクリップボードへコピーされます）。
 
+#### 原稿クリーニング定義
+Markdown記法やObsidian特有の要素（Frontmatter、Callout、WikiLinkなど）を、エクスポートや文字数カウントの際にどう扱うか（保持する／削除する／変換する）をまとめたルールセットです。設定画面から専用のエディタで作成・編集し、複数のルールセットを用途に応じて使い分けられます。
+
+- 対象要素はメタデータ（Frontmatter）、ブロック要素（Callout・見出し・引用・リスト・コードブロック・水平線・HTMLタグ）、インライン要素（WikiLink・タグ・強調・Markdownリンク・画像・ルビ・インラインコード・HTMLタグ）、文書全体の整形（連続する空行の圧縮・末尾の空白除去）に及びます。
+- 要素ごとに「保持」「削除」に加え、多くの要素では「変換」（記法だけを外して中身のテキストを残す）を選択できます。
+- WikiLinkは「エイリアスを優先して残す」「常にファイル名を残す」を選択可能です。
+- ルビは「保持」「除去（親文字のみ残す）」に加え、なろう式・青空文庫式・でんでん式・HTMLの4方式へ変換可能です（エクスポート時に選ぶルビ設定とは独立して指定できます）。
+- 設定画面「原稿クリーニング定義」から定義ファイル（`manuscript-rules.json`）を新規作成・複製・リネーム・削除でき、複数ファイルを切り替えて使えます。定義ファイルはVaultではなくプラグイン専用フォルダに保存されるため、Vault内のノート一覧には表示されません。
+- 「既定として使う定義ファイル」を1つ選ぶと、エクスポートと文字数カウントの両方に既定ルールとして適用されます（エクスポート時にはその場で別の定義に一時的に切り替えることも可能です）。
+- 定義ファイルを1つも作成していない場合は、組み込みの初期設定（標準的なクリーニングルール）が自動的に使われます。
+
+| メタデータ / ブロック要素 | インライン要素 / 文章全体の整形 |
+|----|----|
+| ![rules-a](./docs/rules-a.png) | ![rules-b](./docs/rules-b.png) |
+
 #### 文字数カウント
 3つのカウントモードをステータスバーに表示します（デスクトップ版のみ。モバイルでは Obsidian 側の仕様によりステータスバーが利用できないため、この表示はありません）。
 
 - **生文字数** — 総文字数
-- **小説用重み付き** — 本文のみをカウント（フロントマター・タグ・WikiLink 等を除外）
+- **小説用重み付き** — 「原稿クリーニング定義」でクリーニングした後の本文をカウント（既定では Frontmatter・タグ・WikiLink などが除外されます。何が除外されるかは選択している定義ファイルのルールに従います）
 - **原稿用紙換算** — 400字詰め原稿用紙換算枚数（ **注意：** 単純な文字数での換算なので、実際の原稿用紙枚数とは乖離があります）
 
 全角スペース・空行・ハッシュタグをカウントに含めるかどうかもオプションで設定できます。
@@ -390,12 +424,10 @@ WikiLink・タグ・本文以外のコンテンツを除去したクリーンな
 ![novelReadingView](docs/novelReadingView.png)
 
 #### エクスポート
-専用のエクスポートダイアログから、現在のノートをクリーンな原稿テキストとして出力します。
+専用のエクスポートダイアログから、現在のノートを「原稿クリーニング定義」に基づいてクリーンな原稿テキストとして出力します。
 
-- Markdown・Obsidian 記法（WikiLink、タグ、フロントマターなど）を除去
+- 使用するクリーニング定義をダイアログ内でその場で切り替え可能（設定画面の既定値とは独立して指定できます）
 - 出力形式（`.txt` / `.md`）を選択可能
-- ルビ記法の扱いを選択可能（保持／他方式へ変換 / 親文字のみ残して除去）
-- 連続する空行を1行に圧縮するオプション
 - コマンドパレットから常に実行可能
 - **元のファイルは一切変更されません**
 
@@ -405,10 +437,11 @@ WikiLink・タグ・本文以外のコンテンツを除去したクリーンな
 Vault 全体の `mode: novel` ノートを集計し、メインペインに一覧表示します。
 
 - コマンドパレットから **執筆情報一覧を開く** を実行すると、新規タブとして開きます。
-- 上部には全原稿の合計（執筆文字数・地の文・会話文の文字数と比率）が固定表示されます。
-- その下に、該当する原稿ノートごとのカードが並び、執筆文字数・地の文／会話文の文字数と比率・作成日時・最終更新日時を表示します。
+- 上部には全原稿の合計（執筆文字数・ページ数・推定読了時間、地の文・会話文の文字数と比率・円グラフ）が固定表示されます。
+- 表示は「各原稿詳細」「文字数グラフ」の2種類を切り替え可能です。「各原稿詳細」では原稿ノートごとのカードが並び、執筆文字数・ページ数・推定読了時間・地の文／会話文の文字数と比率（円グラフ付き）・作成日時・最終更新日時を表示します。「文字数グラフ」では全原稿の地の文・会話文を積み上げ棒グラフで比較できます。
+- 推定読了時間は、設定した読書速度（字/分、デフォルト400字/分）をもとに算出したおおよその目安です。
 - 会話文の判定は、括弧ハイライト設定で有効になっている括弧の種類（「」『』など）に基づきます。
-- ファイル名・作成日時・最終更新日時で並び替え可能。並び替え時にスクロールするのは原稿の一覧部分のみで、合計サマリーと並び替えボタンは常に表示され続けます。
+- ファイル名・作成日時・最終更新日時・文字数で並び替え可能。また、ファイル名・フォルダ名で絞り込み検索ができます。並び替え・絞り込み時にスクロールするのは原稿の一覧部分のみで、合計サマリーと並び替え・検索ツールバーは常に表示され続けます。
 - ファイル名をクリックすると、そのノートを直接開けます。
 - **再集計** ボタンでいつでも最新の状態に更新できます（モバイルではこのボタンは表示されません）。
 - 設定にて、集計対象から除外するフォルダを指定可能（用語インデックスの除外フォルダとは別に管理されます）。
@@ -476,6 +509,9 @@ Vault 全体の `mode: novel` ノートを集計し、メインペインに一�
 #### 小説閲覧ビュー
 コマンドパレットから **Novels Note JP: 小説閲覧ビューを開く** を実行すると、現在のノートを小説閲覧ビューに切り替えます。
 
+#### 原稿クリーニング定義の作成
+**設定** → **Novels Note JP** → 「原稿クリーニング定義」→「定義ファイルを追加」から新規作成します。開いたエディタで各要素の「保持／削除／変換」を選び、「保存」をクリックしてください。「既定として使う定義ファイル」に選択すると、以後のエクスポート・文字数カウントに自動的に適用されます。
+
 #### エクスポート
 コマンドパレットから **Novels Note JP: 現在のファイルを原稿 Export する** を実行します。
 
@@ -499,6 +535,8 @@ Vault 全体の `mode: novel` ノートを集計し、メインペインに一�
 | 文字数カウントオプション | 全角スペース・空行・ハッシュタグをカウントに含めるか |
 | 用語インデックス 除外フォルダ | 用語インデックスから除外するフォルダ |
 | 執筆情報一覧 除外フォルダ | 執筆情報一覧の集計対象から除外するフォルダ（用語インデックスの除外フォルダとは別に管理） |
+| 既定の原稿クリーニング定義 | エクスポートと文字数カウントに使う既定の定義ファイル（未設定時は組み込みの初期設定） |
+| 読了速度（字/分） | 執筆情報一覧の推定読了時間の計算に使う読書速度の目安（デフォルト400字/分） |
 | 用語ハイライト：全体トグル | すべてのハイライト機能の一括オン/オフ |
 | 用語カテゴリカラー・トグル | 用語カテゴリごとの色とオン/オフ |
 | 括弧カラー・トグル | 括弧の種類ごとの色とオン/オフ |
@@ -522,5 +560,5 @@ Vault 全体の `mode: novel` ノートを集計し、メインペインに一�
 
 ### 動作環境
 
-- Obsidian v1.8.7 以降
+- Obsidian v1.13.0 以降
 - デスクトップおよびモバイルに対応

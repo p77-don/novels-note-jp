@@ -747,7 +747,18 @@
   flex-direction: row;           /* 右→左に列が並ぶ（direction:rtl のため） */
   writing-mode: vertical-rl;    /* 縦書き・右から左へ */
   text-orientation: mixed;       /* 英数字は横向き、日本語は縦向き */
-  height: 100%;                 /* 親コンテナ（scroller）の高さを上限とする */
+  /* 「折り返し文字数」設定（wrapColumn）で指定した文字数ぶんの高さを
+     そのまま指定する。以前は height: 100%（親いっぱい）を基準に
+     max-height だけで上限を絞る形にしていたが、モバイルの
+     flex + writing-mode: vertical-rl の組み合わせでは、この
+     「100%」という曖昧な基準値のほうが優先されてしまい、
+     小さい値（実測ではおよそ36文字未満）を設定しても、その
+     文字数まで縮まない不具合があった（大きい値は正しく反映されて
+     いたことから、100% 側が実質的な下限として働いていたと考えられる）。
+     height と max-height の両方に同じ値を直接指定することで、
+     「100%」という曖昧な基準を経由させず、常に設定値どおりの
+     高さになるようにする。 */
+  height: var(--nn-vertical-max-height, 100%);
   max-height: var(--nn-vertical-max-height, 100%); /* JS から wrapColumn(em) で動的に設定 */
   min-height: 0;                /* flex 子要素の縮小を許可 */
   direction: ltr;                /* 内部は LTR に戻す（文字方向） */
@@ -773,6 +784,11 @@
   user-select: text;
   -webkit-user-select: text;
   cursor: text;
+  /* .nn-vertical-body（flexコンテナ）の唯一の子要素（flexアイテム）
+     として、指定した高さいっぱいにストレッチされる。ここでも
+     内容量に応じた自動的な最小サイズ（content-based automatic
+     minimum size）が入り込まないよう明示的に 0 にしておく。 */
+  min-height: 0;
 }
 
 /* ─────────────────────────────────────────
@@ -783,8 +799,7 @@
    そのチャンクの折り返し（列の区切り）位置だけを再計算すればよく、
    文書全体を再計算する必要がなくなる（詳細は verticalPreview.ts
    の patchVerticalBody() のコメントを参照）。
-   height: 100% は親（.nn-vertical-body、flexで高さが確定している）
-   から高さを継承するために必要。
+   height: 100% は親（.nn-vertical-text）から高さを継承するために必要。
    ───────────────────────────────────────── */
 .nn-vertical-text .nn-chunk {
   display: inline-block;
@@ -792,6 +807,7 @@
   text-orientation: mixed;
   direction: ltr;
   height: 100%;
+  min-height: 0;
   vertical-align: top;
 }
 

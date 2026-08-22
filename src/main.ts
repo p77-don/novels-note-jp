@@ -688,7 +688,12 @@ export default class NovelsNoteJP extends Plugin {
     // （ボックスモデルを持たない疑似要素のため）。
     // 従来の「不透明色 + opacity: 0.85」と同じ見た目にするため、
     // あらかじめ alpha チャンネルを焼き込んだ rgba() に変換して渡す。
-    const cursorHighlightCss = s.verticalCursorHighlightEnabled
+    // モバイルでは「エディタと縦書きプレビューを同時に見ながら執筆する」
+    // 前提が成立しない（独立タブで同時表示できない）ため、設定値に
+    // かかわらず常に無効化する。設定タブ側でもこの設定は disabled 表示
+    // だが、保存済みの値自体（他プラットフォームと同期される可能性が
+    // ある値）は変更しないため、ここで実際の描画だけを強制的に止める。
+    const cursorHighlightCss = s.verticalCursorHighlightEnabled && !Platform.isMobile
       ? `::highlight(nn-cursor) {
           background-color: ${hexToRgba(s.verticalCursorHighlightColor, 0.85)};
         }`

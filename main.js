@@ -2201,6 +2201,11 @@ var NovelsNoteSettingTab = class extends import_obsidian6.PluginSettingTab {
   // オーバーライドする。
   // ─────────────────────────────────────────
   getControlValue(key) {
+    if (import_obsidian6.Platform.isMobile) {
+      if (key === "verticalCursorHighlightEnabled" || key === "termHoverPreviewEnabled") {
+        return false;
+      }
+    }
     return this.plugin.settings[key];
   }
   async setControlValue(key, value) {
@@ -2209,6 +2214,9 @@ var NovelsNoteSettingTab = class extends import_obsidian6.PluginSettingTab {
     await this.plugin.saveSettings();
     switch (key) {
       case "fontSize":
+        this.plugin.applyEditorStyles();
+        this.plugin.refreshVerticalPreview();
+        break;
       case "lineHeight":
         this.plugin.applyEditorStyles();
         break;
@@ -2216,6 +2224,7 @@ var NovelsNoteSettingTab = class extends import_obsidian6.PluginSettingTab {
         this.plugin.applyEditorStyles();
         this.plugin.refreshEditors();
         this.plugin.updateWordCount();
+        this.plugin.refreshVerticalPreview();
         break;
       case "showRuler":
       case "rulerStyle":
@@ -2689,11 +2698,16 @@ var NovelsNoteSettingTab = class extends import_obsidian6.PluginSettingTab {
         },
         {
           name: "\u7528\u8A9E\u30CF\u30A4\u30E9\u30A4\u30C8\u306E\u30DB\u30D0\u30FC\u30D7\u30EC\u30D3\u30E5\u30FC",
-          desc: descLines(
+          desc: import_obsidian6.Platform.isMobile ? "\u30E2\u30D0\u30A4\u30EB\u3067\u306F\u4F7F\u7528\u3067\u304D\u307E\u305B\u3093\u3002" : descLines(
             "\u30A8\u30C7\u30A3\u30BF\u4E0A\u3067\u30CF\u30A4\u30E9\u30A4\u30C8\u3055\u308C\u305F\u7528\u8A9E\u306B\u30DE\u30A6\u30B9\u3092\u5408\u308F\u305B\u308B\u3068\u3001\u5BFE\u5FDC\u3059\u308B\u7528\u8A9E\u30CE\u30FC\u30C8\u3092Obsidian\u6A19\u6E96\u306E\u30DA\u30FC\u30B8\u30D7\u30EC\u30D3\u30E5\u30FC\uFF08Hover Preview\uFF09\u3067\u8868\u793A\u3057\u307E\u3059\u3002",
             "\u203BWikiLink\u3092\u66F8\u304F\u5FC5\u8981\u306F\u3042\u308A\u307E\u305B\u3093\u3002"
           ),
-          control: { type: "toggle", key: "termHoverPreviewEnabled", defaultValue: DEFAULT_SETTINGS.termHoverPreviewEnabled }
+          control: {
+            type: "toggle",
+            key: "termHoverPreviewEnabled",
+            defaultValue: DEFAULT_SETTINGS.termHoverPreviewEnabled,
+            disabled: import_obsidian6.Platform.isMobile
+          }
         }
       ]
     };
@@ -6964,7 +6978,7 @@ var NovelsNoteJP = class extends import_obsidian16.Plugin {
         border-left: 1px ${s.rulerStyle} ${s.rulerColor};
         opacity: ${s.rulerOpacity}; pointer-events: none;
       }`;
-    const cursorHighlightCss = s.verticalCursorHighlightEnabled ? `::highlight(nn-cursor) {
+    const cursorHighlightCss = s.verticalCursorHighlightEnabled && !import_obsidian16.Platform.isMobile ? `::highlight(nn-cursor) {
           background-color: ${hexToRgba(s.verticalCursorHighlightColor, 0.85)};
         }` : `::highlight(nn-cursor) { background-color: transparent; }`;
     const css = `
