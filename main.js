@@ -2310,6 +2310,9 @@ var NovelsNoteSettingTab = class extends import_obsidian6.PluginSettingTab {
       case "glossaryPaletteTrigger":
         this.plugin.refreshEditors();
         break;
+      // readingSpeedCharsPerMinute・excludeFolders・statsExcludeFolders・
+      // tagDefinitions・bracketDefinitions は保存のみ、または
+      // 各動的リストの render コールバック側で個別に副作用を扱う。
       default:
         break;
     }
@@ -3493,6 +3496,7 @@ function rubyPairToStyle(base, ruby, target) {
   switch (target) {
     case "none":
       return base + "\u300A" + ruby + "\u300B";
+    // 呼ばれないはず
     case "remove":
       return base;
     case "narou":
@@ -6563,6 +6567,7 @@ function buildGlossaryPaletteExtension(deps) {
     openPalette(view, triggerPos, file, triggerCharLength) {
       var _a;
       void this.ensureHistoryLoaded();
+      void file;
       this.isOpen = true;
       this.triggerPos = triggerPos;
       this.triggerCharLength = triggerCharLength;
