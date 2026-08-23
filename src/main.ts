@@ -553,7 +553,7 @@ export default class NovelsNoteJP extends Plugin {
   // 設定 ロード／セーブ
   // ─────────────────────────────────────────
   async loadSettings(): Promise<void> {
-    const saved = await this.loadData();
+    const saved: unknown = await this.loadData();
     const { settings, correctedFields } = validateAndSanitizeSettings(saved);
     this.settings = settings;
     if (correctedFields.length > 0) {

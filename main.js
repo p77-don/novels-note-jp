@@ -6835,9 +6835,10 @@ function validateManuscriptRulesFiles(value, corrected) {
     if (value !== void 0) corrected.push("manuscriptRulesFiles");
     return [];
   }
+  const arr = value;
   const result = [];
-  for (let i = 0; i < value.length; i++) {
-    const item = value[i];
+  for (let i = 0; i < arr.length; i++) {
+    const item = arr[i];
     if (typeof item !== "object" || item === null || !isString(item.fileName)) {
       corrected.push(`manuscriptRulesFiles[${i}]`);
       continue;

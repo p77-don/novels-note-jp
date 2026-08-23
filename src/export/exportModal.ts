@@ -40,7 +40,7 @@ function validateExportFileName(rawName: string, format: ExportFormat): string |
   if (name === "." || name === ".." || name.includes("..")) {
     return "出力ファイル名が不正です。";
   }
-  // eslint-disable-next-line no-control-regex
+  // eslint-disable-next-line no-control-regex -- ファイル名に制御文字が含まれていないか検証するため意図的に制御文字コード範囲(\x00-\x1f)を使用
   if (/[\x00-\x1f]/.test(name)) {
     return "出力ファイル名に制御文字は使用できません。";
   }
