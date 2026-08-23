@@ -146,6 +146,12 @@
 .nn-section-header:hover {
   background: var(--background-modifier-hover);
 }
+/* 【CR-009対応】キーボード操作対応：role="button" + tabindex="0" を
+   付与した要素にフォーカスリングを表示する（マウス操作時は表示しない）。 */
+.nn-section-header:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: -2px;
+}
 
 .nn-section-label {
   font-weight: 600;
@@ -204,6 +210,10 @@
 .nn-folder-row:hover {
   background: var(--background-modifier-hover);
 }
+.nn-folder-row:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: -2px;
+}
 
 .nn-folder-icon {
   font-size: 13px;
@@ -255,6 +265,11 @@
 .nn-term-name:hover {
   opacity: 0.75;
   text-decoration: underline;
+}
+.nn-term-name:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 1px;
+  border-radius: 2px;
 }
 
 .nn-aliases {

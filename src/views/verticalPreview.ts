@@ -8,6 +8,24 @@ import { RubyStyle } from "../settings";
 import { convertRubyAndEscape } from "../core/rubyPatterns";
 import { stripHashtags } from "../core/hashtags";
 import { CursorSyncStore, CursorSyncSnapshot } from "../editor/cursorSyncStore";
+import type { ManuscriptRules } from "../manuscript-rules/types/rules";
+import { createDefaultManuscriptRules } from "../manuscript-rules/rules/ruleDefaults";
+import {
+  FRONTMATTER_RE,
+  COMMENT_RE,
+  CALLOUT_BLOCK_RE,
+  CALLOUT_LINE_RE,
+  BLOCKQUOTE_BLOCK_RE,
+  BLOCKQUOTE_LINE_RE,
+  WIKILINK_PIPE_RE,
+  WIKILINK_PLAIN_RE,
+  HEADING_RE,
+  LIST_UNORDERED_LINE_RE,
+  LIST_ORDERED_LINE_RE,
+  EMPHASIS_RE,
+  HORIZONTAL_RULE_RE,
+  IMAGE_RE,
+} from "../manuscript-rules/parser/patterns";
 
 // ─────────────────────────────────────────
 // ルビ変換 + HTML エスケープ
@@ -436,6 +454,7 @@ interface VerticalHtmlResult {
 export function toVerticalHtml(
   source: string,
   rubyStyle: RubyStyle,
+  rules: ManuscriptRules = createDefaultManuscriptRules(),
   selectedText: string = ""
 ): VerticalHtmlResult {
 
@@ -451,6 +470,53 @@ export function toVerticalHtml(
   const SEL_START = "\x00\x01\x00";
   const SEL_END   = "\x00\x02\x00";
 
+  // ─────────────────────────────────────────
+  // 【CR-002 対応】選択中の ManuscriptRules（Export・文字数カウント・
+  // 横書きプレビューと共通）に基づいてクリーニング内容を決定する。
+  // 未指定の要素はデフォルト値（createDefaultManuscriptRules）を使う。
+  //
+  // 縦書きプレビューはソース行とプレビュー行の 1:1 対応（カーソル同期）が
+  // 前提のため、Cleaner 本体（manuscript-rules/cleaner/）をそのまま
+  // 呼び出すことはできない（行を丸ごと削除する remove 系の変換が
+  // 行われるため）。ここでは同じパターン定義（parser/patterns.ts）を
+  // 再利用しつつ、"remove" 系の変換はすべて stripKeepingLines
+  // （マッチ内の改行数だけ空行として残す）でラップすることで、
+  // 除去する・しないの判断だけを Rules に委ね、行数保持の制約は
+  // 維持する。
+  //
+  // 【簡略化している点】
+  //   - codeBlock: "edit"（フェンスだけ外して中身を残す）は
+  //     行単位の対応を崩さずに実装するとコードが複雑になるため、
+  //     今回は "remove" と同じ「プレースホルダーで保護（＝空行として
+  //     表示）」として扱う。"keep" のみ元のテキストをそのまま残す。
+  //   - inlineCode: 同様の理由で "edit" と "remove" を区別せず、
+  //     どちらも「バッククォートを外し中身のテキストを残す」
+  //     （＝旧実装の常時の挙動）として扱う。"keep" のみ
+  //     バッククォートを含めてそのまま残す。
+  //   - document.blankLines / trailingWhitespace は、行数保持の
+  //     制約と相性が悪いため今回は対象外（従来どおり変更しない）。
+  // ─────────────────────────────────────────
+  const block = rules.block ?? {};
+  const inline = rules.inline ?? {};
+  const metadata = rules.metadata ?? {};
+
+  const frontmatterAction = metadata.frontmatter?.action ?? "remove";
+  const commentAction = block.comment?.action ?? "remove";
+  const calloutAction = block.callout?.action ?? "remove";
+  const headingAction = block.heading?.action ?? "edit";
+  const blockquoteAction = block.blockquote?.action ?? "remove";
+  const listAction = block.list?.action ?? "remove";
+  const codeBlockAction = block.codeBlock?.action ?? "remove";
+  const horizontalRuleAction = block.horizontalRule?.action ?? "keep";
+  const blockHtmlAction = block.html?.action ?? "remove";
+  const wikilinkRule = inline.wikilink ?? { action: "edit" as const, editMode: "displayText" as const };
+  const tagAction = inline.tag?.action ?? "remove";
+  const emphasisAction = inline.emphasis?.action ?? "edit";
+  const markdownLinkAction = inline.markdownLink?.action ?? "edit";
+  const imageAction = inline.image?.action ?? "keep";
+  const inlineCodeAction = inline.inlineCode?.action ?? "remove";
+  const inlineHtmlAction = inline.html?.action ?? "remove";
+
   let cleaned = source;
 
   if (selectedText.length > 0) {
@@ -465,33 +531,12 @@ export function toVerticalHtml(
         cleaned.slice(idx + selectedText.length);
     }
   }
-  // ─────────────────────────────────────────
-  // Step 0.5: コードブロックの行を「空行プレースホルダー」に変換する
-  //
-  // 横書きプレビュー（novelReadingView.ts）はコードブロックを完全に
-  // 非表示にしている。縦書きプレビューでも同じ本文を表示するため
-  // 内容は表示しないが、単純に丸ごと空文字列に置換すると改行ごと
-  // 消えてしまい、それ以降のソース行番号とプレビュー側の行番号が
-  // ズレる（エディタとのカーソル同期が壊れる）。
-  //
-  // そのため、コードブロックの各行（フェンス行・内容行とも）を
-  // 1行→1プレースホルダー1行の対応を保ったまま、後続の Markdown
-  // 変換（見出し・強調・ルビ・縦中横など）の対象にならない
-  // 不透明なプレースホルダートークンに置き換え、Step 10 の直前で
-  // 空文字列に変換する（＝内容は消えるが行数は保たれる）。
-  //
-  // プレースホルダーには ASCII の英数字を一切使わない
-  // （Step 8 の縦中横変換 /[A-Za-z0-9._:/+-]+/ が誤ってマッチするのを
-  //   防ぐため、行数のカウントは全角数字でエンコードする）。
-  // ─────────────────────────────────────────
+
+  // コードブロックの行を「空行プレースホルダー」に変換する
+  // （codeBlock: "keep" の場合のみ、保護せずそのまま残す）
   let codeLineCount = 0;
   const toFullWidthDigits = (n: number): string =>
     String(n).replace(/[0-9]/g, d => String.fromCharCode(d.charCodeAt(0) + 0xFEE0));
-
-  // プレースホルダーの前後マーカーには制御文字（\x00）ではなく
-  // Unicode 私用領域（Private Use Area）の文字を使う。
-  // 通常のテキストには出現せず、かつ正規表現リテラル中の
-  // 制御文字警告（no-control-regex 等）も回避できる。
   const CODE_PLACEHOLDER_MARK = "\uE000";
   const protectCodeBlock = (whole: string): string =>
     whole
@@ -499,68 +544,132 @@ export function toVerticalHtml(
       .map(() => `${CODE_PLACEHOLDER_MARK}${toFullWidthDigits(codeLineCount++)}${CODE_PLACEHOLDER_MARK}`)
       .join("\n");
 
-  cleaned = cleaned.replace(/^```[\s\S]*?^```[ \t]*$/gm, protectCodeBlock);
-  cleaned = cleaned.replace(/^~~~[\s\S]*?^~~~[ \t]*$/gm, protectCodeBlock);
+  if (codeBlockAction !== "keep") {
+    cleaned = cleaned.replace(/^```[\s\S]*?^```[ \t]*$/gm, protectCodeBlock);
+    cleaned = cleaned.replace(/^~~~[\s\S]*?^~~~[ \t]*$/gm, protectCodeBlock);
+  }
 
-  // Step 1〜5: Markdown・Obsidian 記号除去
-  // （novelReadingView.ts の cleanSource() と同じ内容にすることで、
-  //   横書きプレビューと縦書きプレビューで表示される「本文」を一致させる）
-  //
+  // ─────────────────────────────────────────
   // 【複数行にまたがるマッチを空文字列に置換する処理の注意点】
-  // 以下のような正規表現：
-  //   ・%%コメント%%（Obsidianの仕様上、複数行にまたがりうる）
-  //   ・Callout ブロック（> [!note] ... の複数行）
-  //   ・画像記法（通常1行だが、alt文字列やURLが万一複数行にまたがる場合）
-  // は、マッチした範囲全体（内部の改行を含む）を "" に置換すると、
+  // マッチした範囲全体（内部の改行を含む）を "" に置換すると、
   // 改行ごと消えてソース行数とプレビュー側の行数がズレる
   // （＝エディタとのカーソル位置がズレる）原因になる。
   // マッチ内の改行の数だけ "\n" を残す置換関数を使うことで、
-  // 内容は消しつつ行数だけは保つ。
+  // 内容は消しつつ行数だけは保つ（0個の場合は "" と同じ動作になる
+  // ため、単一行のマッチにもそのまま安全に使える）。
   // ─────────────────────────────────────────
   const stripKeepingLines = (whole: string): string =>
     "\n".repeat((whole.match(/\n/g) ?? []).length);
 
   // Frontmatter は文書の先頭（行0）から始まる場合のみ除去
-  // （消える行数は frontmatterLineCount で別途補正しているため、
-  //   ここは行数保持の対象外でよい）
-  cleaned = cleaned.replace(/^---[ \t]*\n[\s\S]*?\n---[ \t]*\n?/, "");
-  cleaned = cleaned.replace(/%%[\s\S]*?%%/g, stripKeepingLines);
-  cleaned = cleaned.replace(/^(>[ \t]*\[![\w-]+\][^\n]*\n(?:>[ \t]*[^\n]*\n?)*)/gm, stripKeepingLines);
-  cleaned = cleaned.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, "$2");
-  cleaned = cleaned.replace(/\[\[([^\]]+)\]\]/g, "$1");
-  // タグ削除（判定ロジックは core/hashtags.ts に共通化。
-  // 横書きプレビュー・Export・文字数カウントと基準を統一する）
-  cleaned = stripHashtags(cleaned);
-  cleaned = cleaned.replace(/[ \t]{2,}/g, " ");
-  cleaned = cleaned.replace(/^[ \t]+$/gm, "");
-  cleaned = cleaned.replace(/^#{1,6}[ \t]+/gm, "");
-  cleaned = cleaned.replace(/^>[ \t]?/gm, "");
-  cleaned = cleaned.replace(/^[ \t]*[-*+][ \t]+/gm, "");
-  cleaned = cleaned.replace(/^[ \t]*\d+\.[ \t]+/gm, "");
-  cleaned = cleaned.replace(/(\*{1,3}|_{1,3})([\s\S]*?)\1/g, "$2");
-  // 区切り線 --- は小説の文章区切りとして「―――」に変換（縦書きで自然に見える）
-  // ※横書きプレビューでは単純に除去しているが、縦書きでは視覚的な
-  //   場面転換の区切りとして機能するため、あえて残している。
-  cleaned = cleaned.replace(/^(-{3,})[ \t]*$/gm, (_: string, dashes: string) => "―".repeat(dashes.length));
-  cleaned = cleaned.replace(/^[*_]{3,}[ \t]*$/gm, "");
-  cleaned = cleaned.replace(/`([^`]+)`/g, "$1");
-  cleaned = cleaned.replace(/!\[[^\]]*\]\([^)]+\)/g, stripKeepingLines);
-  cleaned = cleaned.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
+  if (frontmatterAction !== "keep") {
+    cleaned = cleaned.replace(FRONTMATTER_RE, "");
+  }
+
+  if (commentAction !== "keep") {
+    cleaned = cleaned.replace(COMMENT_RE, stripKeepingLines);
+  }
+
+  if (calloutAction === "remove") {
+    cleaned = cleaned.replace(CALLOUT_BLOCK_RE, stripKeepingLines);
+  } else if (calloutAction === "edit") {
+    cleaned = cleaned.replace(CALLOUT_BLOCK_RE, (blk) =>
+      blk.replace(CALLOUT_LINE_RE, (_m, header: string | undefined, rest: string) => rest)
+    );
+  }
+  // keep: 何もしない
+
+  if (wikilinkRule.action === "remove") {
+    cleaned = cleaned.replace(WIKILINK_PIPE_RE, stripKeepingLines).replace(WIKILINK_PLAIN_RE, stripKeepingLines);
+  } else if (wikilinkRule.action === "edit") {
+    const mode = wikilinkRule.editMode ?? "displayText";
+    if (mode === "fileName") {
+      cleaned = cleaned.replace(WIKILINK_PIPE_RE, "$1").replace(WIKILINK_PLAIN_RE, "$1");
+    } else {
+      cleaned = cleaned.replace(WIKILINK_PIPE_RE, "$2").replace(WIKILINK_PLAIN_RE, "$1");
+    }
+  }
+  // keep: 何もしない
+
+  if (tagAction !== "keep") {
+    // タグ削除（判定ロジックは core/hashtags.ts に共通化。
+    // 横書きプレビュー・Export・文字数カウントと基準を統一する）
+    cleaned = stripHashtags(cleaned);
+    cleaned = cleaned.replace(/[ \t]{2,}/g, " ");
+    cleaned = cleaned.replace(/^[ \t]+$/gm, "");
+  }
+
+  if (headingAction === "remove") {
+    cleaned = cleaned.replace(HEADING_RE, stripKeepingLines);
+  } else if (headingAction === "edit") {
+    cleaned = cleaned.replace(HEADING_RE, (_m, _marks: string, _sp: string, content: string) => content);
+  }
+  // keep: 何もしない
+
+  if (blockquoteAction === "remove") {
+    cleaned = cleaned.replace(BLOCKQUOTE_BLOCK_RE, stripKeepingLines);
+  } else if (blockquoteAction === "edit") {
+    cleaned = cleaned.replace(BLOCKQUOTE_BLOCK_RE, (blk) =>
+      blk.replace(BLOCKQUOTE_LINE_RE, (_m, rest: string) => rest)
+    );
+  }
+  // keep: 何もしない
+
+  if (listAction === "remove") {
+    cleaned = cleaned.replace(LIST_UNORDERED_LINE_RE, stripKeepingLines).replace(LIST_ORDERED_LINE_RE, stripKeepingLines);
+  } else if (listAction === "edit") {
+    cleaned = cleaned
+      .replace(LIST_UNORDERED_LINE_RE, (_m, _indent: string, _marker: string, _sp: string, content: string) => content)
+      .replace(LIST_ORDERED_LINE_RE, (_m, _indent: string, _marker: string, _sp: string, content: string) => content);
+  }
+  // keep: 何もしない
+
+  if (emphasisAction === "remove") {
+    cleaned = cleaned.replace(EMPHASIS_RE, stripKeepingLines);
+  } else if (emphasisAction === "edit") {
+    cleaned = cleaned.replace(EMPHASIS_RE, "$2");
+  }
+  // keep: 何もしない
+
+  // 区切り線：keep の場合は小説の文章区切りとして「―――」に変換
+  // （縦書きで自然に見える視覚的な場面転換の区切りとして機能するため、
+  //  横書きプレビューの remove 相当ではなく keep 相当のデフォルトを採用）。
+  // remove の場合は行そのものを空行化する。
+  if (horizontalRuleAction === "remove") {
+    cleaned = cleaned.replace(HORIZONTAL_RULE_RE, stripKeepingLines);
+  } else {
+    cleaned = cleaned.replace(/^[ \t]*(-{3,})[ \t]*$/gm, (_: string, dashes: string) => "―".repeat(dashes.length));
+  }
+
+  if (inlineCodeAction !== "keep") {
+    cleaned = cleaned.replace(/`([^`]+)`/g, "$1");
+  }
+
+  if (imageAction === "remove") {
+    cleaned = cleaned.replace(IMAGE_RE, stripKeepingLines);
+  }
+  // keep（デフォルト）: 何もしない → Markdown記法のまま文字として表示される
+
+  if (markdownLinkAction === "remove") {
+    cleaned = cleaned.replace(/\[([^\]]+)\]\([^)]+\)/g, stripKeepingLines);
+  } else if (markdownLinkAction === "edit") {
+    cleaned = cleaned.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
+  }
+  // keep: 何もしない
+
   // HTML タグ除去（ruby・rt は除外。ルビ記法として後段で処理するため）
   //
   // 【注意：改行をまたがせない】
-  // 横書きプレビュー（novelReadingView.ts）と同じ正規表現を
   // [^>]+（改行にもマッチする）のまま使うと、対応する ">" のない
   // "<" が文章中にあった場合（例："これは< 不等号のテスト"）、
   // ずっと後の行にある無関係な ">" までを「1つのタグ」とみなして
   // 貪欲マッチし、その間の複数行が改行ごと丸ごと消えてしまう。
-  // 横書きプレビューは行番号を保持する必要がないため問題にならないが、
-  // 縦書きプレビューはソース行との1:1対応が前提のため、これが
-  // エディタとのカーソル位置ズレの原因になっていた。
   // [^>\n] にして改行をまたいだマッチを禁止することで防ぐ
   // （その副作用として、複数行にまたがる本物のHTMLタグは検出されず
   //   そのまま文字として残るが、行がまるごと消えるよりはるかに安全）。
-  cleaned = cleaned.replace(/<(?!\/?(ruby|rt)\b)[^>\n]+>/gi, "");
+  if (blockHtmlAction !== "keep" || inlineHtmlAction !== "keep") {
+    cleaned = cleaned.replace(/<(?!\/?(ruby|rt)\b)[^>\n]+>/gi, "");
+  }
 
   // Step 6〜7: ルビ変換 + HTML エスケープ（安全な1関数にまとめて処理する）
   cleaned = convertRubyAndEscape(cleaned, rubyStyle);
@@ -645,10 +754,11 @@ export function toVerticalHtml(
   const sourceLines  = source.split("\n");
   const cleanedLines = cleaned.split("\n");
 
-  // Frontmatter の行数を計算（--- で囲まれたブロックが先頭にある場合）
+  // Frontmatter の行数を計算（--- で囲まれたブロックが先頭にあり、
+  // かつ frontmatterAction が "keep" ではなく実際に除去した場合のみ）
   let frontmatterLineCount = 0;
-  {
-    const fmMatch = source.match(/^---[ \t]*\n[\s\S]*?\n---[ \t]*\n?/);
+  if (frontmatterAction !== "keep") {
+    const fmMatch = source.match(FRONTMATTER_RE);
     if (fmMatch) {
       // 末尾の \n を除いた行数を数える
       frontmatterLineCount = fmMatch[0].replace(/\n$/, "").split("\n").length;
@@ -849,12 +959,15 @@ export class VerticalPreviewView extends ItemView {
   private getRubyStyle: () => RubyStyle = () => "narou";
   private getFontSize:   () => number    = () => 16;
   private getWrapColumn: () => number    = () => 40;
+  /** 表示クリーニングに使う、アクティブな原稿クリーニング定義（Export・文字数カウント・横書きプレビューと共通）。 */
+  private getManuscriptRules: () => ManuscriptRules = () => createDefaultManuscriptRules();
 
   constructor(leaf: WorkspaceLeaf) { super(leaf); }
 
   setRubyStyleGetter(fn: () => RubyStyle): void { this.getRubyStyle = fn; }
   setFontSizeGetter(fn: () => number): void     { this.getFontSize   = fn; }
   setWrapColumnGetter(fn: () => number): void   { this.getWrapColumn = fn; }
+  setManuscriptRulesGetter(fn: () => ManuscriptRules): void { this.getManuscriptRules = fn; }
   setCursorSyncStore(store: CursorSyncStore): void { this.cursorSyncStore = store; }
   setLastActiveMarkdownProvider(
     fn: () => { editor: Editor; file: TFile | null } | null
@@ -1051,7 +1164,7 @@ export class VerticalPreviewView extends ItemView {
 
     this.applyLayoutSettings();
 
-    const { html, lineSentences, lineSentPlainLengths } = toVerticalHtml(text, this.getRubyStyle(), selection);
+    const { html, lineSentences, lineSentPlainLengths } = toVerticalHtml(text, this.getRubyStyle(), this.getManuscriptRules(), selection);
     this.lineSentences = lineSentences;
     this.lineSentPlainLengths = lineSentPlainLengths;
 

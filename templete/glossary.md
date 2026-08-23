@@ -1,9 +1,0 @@
----
-tags:
-  - glossary
-aliases:
-  - 
----
-
-# Glossary
-

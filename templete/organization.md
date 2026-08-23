@@ -1,9 +1,0 @@
----
-tags:
-  - organization
-aliases:
-  - 
----
-
-# Organization
-

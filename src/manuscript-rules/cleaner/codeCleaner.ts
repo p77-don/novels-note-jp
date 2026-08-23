@@ -48,17 +48,25 @@ export function applyCodeBlockRule(text: string, rule?: EditableRule): CodeProte
   }
 
   // edit: フェンス記号だけ外し、中身のコードをプレースホルダーで保護する
+  //
+  // 【型について】protectMatches() の replacer は String.replace() の
+  // コールバックと同じ形（match, ...groups: unknown[]）で受け取る。
+  // キャプチャグループは実際には文字列（マッチしなかった任意グループは
+  // undefined）だが、TypeScript の関数引数は反変のため、groups の型を
+  // string 単体に絞った関数はこのシグネチャへ代入できない
+  // （割り当てエラー TS2345）。unknown[] のまま受け取り、使う箇所で
+  // string にキャストする。
   const backtick = protectMatches(
     text,
     CODE_FENCE_BACKTICK_CAPTURE_RE,
     "codeblock-bt",
-    (_m, inner: string) => inner.replace(/\n$/, "")
+    (_m, ...groups: unknown[]) => (groups[0] as string).replace(/\n$/, "")
   );
   const tilde = protectMatches(
     backtick.text,
     CODE_FENCE_TILDE_CAPTURE_RE,
     "codeblock-tl",
-    (_m, inner: string) => inner.replace(/\n$/, "")
+    (_m, ...groups: unknown[]) => (groups[0] as string).replace(/\n$/, "")
   );
   return {
     text: tilde.text,
@@ -80,6 +88,11 @@ export function applyInlineCodeRule(text: string, rule?: EditableRule): CodeProt
   }
 
   // edit: バッククォートだけ外し、中身のテキストをプレースホルダーで保護する
-  const session = protectMatches(text, INLINE_CODE_RE, "inlinecode", (_m, inner: string) => inner);
+  const session = protectMatches(
+    text,
+    INLINE_CODE_RE,
+    "inlinecode",
+    (_m, ...groups: unknown[]) => groups[0] as string
+  );
   return session;
 }

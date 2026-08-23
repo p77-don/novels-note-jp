@@ -41,8 +41,16 @@ export function computeNiceScale(maxValue: number, targetTickCount = 5): NiceSca
 
   const ticks: number[] = [];
   // 浮動小数点誤差でステップが1本欠ける／余分に出るのを避けるための微小補正
+  //
+  // 【注意】ここで Math.round(v) を適用すると、step が 1 未満（0.2 や 0.5 など）
+  // になる小さい maxValue（例: maxValue=1, targetTickCount=5 → step=0.2）で
+  // 複数の目盛りが同じ整数に丸められ、[0, 0, 0, 1, 1, 1] のような重複した
+  // 目盛りラベルが生成されてしまう。
+  // 目盛りの「位置」はバーの幅（%）計算に tick/scale.max を使うため、
+  // 元の小数値のまま保持する必要がある。表示ラベルの桁数調整は
+  // 呼び出し側（表示直前）で行う。
   for (let v = 0; v <= niceMax + step * 1e-6; v += step) {
-    ticks.push(Math.round(v));
+    ticks.push(v);
   }
 
   return { max: niceMax, step, ticks };

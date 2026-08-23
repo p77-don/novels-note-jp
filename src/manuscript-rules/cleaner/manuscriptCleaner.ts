@@ -36,7 +36,22 @@ export function cleanManuscript(
   rules: ManuscriptRules,
   sourceRubyStyle: RubyStyle
 ): string {
-  let text = source;
+  // ─────────────────────────────────────────
+  // 【CR-004 対応】改行コードの正規化
+  //
+  // 以後のクリーニング処理の正規表現（^ / $ / [\s\S] などを多用）は
+  // すべて改行が "\n" であることを前提に書かれている。呼び出し元
+  // （novelReadingView.ts・exportModal.ts）は Vault#read() で
+  // ファイルを直接読み込んでおり、Windows で編集された、あるいは
+  // 他ツール経由で持ち込まれた原稿が CRLF ("\r\n") や 古い Mac
+  // 形式の CR ("\r") を含んでいる可能性がある。
+  // CRLF/CR が残ったまま処理すると、行頭・行末アンカー（^ $）が
+  // 想定通りに一致せず、見出し・リスト・引用などの検出が
+  // 一部の行だけ失敗し、余分な "\r" が地の文に残ってしまう。
+  // パイプラインの最初に一度だけ LF へ正規化することで、
+  // 以後のすべてのルールが安全に動作するようにする。
+  // ─────────────────────────────────────────
+  let text = source.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 
   const codeBlockRule = rules.block?.codeBlock;
   const inlineCodeRule = rules.inline?.inlineCode;

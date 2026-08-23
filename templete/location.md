@@ -1,9 +1,0 @@
----
-tags:
-  - location
-aliases:
-  - 
----
-
-# Location
-

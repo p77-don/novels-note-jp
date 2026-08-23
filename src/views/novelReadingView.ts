@@ -18,71 +18,41 @@ import { NOVEL_READING_VIEW_TYPE } from "../types";
 import { RubyStyle, NovelsNoteSettings, DEFAULT_SETTINGS } from "../settings";
 import { convertRubyAndEscape } from "../core/rubyPatterns";
 import { ExportModal } from "../export/exportModal";
-import { stripHashtags } from "../core/hashtags";
-
-// ─────────────────────────────────────────
-// Frontmatter 除去
-// ─────────────────────────────────────────
-function stripFrontmatter(source: string): string {
-  return source.replace(/^---[ \t]*\n[\s\S]*?\n---[ \t]*\n?/, "");
-}
+import type { ManuscriptRules } from "../manuscript-rules/types/rules";
+import { cleanManuscript } from "../manuscript-rules/cleaner/manuscriptCleaner";
+import { createDefaultManuscriptRules } from "../manuscript-rules/rules/ruleDefaults";
 
 // ─────────────────────────────────────────
 // 原稿テキストのクリーニング
 //
-// エクスポートと同じ処理でMarkdown記法・WikiLink・タグなどを除去する。
-// ルビ記法はそのまま残す（convertRubyAndEscapeで後処理する）。
+// 【2026-08 修正】以前はこのビュー専用の固定正規表現でクリーニングを
+// 行っており、Export・文字数カウントが使う cleanManuscript()（選択中の
+// ManuscriptRules）と処理内容が食い違っていた（見出しを残す／
+// WikiLinkを削除するなどのユーザー設定が閲覧ビューに反映されない）。
+// このビューは縦書きプレビューと異なりカーソル位置と行番号の
+// 1:1対応を必要としないため、Export・文字数カウントと同じ
+// cleanManuscript() エンジンをそのまま利用できる。
+//
+// ただし、ルビ記法だけは例外的に「そのまま維持」させる
+// （mode: "none" を強制する）。ルビのHTML化・エスケープは、
+// このビュー独自の convertRubyAndEscape()（core/rubyPatterns.ts）が
+// 1行ずつ安全に行う設計になっており、cleanManuscript() 側で
+// 先にルビ記法を変換・除去してしまうと、
+//   - ユーザーが選択中の定義のルビmodeと、このビューの表示用
+//     ルビスタイル設定（getRubyStyle）が異なる場合に変換結果が
+//     噛み合わなくなる
+//   - mode: "html" 変換によって生成された生の <ruby> タグが
+//     convertRubyAndEscape() の想定外の形で扱われる
+// といった問題が起きるため、表示直前のルビ処理は従来どおり
+// このビュー側に残す。frontmatter除去も cleanManuscript() 側の
+// metadata.frontmatter ルールに委譲する。
 // ─────────────────────────────────────────
-function cleanSource(source: string): string {
-  let text = source;
-
-  // Obsidian コメント削除
-  text = text.replace(/%%[\s\S]*?%%/g, "");
-
-  // Callout ブロック削除
-  text = text.replace(/^(>[ \t]*\[![\w-]+\][^\n]*\n(?:>[ \t]*[^\n]*\n?)*)/gm, "");
-
-  // WikiLink を表示テキストに変換（[[target|display]] → display、[[target]] → target）
-  text = text.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, "$2");
-  text = text.replace(/\[\[([^\]]+)\]\]/g, "$1");
-
-  // タグ削除
-  // タグの判定ロジックは hashtags.ts に共通化されている
-  // （Export・小説閲覧ビュー・文字数カウントで判定基準を統一するため）。
-  text = stripHashtags(text);
-  // タグ除去後の連続スペース・行頭末尾スペースを正規化
-  text = text.replace(/[ \t]{2,}/g, " ");
-  text = text.replace(/^[ \t]+$/gm, "");
-
-  // Markdown 見出し記号除去
-  text = text.replace(/^#{1,6}[ \t]+/gm, "");
-
-  // Markdown 引用記号除去
-  text = text.replace(/^>[ \t]?/gm, "");
-
-  // Markdown リスト記号除去
-  text = text.replace(/^[ \t]*[-*+][ \t]+/gm, "");
-  text = text.replace(/^[ \t]*\d+\.[ \t]+/gm, "");
-
-  // Markdown 強調記号除去（**bold**、*italic*、__bold__、_italic_）
-  text = text.replace(/(\*{1,3}|_{1,3})([\s\S]*?)\1/g, "$2");
-
-  // Markdown 水平線除去
-  text = text.replace(/^[-*_]{3,}[ \t]*$/gm, "");
-
-  // Markdown コードブロック除去
-  text = text.replace(/^```[\s\S]*?^```[ \t]*$/gm, "");
-  text = text.replace(/^~~~[\s\S]*?^~~~[ \t]*$/gm, "");
-  text = text.replace(/`([^`]+)`/g, "$1");
-
-  // Markdown リンク変換（画像は除去、テキストリンクは表示テキストのみ残す）
-  text = text.replace(/!\[[^\]]*\]\([^)]+\)/g, "");
-  text = text.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
-
-  // HTML タグ除去（ruby・rt は除外）
-  text = text.replace(/<(?!\/?(ruby|rt)\b)[^>]+>/gi, "");
-
-  return text;
+function cleanSource(source: string, rules: ManuscriptRules, rubyStyle: RubyStyle): string {
+  const displayRules: ManuscriptRules = {
+    ...rules,
+    inline: { ...rules.inline, ruby: { mode: "none" } },
+  };
+  return cleanManuscript(source, displayRules, rubyStyle);
 }
 
 // ─────────────────────────────────────────
@@ -113,10 +83,8 @@ function renderLine(rawLine: string, rubyStyle: RubyStyle): string {
 //   先頭全角スペース   → <p class="nn-indent">…</p>
 //   その他            → <p>…</p>
 // ─────────────────────────────────────────
-export function toReadingHtml(source: string, rubyStyle: RubyStyle): string {
-  // Frontmatter 除去 → 原稿クリーニング
-  const stripped = stripFrontmatter(source);
-  const cleaned  = cleanSource(stripped);
+export function toReadingHtml(source: string, rules: ManuscriptRules, rubyStyle: RubyStyle): string {
+  const cleaned = cleanSource(source, rules, rubyStyle);
 
   const lines = cleaned.split("\n");
   const parts: string[] = [];
@@ -158,6 +126,8 @@ export class NovelReadingView extends ItemView {
   private getRubyStyle:  () => RubyStyle = () => "narou";
   private getWrapColumn: () => number    = () => 40;
   private getFontSize:   () => number    = () => 16;
+  /** 表示クリーニングに使う、アクティブな原稿クリーニング定義（Export・文字数カウントと共通）。 */
+  private getManuscriptRules: () => ManuscriptRules = () => createDefaultManuscriptRules();
   /** Export モーダルへ渡すプラグイン設定全体（登録済み原稿クリーニング定義の参照用） */
   private getSettings: () => NovelsNoteSettings | null = () => null;
   /**
@@ -176,6 +146,7 @@ export class NovelReadingView extends ItemView {
   setRubyStyleGetter(fn: () => RubyStyle): void  { this.getRubyStyle  = fn; }
   setWrapColumnGetter(fn: () => number): void     { this.getWrapColumn = fn; }
   setFontSizeGetter(fn: () => number): void       { this.getFontSize   = fn; }
+  setManuscriptRulesGetter(fn: () => ManuscriptRules): void { this.getManuscriptRules = fn; }
   setSettingsGetter(fn: () => NovelsNoteSettings): void { this.getSettings = fn; }
   setPluginDirGetter(fn: () => string): void { this.getPluginDir = fn; }
 
@@ -342,7 +313,7 @@ export class NovelReadingView extends ItemView {
     this.rootEl.style.setProperty("max-width", `${maxWidth}em`);
     this.rootEl.style.setProperty("font-size", `${fontSize}px`);
 
-    const html = toReadingHtml(source, this.getRubyStyle());
+    const html = toReadingHtml(source, this.getManuscriptRules(), this.getRubyStyle());
     this.rootEl.empty();
     const contentEl = this.rootEl.createDiv({ cls: "nn-reading-content" });
     // DOMParser でパースしてノードを直接追加（innerHTML 不使用）

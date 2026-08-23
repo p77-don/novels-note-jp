@@ -8,8 +8,6 @@ import { EditorView } from "@codemirror/view";
 import {
   NovelsNoteSettings,
   DEFAULT_SETTINGS,
-  DEFAULT_TAG_DEFINITIONS,
-  DEFAULT_BRACKET_DEFINITIONS,
   TagDefinition,
 } from "./settings";
 import {
@@ -50,6 +48,8 @@ import { TermPreviewModal } from "./core/termPreviewModal";
 import { matchTermTag } from "./core/termTree";
 import { buildGlossaryPaletteExtension, GlossaryPaletteBundle } from "./editor/glossaryPalette";
 import { clearGlossaryHistory } from "./core/glossaryHistory";
+import { sanitizeCssColor, isSafeCssIdentifier } from "./core/cssSafety";
+import { validateAndSanitizeSettings } from "./core/settingsValidation";
 
 // ─────────────────────────────────────────
 // HEXカラー → rgba() 文字列変換
@@ -66,8 +66,11 @@ function hexToRgba(hex: string, alpha: number): string {
   const g = parseInt(full.slice(2, 4), 16);
   const b = parseInt(full.slice(4, 6), 16);
   if (Number.isNaN(r) || Number.isNaN(g) || Number.isNaN(b)) {
-    // 不正なHEXの場合はそのまま返す（フォールバック）
-    return hex;
+    // 不正なHEXの場合、そのまま返すとCSS文字列へ未検証の文字列が
+    // 混入するおそれがあるため、透明色にフォールバックする
+    // （呼び出し側で sanitizeCssColor() による事前検証も行っているが、
+    //   ここでも二重に安全側へ倒す）。
+    return "rgba(0, 0, 0, 0)";
   }
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
@@ -147,6 +150,14 @@ export default class NovelsNoteJP extends Plugin {
   // ─────────────────────────────────────────
   activeManuscriptRules: ManuscriptRules = createDefaultManuscriptRulesDefinition().rules;
 
+  // 短時間に設定変更やファイル更新が重なった場合、非同期読み込みの
+  // 完了順序が呼び出し順と一致するとは限らない（先に始めた読み込みが
+  // 後から始めた読み込みより遅れて完了することがある）。
+  // 世代番号を発行し、await後に自分が最新の呼び出しかを確認してから
+  // activeManuscriptRules を更新することで、古い結果によるキャッシュの
+  // 巻き戻りを防ぐ。
+  private manuscriptRulesGeneration = 0;
+
   /** プラグイン専用フォルダのパス（Vaultルートからの相対パス）。 */
   get pluginDir(): string {
     return this.manifest.dir ?? `${this.app.vault.configDir}/plugins/${this.manifest.id}`;
@@ -154,21 +165,29 @@ export default class NovelsNoteJP extends Plugin {
 
   /** アクティブな原稿クリーニング定義のキャッシュを再読み込みする。 */
   async refreshActiveManuscriptRules(): Promise<void> {
+    const myGeneration = ++this.manuscriptRulesGeneration;
     const fileName = this.settings.defaultManuscriptRulesFileName;
     if (!fileName) {
+      if (myGeneration !== this.manuscriptRulesGeneration) return; // 同期処理だが念のため統一的に確認
       this.activeManuscriptRules = createDefaultManuscriptRulesDefinition().rules;
       this.updateWordCount();
+      this.refreshNovelReadingView();
+      this.refreshVerticalPreview();
       return;
     }
     try {
       const def = await readRuleFile(this.app, this.pluginDir, fileName);
+      if (myGeneration !== this.manuscriptRulesGeneration) return; // 古い結果は破棄
       this.activeManuscriptRules = def.rules;
     } catch (e) {
+      if (myGeneration !== this.manuscriptRulesGeneration) return; // 古い結果は破棄
       const message = e instanceof ManuscriptRulesFileError ? e.message : String(e);
       new Notice(`原稿クリーニング定義を読み込めませんでした（組み込みの初期設定を使用します）：${message}`);
       this.activeManuscriptRules = createDefaultManuscriptRulesDefinition().rules;
     }
     this.updateWordCount();
+    this.refreshNovelReadingView();
+    this.refreshVerticalPreview();
   }
 
   // ─────────────────────────────────────────
@@ -195,6 +214,7 @@ export default class NovelsNoteJP extends Plugin {
         view.setRubyStyleGetter(() => this.settings.rubyStyle);
         view.setFontSizeGetter(()  => this.settings.fontSize);
         view.setWrapColumnGetter(() => this.settings.wrapColumn);
+        view.setManuscriptRulesGetter(() => this.activeManuscriptRules);
         view.setCursorSyncStore(this.cursorSyncStore);
         view.setLastActiveMarkdownProvider(() => this.getLastActiveMarkdownEditor());
         return view;
@@ -208,6 +228,7 @@ export default class NovelsNoteJP extends Plugin {
         view.setRubyStyleGetter(()  => this.settings.rubyStyle);
         view.setWrapColumnGetter(() => this.settings.wrapColumn);
         view.setFontSizeGetter(()   => this.settings.fontSize);
+        view.setManuscriptRulesGetter(() => this.activeManuscriptRules);
         view.setSettingsGetter(()   => this.settings);
         view.setPluginDirGetter(()  => this.pluginDir);
         return view;
@@ -532,21 +553,19 @@ export default class NovelsNoteJP extends Plugin {
   // 設定 ロード／セーブ
   // ─────────────────────────────────────────
   async loadSettings(): Promise<void> {
-    const saved = await this.loadData() as Partial<NovelsNoteSettings> | null;
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, saved);
-    if (!saved?.tagDefinitions) {
-      this.settings.tagDefinitions = DEFAULT_TAG_DEFINITIONS.map(td => ({ ...td }));
-    }
-    if (!saved?.bracketDefinitions) {
-      this.settings.bracketDefinitions = DEFAULT_BRACKET_DEFINITIONS.map(bd => ({ ...bd }));
-    }
-    // 旧バージョンの保存データには excludeFolders がないため明示的に保証する
-    if (!Array.isArray(this.settings.excludeFolders)) {
-      this.settings.excludeFolders = [];
-    }
-    // 旧バージョンの保存データには statsExcludeFolders がないため明示的に保証する
-    if (!Array.isArray(this.settings.statsExcludeFolders)) {
-      this.settings.statsExcludeFolders = [];
+    const saved = await this.loadData();
+    const { settings, correctedFields } = validateAndSanitizeSettings(saved);
+    this.settings = settings;
+    if (correctedFields.length > 0) {
+      // ユーザー向けの通知は行わず（頻発しうる軽微な補正まで毎回
+      // Noticeを出すとかえって煩わしいため）、開発者コンソールへ
+      // 構造化ログとして残す。次回起動時に同じ補正が繰り返されない
+      // よう、補正後の値を saveSettings() で保存し直す。
+      console.warn(
+        "[Novels Note JP] 保存済み設定の一部を検証・補正しました（不正な値をデフォルトへ戻しました）:",
+        correctedFields
+      );
+      await this.saveSettings();
     }
   }
 
@@ -598,18 +617,30 @@ export default class NovelsNoteJP extends Plugin {
     const wrapWidth = `${s.wrapColumn}em`;
 
     // カッコ色（novel-mode 限定）
+    //
+    // 【CSS注入対策】bd.id はクラス名の一部として、bd.color は
+    // プロパティ値として、そのままCSS文字列へ連結される。
+    // id は通常システム生成（bracket-${Date.now()}）のため安全だが、
+    // 同期経由や手編集データでは保証されない。安全な識別子・色で
+    // ないエントリはCSSルール自体を出力せずスキップすることで、
+    // 1件の不正値が他の全ルールの構文を壊すのを防ぐ。
     const bracketColorCss = s.bracketDefinitions
-      .map(bd => `.cm-editor[data-novel-mode="true"] .novel-bracket-${bd.id} { color: ${bd.color}; }`)
+      .filter(bd => isSafeCssIdentifier(bd.id))
+      .map(bd => `.cm-editor[data-novel-mode="true"] .novel-bracket-${bd.id} { color: ${sanitizeCssColor(bd.color, "#888888")}; }`)
       .join("\n");
 
     // 用語色（novel-mode 限定）
+    // td.tag はユーザーが自由入力できるフィールドのため、
+    // 英数字・ハイフン・アンダースコア以外を含む場合はルールを出力しない。
     const tagColorCss = s.tagDefinitions
-      .map(td => `.cm-editor[data-novel-mode="true"] .cm-content .novel-hl-${td.tag} { color: ${td.color} !important; }`)
+      .filter(td => isSafeCssIdentifier(td.tag))
+      .map(td => `.cm-editor[data-novel-mode="true"] .cm-content .novel-hl-${td.tag} { color: ${sanitizeCssColor(td.color, "#888888")} !important; }`)
       .join("\n");
 
     // サイドバー用（!important なし・data-novel-mode 不要）
     const tagColorSidebarCss = s.tagDefinitions
-      .map(td => `.novels-note-sidebar .novel-hl-${td.tag} { color: ${td.color}; }`)
+      .filter(td => isSafeCssIdentifier(td.tag))
+      .map(td => `.novels-note-sidebar .novel-hl-${td.tag} { color: ${sanitizeCssColor(td.color, "#888888")}; }`)
       .join("\n");
 
     // 用語ハイライトのホバープレビューが有効な場合のみ、
@@ -620,7 +651,7 @@ export default class NovelsNoteJP extends Plugin {
       : "";
 
     // 全角スペース可視化
-    const fwColor = s.fullWidthSpaceColor;
+    const fwColor = sanitizeCssColor(s.fullWidthSpaceColor, "#888888");
     const fwspCss = s.showFullWidthSpace && s.fullWidthSpaceStyle !== "none"
       ? `
       .cm-editor[data-novel-mode="true"] .cm-content .novel-fwsp {
@@ -671,8 +702,8 @@ export default class NovelsNoteJP extends Plugin {
         top: 0; left: min(${wrapWidth}, 100%);
         transform: translateX(-1px);
         width: 0; height: 100%;
-        border-left: 1px ${s.rulerStyle} ${s.rulerColor};
-        opacity: ${s.rulerOpacity}; pointer-events: none;
+        border-left: 1px ${s.rulerStyle === "dashed" ? "dashed" : "solid"} ${sanitizeCssColor(s.rulerColor, "#888888")};
+        opacity: ${Number.isFinite(s.rulerOpacity) ? Math.min(Math.max(s.rulerOpacity, 0), 1) : 0.4}; pointer-events: none;
       }`;
 
     // カーソルハイライト
@@ -694,7 +725,7 @@ export default class NovelsNoteJP extends Plugin {
     // ある値）は変更しないため、ここで実際の描画だけを強制的に止める。
     const cursorHighlightCss = s.verticalCursorHighlightEnabled && !Platform.isMobile
       ? `::highlight(nn-cursor) {
-          background-color: ${hexToRgba(s.verticalCursorHighlightColor, 0.85)};
+          background-color: ${hexToRgba(sanitizeCssColor(s.verticalCursorHighlightColor, "#3a5a8a"), 0.85)};
         }`
       : `::highlight(nn-cursor) { background-color: transparent; }`;
 

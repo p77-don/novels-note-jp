@@ -392,6 +392,14 @@ export class NovelsNoteSidebarView extends ItemView {
 
       const section = body.createDiv({ cls: "nn-section" });
       const sectionHeader = section.createDiv({ cls: "nn-section-header" });
+      // 【CR-009対応】キーボード操作対応：クリックでのみ開閉できる
+      // div要素だったため、Tabキーでフォーカスを移動できず、
+      // マウス操作ができないユーザーがカテゴリを開閉できなかった。
+      // role="button" + tabindex="0" でフォーカス可能にし、
+      // Enter/Space での操作をクリックと同等に扱う。
+      sectionHeader.setAttribute("role", "button");
+      sectionHeader.setAttribute("tabindex", "0");
+      sectionHeader.setAttribute("aria-expanded", String(isTagOpen));
 
       const arrow = sectionHeader.createSpan({
         cls: `nn-arrow ${isTagOpen ? "nn-arrow-open" : ""}`,
@@ -415,11 +423,19 @@ export class NovelsNoteSidebarView extends ItemView {
       sectionBody.toggleClass("nn-hidden", !isTagOpen);
 
       // クリック：開閉
-      sectionHeader.addEventListener("click", () => {
+      const toggleSection = () => {
         const next = !(this.openState.get(sectionKey) ?? false);
         this.openState.set(sectionKey, next);
         arrow.classList.toggle("nn-arrow-open", next);
         sectionBody.toggleClass("nn-hidden", !next);
+        sectionHeader.setAttribute("aria-expanded", String(next));
+      };
+      sectionHeader.addEventListener("click", toggleSection);
+      sectionHeader.addEventListener("keydown", (e: KeyboardEvent) => {
+        if (e.key === "Enter" || e.key === " " || e.key === "Spacebar") {
+          e.preventDefault();
+          toggleSection();
+        }
       });
 
       // 右クリック：カテゴリコンテキストメニュー
@@ -493,6 +509,12 @@ export class NovelsNoteSidebarView extends ItemView {
       cls: "nn-folder-row",
       attr: { "data-folder-path": node.fullPath, "data-tag": td.tag }
     });
+    // 【CR-009対応】クリックでのみ開閉できるdiv要素だったため、
+    // キーボード操作ができなかった。role="button" + tabindex="0" で
+    // フォーカス可能にし、Enter/Space での操作をクリックと同等に扱う。
+    folderRow.setAttribute("role", "button");
+    folderRow.setAttribute("tabindex", "0");
+    folderRow.setAttribute("aria-expanded", String(isOpen));
 
     const arrow = folderRow.createSpan({
       cls: `nn-arrow ${isOpen ? "nn-arrow-open" : ""}`,
@@ -516,14 +538,25 @@ export class NovelsNoteSidebarView extends ItemView {
     children.toggleClass("nn-hidden", !isOpen);
 
     // クリック（開閉）
-    folderRow.addEventListener("click", (e: MouseEvent) => {
-      e.stopPropagation();
+    const toggleFolder = () => {
       const next = !this.openState.get(stateKey);
       this.openState.set(stateKey, next);
       arrow.classList.toggle("nn-arrow-open", next);
       (folderRow.querySelector(".nn-folder-icon") as HTMLElement).textContent =
         next ? "📂" : "📁";
       children.toggleClass("nn-hidden", !next);
+      folderRow.setAttribute("aria-expanded", String(next));
+    };
+    folderRow.addEventListener("click", (e: MouseEvent) => {
+      e.stopPropagation();
+      toggleFolder();
+    });
+    folderRow.addEventListener("keydown", (e: KeyboardEvent) => {
+      if (e.key === "Enter" || e.key === " " || e.key === "Spacebar") {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleFolder();
+      }
     });
 
     // 右クリックメニュー（フォルダ）
@@ -584,6 +617,11 @@ export class NovelsNoteSidebarView extends ItemView {
       cls: `nn-term-name novel-hl-${tag}`,
       title: term.filePath,
     });
+    // 【CR-009対応】クリックでのみノートを開けるspan要素だったため、
+    // キーボード操作ができなかった。role="button" + tabindex="0" で
+    // フォーカス可能にし、Enter/Space での操作をクリックと同等に扱う。
+    nameEl.setAttribute("role", "button");
+    nameEl.setAttribute("tabindex", "0");
     const supplementalLabels: string[] = [];
     if (term.name && term.name !== fileName) supplementalLabels.push(term.name);
     for (const alias of term.aliases) {
@@ -612,6 +650,21 @@ export class NovelsNoteSidebarView extends ItemView {
       e.stopPropagation();
       if (Platform.isMobile) {
         this.showTermContextMenu(e, term);
+        return;
+      }
+      const file = this.app.vault.getAbstractFileByPath(term.filePath);
+      if (file instanceof TFile) {
+        void this.app.workspace.getLeaf(false).openFile(file);
+      }
+    });
+    nameEl.addEventListener("keydown", (e: KeyboardEvent) => {
+      if (e.key !== "Enter" && e.key !== " " && e.key !== "Spacebar") return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (Platform.isMobile) {
+        // マウス座標がないため、要素の位置を基準にメニューを表示する
+        const rect = nameEl.getBoundingClientRect();
+        this.showTermContextMenu({ x: rect.left, y: rect.bottom }, term);
         return;
       }
       const file = this.app.vault.getAbstractFileByPath(term.filePath);
@@ -705,7 +758,7 @@ export class NovelsNoteSidebarView extends ItemView {
   // ─────────────────────────────────────────
   // 右クリックメニュー（用語）
   // ─────────────────────────────────────────
-  private showTermContextMenu(e: MouseEvent, term: TermEntry): void {
+  private showTermContextMenu(e: MouseEvent | { x: number; y: number }, term: TermEntry): void {
     const menu = new Menu();
 
     menu.addItem(item => {
@@ -789,7 +842,11 @@ export class NovelsNoteSidebarView extends ItemView {
         });
     });
 
-    menu.showAtMouseEvent(e);
+    if (e instanceof MouseEvent) {
+      menu.showAtMouseEvent(e);
+    } else {
+      menu.showAtPosition(e);
+    }
   }
 
   // ─────────────────────────────────────────

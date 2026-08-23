@@ -20,6 +20,28 @@ type SortKey = "name" | "created" | "modified" | "chars";
 type ViewMode = "list" | "chart";
 
 // ─────────────────────────────────────────
+// 目盛りラベルの桁数決定
+//
+// computeNiceScale() の ticks は位置計算のため小数のまま返ってくる
+// （例: step=0.2 の場合 0, 0.2, 0.4, 0.6, 0.8, 1.0）。
+// ラベル表示時は step の精度に応じて必要な小数桁数だけを表示し、
+// 整数の step（1, 10, 1000…）では従来通り整数表示にする。
+// ─────────────────────────────────────────
+function formatTickLabel(tick: number, step: number): string {
+  if (step <= 0 || Number.isInteger(step)) {
+    return Math.round(tick).toLocaleString();
+  }
+  // step の小数桁数を求める（例: 0.2 → 1桁、0.05 → 2桁）
+  const stepStr = step.toString();
+  const dotIndex = stepStr.indexOf(".");
+  const decimals = dotIndex === -1 ? 0 : stepStr.length - dotIndex - 1;
+  return tick.toLocaleString(undefined, {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  });
+}
+
+// ─────────────────────────────────────────
 // 日時フォーマット（YYYY-MM-DD HH:mm）
 // ロケール依存を避けるため手動でゼロ埋めする。
 // ─────────────────────────────────────────
@@ -557,7 +579,7 @@ export class WritingStatsView extends ItemView {
       const tickEl = axisTrack.createDiv({ cls: "nn-stats-chart-tick" });
       tickEl.setCssProps({ "--nn-tick-left": `${(tick / scale.max) * 100}%` });
       tickEl.createDiv({ cls: "nn-stats-chart-tick-line" });
-      tickEl.createDiv({ text: tick.toLocaleString(), cls: "nn-stats-chart-tick-label" });
+      tickEl.createDiv({ text: formatTickLabel(tick, scale.step), cls: "nn-stats-chart-tick-label" });
     }
     axisRow.createDiv({ cls: "nn-stats-chart-value" });
 
