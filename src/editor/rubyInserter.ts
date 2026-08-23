@@ -51,7 +51,7 @@ class RubyInputModal extends Modal {
   private baseText: string;
   private style: RubyStyle;
   private onSubmit: (rubyText: string) => void;
-  private focusTimer?: ReturnType<typeof setTimeout>;
+  private focusTimer?: number;
 
   constructor(
     app: App,

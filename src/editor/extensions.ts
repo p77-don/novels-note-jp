@@ -608,7 +608,7 @@ export function buildCursorSyncExtension(store: CursorSyncStore, app: App) {
 
   class CursorSyncPlugin {
     composing = false;
-    settleTimer: ReturnType<typeof setTimeout> | null = null;
+    settleTimer: number | null = null;
 
     scheduleCommit(view: EditorView): void {
       if (this.composing) return;

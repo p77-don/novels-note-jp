@@ -215,7 +215,7 @@ export class NovelReadingView extends ItemView {
     await this.loadCurrentFile();
 
     // ファイル編集時に更新（500ms デバウンス）
-    let updateTimer: ReturnType<typeof setTimeout> | null = null;
+    let updateTimer: number | null = null;
     this.registerEvent(
       this.app.workspace.on("editor-change", (_editor, view) => {
         // 現在このビューが表示しているファイル以外の変更は無視する

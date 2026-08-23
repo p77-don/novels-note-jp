@@ -456,7 +456,7 @@
 
 .nn-modal-btn-delete {
   background: var(--text-error);
-  color: #fff;
+  color: var(--text-on-accent);
   border-color: var(--text-error);
 }
 .nn-modal-btn-delete:hover {

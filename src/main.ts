@@ -113,7 +113,7 @@ export default class NovelsNoteJP extends Plugin {
   private terms: TermEntry[] = [];
   settings: NovelsNoteSettings = DEFAULT_SETTINGS;
   private statusBarEl: HTMLElement | null = null;
-  private rebuildTimer: ReturnType<typeof setTimeout> | null = null;
+  private rebuildTimer: number | null = null;
   private adoptedSheet: CSSStyleSheet | null = null;
   // 「原稿に挿入」用。サイドバー（用語一覧）を開くと、モバイルでは
   // エディタがフォーカス・カーソルを失い app.workspace.activeEditor が

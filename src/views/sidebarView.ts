@@ -16,7 +16,7 @@ class CreateTermModal extends Modal {
   private tag: string;
   private tagLabel: string;
   private onSubmit: (termName: string, folderPath: string) => Promise<void>;
-  private focusTimer?: ReturnType<typeof setTimeout>;
+  private focusTimer?: number;
 
   constructor(
     app: App,
