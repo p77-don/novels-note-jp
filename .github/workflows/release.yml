@@ -1,9 +1,7 @@
 name: Release Obsidian plugin
 
 on:
-    push:
-        tags:
-            - '*'
+    # タグによる自動実行を削除し、手動実行のみに限定
     workflow_dispatch:
         inputs:
             version:
@@ -48,16 +46,11 @@ jobs:
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               run: |
-                  if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-                      # 先頭にvが含まれて入力された場合の対策として、vを削除してから変数に格納
-                      tag="${{ github.event.inputs.version }}"
-                      tag="${tag#v}"
-                  else
-                      tag="${GITHUB_REF#refs/tags/}"
-                      tag="${tag#v}"
-                  fi
+                  # 手動入力されたバージョンから「v」を除去して整理
+                  tag="${{ github.event.inputs.version }}"
+                  tag="${tag#v}"
 
-                  # titleにのみ「v」を付与してリリースを作成
+                  # 下書きリリースを作成
                   gh release create "$tag" \
                     --title="v$tag" \
                     --draft \
