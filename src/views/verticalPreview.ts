@@ -8,7 +8,7 @@ import { RubyStyle } from "../settings";
 import { convertRubyAndEscape } from "../core/rubyPatterns";
 import { stripHashtags } from "../core/hashtags";
 import { CursorSyncStore, CursorSyncSnapshot } from "../editor/cursorSyncStore";
-import type { ManuscriptRules } from "../manuscript-rules/types/rules";
+import type { ManuscriptRules, EmbedRule } from "../manuscript-rules/types/rules";
 import { createDefaultManuscriptRules } from "../manuscript-rules/rules/ruleDefaults";
 import {
   FRONTMATTER_RE,
@@ -19,12 +19,20 @@ import {
   BLOCKQUOTE_LINE_RE,
   WIKILINK_PIPE_RE,
   WIKILINK_PLAIN_RE,
+  EMBED_PIPE_RE,
+  EMBED_PLAIN_RE,
   HEADING_RE,
   LIST_UNORDERED_LINE_RE,
   LIST_ORDERED_LINE_RE,
   EMPHASIS_RE,
+  STRIKETHROUGH_RE,
+  HIGHLIGHT_RE,
   HORIZONTAL_RULE_RE,
   IMAGE_RE,
+  MATH_BLOCK_RE,
+  FOOTNOTE_DEF_RE,
+  FOOTNOTE_REF_RE,
+  FOOTNOTE_INLINE_RE,
 } from "../manuscript-rules/parser/patterns";
 
 // ─────────────────────────────────────────
@@ -459,6 +467,21 @@ export function toVerticalHtml(
 ): VerticalHtmlResult {
 
   // ─────────────────────────────────────────
+  // 【CR-004 対応】改行コードの正規化
+  //
+  // manuscript-rules/cleaner/manuscriptCleaner.ts と同じ理由で、
+  // 以後の行分割・正規表現処理はすべて改行が "\n" であることを
+  // 前提にしている。editor.getValue() 経由であっても、ファイルの
+  // 元の改行コード（CRLF/CR）がそのまま返る可能性を否定できないため、
+  // 縦書きプレビュー側でも同様に正規化しておく。
+  // selectedText（editor.getSelection() 由来）も同じ変換を通しておかないと、
+  // 正規化後の source に対する indexOf() でのマッチングが失敗し、
+  // 選択ハイライトが表示されなくなる。
+  // ─────────────────────────────────────────
+  source = source.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  selectedText = selectedText.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+
+  // ─────────────────────────────────────────
   // Step 0: 選択テキストのマーカーを変換前に埋め込む
   //
   // ルビ変換後に選択テキストをマッチしようとすると
@@ -510,12 +533,18 @@ export function toVerticalHtml(
   const horizontalRuleAction = block.horizontalRule?.action ?? "keep";
   const blockHtmlAction = block.html?.action ?? "remove";
   const wikilinkRule = inline.wikilink ?? { action: "edit" as const, editMode: "displayText" as const };
+  const embedRule: EmbedRule = inline.embed ?? { action: "edit", editMode: "displayText" };
   const tagAction = inline.tag?.action ?? "remove";
   const emphasisAction = inline.emphasis?.action ?? "edit";
+  const strikethroughAction = inline.strikethrough?.action ?? "remove";
+  const highlightAction = inline.highlight?.action ?? "edit";
   const markdownLinkAction = inline.markdownLink?.action ?? "edit";
   const imageAction = inline.image?.action ?? "keep";
   const inlineCodeAction = inline.inlineCode?.action ?? "remove";
   const inlineHtmlAction = inline.html?.action ?? "remove";
+  const mathAction = block.math?.action ?? "keep";
+  const footnoteReferenceAction = inline.footnoteReference?.action ?? "remove";
+  const footnoteInlineAction = inline.footnoteInline?.action ?? "edit";
 
   let cleaned = source;
 
@@ -549,6 +578,14 @@ export function toVerticalHtml(
     cleaned = cleaned.replace(/^~~~[\s\S]*?^~~~[ \t]*$/gm, protectCodeBlock);
   }
 
+  // 数式（$$...$$）：codeBlockと同様、"keep"以外（＝remove）のときだけ
+  // 空行プレースホルダーに変換して非表示にする。"keep"（デフォルト）は
+  // codeBlockのkeepと同じ簡略化方針で、以後の処理から保護せず
+  // 生のテキストのまま残す（詳細はStep 9.5コメント参照）。
+  if (mathAction !== "keep") {
+    cleaned = cleaned.replace(MATH_BLOCK_RE, protectCodeBlock);
+  }
+
   // ─────────────────────────────────────────
   // 【複数行にまたがるマッチを空文字列に置換する処理の注意点】
   // マッチした範囲全体（内部の改行を含む）を "" に置換すると、
@@ -570,6 +607,39 @@ export function toVerticalHtml(
     cleaned = cleaned.replace(COMMENT_RE, stripKeepingLines);
   }
 
+  // ─────────────────────────────────────────
+  // 埋め込み（![[ノート名]] / ![[ノート名|表示名]]）
+  //
+  // Wikilink（[[...]]）と記法がネストする関係にあるため、Wikilink処理
+  // より先に埋め込みを処理する。"keep"の場合は、後続のWikilink処理が
+  // 埋め込み内部の "[[...]]" 部分を誤って処理してしまわないよう、
+  // 専用のプレースホルダーで一時的に保護し、Wikilink処理の直後に
+  // 元のテキストへ復元する（lookbehindは使わない方針のため、
+  // 正規表現内での "!" の有無判定ではなく処理順序で衝突を避ける。
+  // 詳細は manuscript-rules/cleaner/elementCleaner.ts の
+  // applyEmbedRule のコメントを参照）。
+  // ─────────────────────────────────────────
+  const embedPlaceholders: string[] = [];
+  const EMBED_PLACEHOLDER_MARK = "\uE001";
+  const protectEmbed = (whole: string): string => {
+    const idx = embedPlaceholders.push(whole) - 1;
+    return `${EMBED_PLACEHOLDER_MARK}${toFullWidthDigits(idx)}${EMBED_PLACEHOLDER_MARK}`;
+  };
+
+  if (embedRule.action === "keep") {
+    cleaned = cleaned.replace(EMBED_PIPE_RE, protectEmbed).replace(EMBED_PLAIN_RE, protectEmbed);
+  } else if (embedRule.action === "remove") {
+    cleaned = cleaned.replace(EMBED_PIPE_RE, stripKeepingLines).replace(EMBED_PLAIN_RE, stripKeepingLines);
+  } else {
+    // edit
+    const mode = embedRule.editMode ?? "displayText";
+    if (mode === "fileName") {
+      cleaned = cleaned.replace(EMBED_PIPE_RE, "$1").replace(EMBED_PLAIN_RE, "$1");
+    } else {
+      cleaned = cleaned.replace(EMBED_PIPE_RE, "$2").replace(EMBED_PLAIN_RE, "$1");
+    }
+  }
+
   if (calloutAction === "remove") {
     cleaned = cleaned.replace(CALLOUT_BLOCK_RE, stripKeepingLines);
   } else if (calloutAction === "edit") {
@@ -588,6 +658,36 @@ export function toVerticalHtml(
     } else {
       cleaned = cleaned.replace(WIKILINK_PIPE_RE, "$2").replace(WIKILINK_PLAIN_RE, "$1");
     }
+  }
+  // keep: 何もしない
+
+  // 保護しておいた埋め込み（keep）をここで復元する。
+  // 残りの処理（見出し・強調・取り消し線・ハイライト・水平線・
+  // インラインコード・画像・Markdownリンク・HTMLタグ）は埋め込み記法
+  // （![[...]]）とは記号が重ならないため、復元後に流しても安全。
+  if (embedPlaceholders.length > 0) {
+    cleaned = cleaned.replace(
+      new RegExp(`${EMBED_PLACEHOLDER_MARK}([０-９]+)${EMBED_PLACEHOLDER_MARK}`, "g"),
+      (_m, digits: string) => {
+        const idx = Number(digits.replace(/[０-９]/g, d => String.fromCharCode(d.charCodeAt(0) - 0xFEE0)));
+        return embedPlaceholders[idx] ?? "";
+      }
+    );
+  }
+
+  // 脚注（参照形式の定義・マーカー、インライン形式）
+  //
+  // 定義行（[^label]: 本文）を先に処理してから参照マーカー（[^label]）を
+  // 処理する。定義行の除去は行数を保つため stripKeepingLines を使う
+  // （マッチには行末の改行が含まれるため、置換後もその行は空行として残る）。
+  if (footnoteReferenceAction !== "keep") {
+    cleaned = cleaned.replace(FOOTNOTE_DEF_RE, stripKeepingLines).replace(FOOTNOTE_REF_RE, "");
+  }
+
+  if (footnoteInlineAction === "remove") {
+    cleaned = cleaned.replace(FOOTNOTE_INLINE_RE, stripKeepingLines);
+  } else if (footnoteInlineAction === "edit") {
+    cleaned = cleaned.replace(FOOTNOTE_INLINE_RE, "$1");
   }
   // keep: 何もしない
 
@@ -628,6 +728,20 @@ export function toVerticalHtml(
     cleaned = cleaned.replace(EMPHASIS_RE, stripKeepingLines);
   } else if (emphasisAction === "edit") {
     cleaned = cleaned.replace(EMPHASIS_RE, "$2");
+  }
+  // keep: 何もしない
+
+  if (strikethroughAction === "remove") {
+    cleaned = cleaned.replace(STRIKETHROUGH_RE, stripKeepingLines);
+  } else if (strikethroughAction === "edit") {
+    cleaned = cleaned.replace(STRIKETHROUGH_RE, "$1");
+  }
+  // keep: 何もしない
+
+  if (highlightAction === "remove") {
+    cleaned = cleaned.replace(HIGHLIGHT_RE, stripKeepingLines);
+  } else if (highlightAction === "edit") {
+    cleaned = cleaned.replace(HIGHLIGHT_RE, "$1");
   }
   // keep: 何もしない
 

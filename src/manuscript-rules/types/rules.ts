@@ -87,6 +87,11 @@ export interface BlockRules {
   codeBlock?: EditableRule;
   horizontalRule?: SimpleRule;
   html?: SimpleRule;
+  /**
+   * 数式（$$...$$ ブロックのみ）。
+   * 単一の $...$ 記法は通貨表記との誤検出リスクが高いため対象外。
+   */
+  math?: SimpleRule;
 }
 
 // ─────────────────────────────────────────
@@ -124,15 +129,42 @@ export interface RubyRule {
   mode: RubyMode;
 }
 
+/**
+ * 埋め込み専用ルール（![[ノート名]] / ![[ノート名|表示名]]）。
+ * Wikilinkと記法・エイリアス構造が同じため、editModeの意味もWikilinkと揃える。
+ *
+ * editMode:
+ *   - fileName:    エイリアスを無視し、常にノート名を残す
+ *   - displayText: エイリアスがあればそれを、なければノート名を残す（デフォルト）
+ */
+export type EmbedRule =
+  | { action: "keep" }
+  | { action: "remove" }
+  | { action: "edit"; editMode?: "fileName" | "displayText" };
+
 export interface InlineRules {
   wikilink?: WikilinkRule;
+  embed?: EmbedRule;
   tag?: SimpleRule;
   emphasis?: EditableRule;
+  /** 取り消し線（~~text~~）。remove時は中身ごと完全に削除する。 */
+  strikethrough?: EditableRule;
+  /** ハイライト（==text==）。remove時は中身ごと完全に削除する。 */
+  highlight?: EditableRule;
   markdownLink?: EditableRule;
   image?: ImageRule;
   ruby?: RubyRule;
   inlineCode?: EditableRule;
   html?: SimpleRule;
+  /**
+   * 参照脚注（[^1] マーカーおよびその定義 [^1]: 本文）。
+   * マーカー単体には除去すべき記法以外の意味のあるテキストが残らないため、
+   * 他要素と異なり「記法だけ外して中身を残す」editの選択肢を持たない
+   * （keep / remove の2択）。removeはマーカー・定義の両方を削除する。
+   */
+  footnoteReference?: SimpleRule;
+  /** インライン脚注（^[本文]）。remove時は中身ごと完全に削除する。 */
+  footnoteInline?: EditableRule;
 }
 
 // ─────────────────────────────────────────

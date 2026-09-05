@@ -60,6 +60,18 @@ function validateWikilinkRule(v: unknown, path: string, errors: string[]): void 
   }
 }
 
+function validateEmbedRule(v: unknown, path: string, errors: string[]): void {
+  if (!isPlainObject(v)) { errors.push(`${path}: オブジェクトである必要があります`); return; }
+  pushUnknownKeys(v, ["action", "editMode"], path, errors);
+  if (typeof v.action !== "string" || !KEEP_REMOVE_EDIT.includes(v.action)) {
+    errors.push(`${path}.action: "keep" / "remove" / "edit" のいずれかである必要があります`);
+    return;
+  }
+  if (v.editMode !== undefined && v.editMode !== "fileName" && v.editMode !== "displayText") {
+    errors.push(`${path}.editMode: "fileName" または "displayText" である必要があります`);
+  }
+}
+
 function validateRubyRule(v: unknown, path: string, errors: string[]): void {
   if (!isPlainObject(v)) { errors.push(`${path}: オブジェクトである必要があります`); return; }
   pushUnknownKeys(v, ["mode"], path, errors);
@@ -90,10 +102,10 @@ function validateTrailingWhitespaceRule(v: unknown, path: string, errors: string
   }
 }
 
-const BLOCK_SIMPLE_KEYS = ["comment", "horizontalRule", "html"] as const;
+const BLOCK_SIMPLE_KEYS = ["comment", "horizontalRule", "html", "math"] as const;
 const BLOCK_EDITABLE_KEYS = ["callout", "heading", "blockquote", "list", "codeBlock"] as const;
-const INLINE_SIMPLE_KEYS = ["tag", "image", "html"] as const;
-const INLINE_EDITABLE_KEYS = ["emphasis", "markdownLink", "inlineCode"] as const;
+const INLINE_SIMPLE_KEYS = ["tag", "image", "html", "footnoteReference"] as const;
+const INLINE_EDITABLE_KEYS = ["emphasis", "markdownLink", "inlineCode", "strikethrough", "highlight", "footnoteInline"] as const;
 
 function validateRules(v: unknown, path: string, errors: string[]): void {
   if (!isPlainObject(v)) { errors.push(`${path}: オブジェクトである必要があります`); return; }
@@ -129,7 +141,7 @@ function validateRules(v: unknown, path: string, errors: string[]): void {
     if (!isPlainObject(v.inline)) {
       errors.push(`${p}: オブジェクトである必要があります`);
     } else {
-      pushUnknownKeys(v.inline, [...INLINE_SIMPLE_KEYS, ...INLINE_EDITABLE_KEYS, "wikilink", "ruby"], p, errors);
+      pushUnknownKeys(v.inline, [...INLINE_SIMPLE_KEYS, ...INLINE_EDITABLE_KEYS, "wikilink", "embed", "ruby"], p, errors);
       for (const key of INLINE_SIMPLE_KEYS) {
         if (v.inline[key] !== undefined) validateSimpleRule(v.inline[key], `${p}.${key}`, errors);
       }
@@ -137,6 +149,7 @@ function validateRules(v: unknown, path: string, errors: string[]): void {
         if (v.inline[key] !== undefined) validateEditableRule(v.inline[key], `${p}.${key}`, errors);
       }
       if (v.inline.wikilink !== undefined) validateWikilinkRule(v.inline.wikilink, `${p}.wikilink`, errors);
+      if (v.inline.embed !== undefined) validateEmbedRule(v.inline.embed, `${p}.embed`, errors);
       if (v.inline.ruby !== undefined) validateRubyRule(v.inline.ruby, `${p}.ruby`, errors);
     }
   }

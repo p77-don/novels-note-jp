@@ -17,6 +17,7 @@ import type {
   SimpleRule,
   EditableRule,
   WikilinkRule,
+  EmbedRule,
   RubyRule,
   BlankLinesRule,
   TrailingWhitespaceRule,
@@ -81,18 +82,36 @@ export class RuleEditorModal extends Modal {
     this.addEditableRuleSetting(blockSection, "コードブロック（``` ... ```）", () => rules.block!.codeBlock, v => rules.block!.codeBlock = v);
     this.addSimpleRuleSetting(blockSection, "水平線（---）", () => rules.block!.horizontalRule, v => rules.block!.horizontalRule = v);
     this.addSimpleRuleSetting(blockSection, "HTMLタグ（行全体がタグのみの行）", () => rules.block!.html, v => rules.block!.html = v);
+    this.addSimpleRuleSetting(
+      blockSection,
+      "数式（$$...$$ ブロック）",
+      () => rules.block!.math,
+      v => rules.block!.math = v,
+      "単一の $...$ 記法（インライン数式）は、通貨表記（「$5」など）との誤検出を避けるため対象外です。"
+    );
 
     // ── インライン要素 ────────────────────────
     const inlineSection = contentEl.createDiv();
     inlineSection.createEl("h3", { text: "インライン要素" });
     this.addWikilinkRuleSetting(inlineSection, () => rules.inline!.wikilink, v => rules.inline!.wikilink = v);
+    this.addEmbedRuleSetting(inlineSection, () => rules.inline!.embed, v => rules.inline!.embed = v);
     this.addSimpleRuleSetting(inlineSection, "タグ（#タグ名）", () => rules.inline!.tag, v => rules.inline!.tag = v);
     this.addEditableRuleSetting(inlineSection, "強調（*斜体* / **太字**）", () => rules.inline!.emphasis, v => rules.inline!.emphasis = v);
+    this.addEditableRuleSetting(inlineSection, "取り消し線（~~text~~）", () => rules.inline!.strikethrough, v => rules.inline!.strikethrough = v);
+    this.addEditableRuleSetting(inlineSection, "ハイライト（==text==）", () => rules.inline!.highlight, v => rules.inline!.highlight = v);
     this.addEditableRuleSetting(inlineSection, "Markdownリンク（[text](url)）", () => rules.inline!.markdownLink, v => rules.inline!.markdownLink = v);
     this.addSimpleRuleSetting(inlineSection, "画像（![alt](url)）", () => rules.inline!.image, v => rules.inline!.image = v);
     this.addRubyRuleSetting(inlineSection, () => rules.inline!.ruby, v => rules.inline!.ruby = v);
     this.addEditableRuleSetting(inlineSection, "インラインコード（`code`）", () => rules.inline!.inlineCode, v => rules.inline!.inlineCode = v);
     this.addSimpleRuleSetting(inlineSection, "HTMLタグ（本文中に混在するタグ）", () => rules.inline!.html, v => rules.inline!.html = v);
+    this.addSimpleRuleSetting(
+      inlineSection,
+      "参照脚注（[^1] とその定義）",
+      () => rules.inline!.footnoteReference,
+      v => rules.inline!.footnoteReference = v,
+      "マーカー単体には残すべき本文がないため、keep / removeの2択です（removeでマーカー・定義の両方を削除）。"
+    );
+    this.addEditableRuleSetting(inlineSection, "インライン脚注（^[本文]）", () => rules.inline!.footnoteInline, v => rules.inline!.footnoteInline = v);
 
     // ── 文書全体 ──────────────────────────────
     const documentSection = contentEl.createDiv();
@@ -181,6 +200,34 @@ export class RuleEditorModal extends Modal {
     const current: WikilinkRule = get() ?? { action: "keep" };
     new Setting(container)
       .setName("Wikilink（[[ページ名]]）")
+      .addDropdown(drop => {
+        drop.addOption("keep", "そのまま維持");
+        drop.addOption("remove", "削除する（中身ごと）");
+        drop.addOption("fileName", "ファイル名を残す（エイリアス無視）");
+        drop.addOption("displayText", "表示名を残す（エイリアス優先）");
+        const initial =
+          current.action === "edit" ? (current.editMode ?? "displayText") : current.action;
+        drop.setValue(initial);
+        drop.onChange(value => {
+          if (value === "keep" || value === "remove") {
+            set({ action: value });
+          } else {
+            set({ action: "edit", editMode: value as "fileName" | "displayText" });
+          }
+          this.dirty = true;
+        });
+      });
+  }
+
+  private addEmbedRuleSetting(
+    container: HTMLElement,
+    get: () => EmbedRule | undefined,
+    set: (v: EmbedRule) => void
+  ): void {
+    const current: EmbedRule = get() ?? { action: "keep" };
+    new Setting(container)
+      .setName("埋め込み（![[ノート名]]）")
+      .setDesc("Wikilinkと同じ記法構造（エイリアス含む）を持つため、選択肢もWikilinkと揃えています。")
       .addDropdown(drop => {
         drop.addOption("keep", "そのまま維持");
         drop.addOption("remove", "削除する（中身ごと）");

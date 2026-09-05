@@ -19,16 +19,22 @@ import {
   applyBlockquoteRule,
   applyListRule,
   applyEmphasisRule,
+  applyStrikethroughRule,
+  applyHighlightRule,
   applyHorizontalRuleRule,
   applyImageRule,
   applyMarkdownLinkRule,
   applyWikilinkRule,
+  applyEmbedRule,
   applyTagRule,
   applyBlockHtmlRule,
   applyInlineHtmlRule,
   applyRubyRule,
+  applyFootnoteReferenceRule,
+  applyFootnoteInlineRule,
 } from "./elementCleaner";
 import { applyCodeBlockRule, applyInlineCodeRule } from "./codeCleaner";
+import { applyMathRule } from "./mathCleaner";
 import { applyBlankLinesRule, applyTrailingWhitespaceRule } from "./normalizer";
 
 export function cleanManuscript(
@@ -76,7 +82,11 @@ export function cleanManuscript(
   // 2. Obsidianコメント
   text = applyCommentRule(text, rules.block?.comment);
 
-  // 3-4. コードブロック / インラインコード（codeBlockが保護される場合のみ、ここで先に処理する）
+  // 3. 数式（$$...$$。keepの場合は他の処理から中身を保護する）
+  const mathResult = applyMathRule(text, rules.block?.math);
+  text = mathResult.text;
+
+  // 4-5. コードブロック / インラインコード（codeBlockが保護される場合のみ、ここで先に処理する）
   let codeBlockResult = { text, restore: (t: string) => t };
   let inlineCodeResult = { text, restore: (t: string) => t };
   if (!codeBlockIsLateRemove) {
@@ -86,32 +96,49 @@ export function cleanManuscript(
     text = inlineCodeResult.text;
   }
 
-  // 5. Callout（keepの場合はブロック全体を保護し、以後の処理から隠す）
+  // 6. 埋め込み（![[ノート名]]。keepの場合、後続のWikilink処理から
+  //    内部の "[[...]]" 部分を保護する）
+  const embedResult = applyEmbedRule(text, rules.inline?.embed);
+  text = embedResult.text;
+
+  // 7. Callout（keepの場合はブロック全体を保護し、以後の処理から隠す）
   const calloutResult = applyCalloutRule(text, rules.block?.callout);
   text = calloutResult.text;
 
-  // 6. Wikilink
+  // 8. Wikilink
   text = applyWikilinkRule(text, rules.inline?.wikilink);
 
-  // 7. タグ
+  // 9. 脚注（参照形式の定義・マーカー、インライン形式）
+  //    参照マーカー用正規表現が定義行と誤って二重マッチしないよう、
+  //    applyFootnoteReferenceRule内で定義→マーカーの順に処理している。
+  text = applyFootnoteReferenceRule(text, rules.inline?.footnoteReference);
+  text = applyFootnoteInlineRule(text, rules.inline?.footnoteInline);
+
+  // 10. タグ
   text = applyTagRule(text, rules.inline?.tag);
 
-  // 8. 見出し
+  // 11. 見出し
   text = applyHeadingRule(text, rules.block?.heading);
 
-  // 9. Blockquote
+  // 12. Blockquote
   text = applyBlockquoteRule(text, rules.block?.blockquote);
 
-  // 10. リスト
+  // 13. リスト
   text = applyListRule(text, rules.block?.list);
 
-  // 11. 強調
+  // 14. 強調
   text = applyEmphasisRule(text, rules.inline?.emphasis);
 
-  // 12. 水平線
+  // 15. 取り消し線
+  text = applyStrikethroughRule(text, rules.inline?.strikethrough);
+
+  // 16. ハイライト
+  text = applyHighlightRule(text, rules.inline?.highlight);
+
+  // 17. 水平線
   text = applyHorizontalRuleRule(text, rules.block?.horizontalRule);
 
-  // 13. コードブロック / インラインコード（codeBlockがここまで「生のフェンス記号」を
+  // 18. コードブロック / インラインコード（codeBlockがここまで「生のフェンス記号」を
   //     残している場合、ここ＝旧exporter.tsのStep11相当の位置でまずフェンスを削除し、
   //     その直後にインラインコードを処理することで、フェンス境界をまたぐ誤マッチを防ぐ）
   if (codeBlockIsLateRemove) {
@@ -121,31 +148,33 @@ export function cleanManuscript(
     text = inlineCodeResult.text;
   }
 
-  // 14. 画像
+  // 19. 画像
   text = applyImageRule(text, rules.inline?.image);
 
-  // 15. Markdownリンク
+  // 20. Markdownリンク
   text = applyMarkdownLinkRule(text, rules.inline?.markdownLink);
 
-  // 16-17. HTMLタグ（行全体がタグのみ＝block／本文中に混在＝inline。ruby/rtは対象外）
+  // 21-22. HTMLタグ（行全体がタグのみ＝block／本文中に混在＝inline。ruby/rtは対象外）
   text = applyBlockHtmlRule(text, rules.block?.html);
   text = applyInlineHtmlRule(text, rules.inline?.html);
 
-  // 18. ルビ
+  // 23. ルビ
   text = applyRubyRule(text, rules.inline?.ruby, sourceRubyStyle);
 
-  // 19. 連続空行の圧縮
+  // 24. 連続空行の圧縮
   text = applyBlankLinesRule(text, rules.document?.blankLines);
 
-  // 20. 末尾の余分な空白行を除去
+  // 25. 末尾の余分な空白行を除去
   text = applyTrailingWhitespaceRule(text, rules.document?.trailingWhitespace);
 
-  // 21-23. 保護しておいたコードブロック / インラインコード / Calloutを復元
+  // 26-30. 保護しておいた数式 / コードブロック / インラインコード / 埋め込み / Calloutを復元
   //        （blankLines正規化の影響を受けないよう、最後に復元する。
   //        remove / edit の場合はここでは何もしない no-op）
   text = inlineCodeResult.restore(text);
   text = codeBlockResult.restore(text);
+  text = embedResult.restore(text);
   text = calloutResult.restore(text);
+  text = mathResult.restore(text);
 
   return text;
 }

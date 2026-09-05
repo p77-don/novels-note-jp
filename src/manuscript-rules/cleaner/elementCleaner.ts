@@ -14,6 +14,7 @@ import type {
   SimpleRule,
   EditableRule,
   WikilinkRule,
+  EmbedRule,
   RubyRule,
 } from "../types/rules";
 import {
@@ -25,15 +26,22 @@ import {
   BLOCKQUOTE_LINE_RE,
   WIKILINK_PIPE_RE,
   WIKILINK_PLAIN_RE,
+  EMBED_PIPE_RE,
+  EMBED_PLAIN_RE,
   HEADING_RE,
   LIST_UNORDERED_LINE_RE,
   LIST_ORDERED_LINE_RE,
   EMPHASIS_RE,
+  STRIKETHROUGH_RE,
+  HIGHLIGHT_RE,
   HORIZONTAL_RULE_RE,
   IMAGE_RE,
   MARKDOWN_LINK_OR_IMAGE_RE,
   BLOCK_HTML_LINE_RE,
   HTML_TAG_RE,
+  FOOTNOTE_DEF_RE,
+  FOOTNOTE_REF_RE,
+  FOOTNOTE_INLINE_RE,
 } from "../parser/patterns";
 
 // ─────────────────────────────────────────
@@ -269,4 +277,102 @@ export function applyInlineHtmlRule(text: string, rule?: SimpleRule): string {
 export function applyRubyRule(text: string, rule: RubyRule | undefined, sourceRubyStyle: RubyStyle): string {
   if (!rule || rule.mode === "none") return text;
   return convertRubyStyle(text, sourceRubyStyle, rule.mode);
+}
+
+// ─────────────────────────────────────────
+// inline.highlight（==text==）
+// ─────────────────────────────────────────
+export function applyHighlightRule(text: string, rule?: EditableRule): string {
+  if (!rule || rule.action === "keep") return text;
+
+  if (rule.action === "remove") {
+    return text.replace(HIGHLIGHT_RE, "");
+  }
+
+  // edit: "==" だけ外し、中身のテキストを残す
+  return text.replace(HIGHLIGHT_RE, (_m, content: string) => content);
+}
+
+// ─────────────────────────────────────────
+// inline.strikethrough（~~text~~）
+// ─────────────────────────────────────────
+export function applyStrikethroughRule(text: string, rule?: EditableRule): string {
+  if (!rule || rule.action === "keep") return text;
+
+  if (rule.action === "remove") {
+    return text.replace(STRIKETHROUGH_RE, "");
+  }
+
+  // edit: "~~" だけ外し、中身のテキストを残す
+  return text.replace(STRIKETHROUGH_RE, (_m, content: string) => content);
+}
+
+// ─────────────────────────────────────────
+// inline.footnoteInline（^[本文]）
+// ─────────────────────────────────────────
+export function applyFootnoteInlineRule(text: string, rule?: EditableRule): string {
+  if (!rule || rule.action === "keep") return text;
+
+  if (rule.action === "remove") {
+    return text.replace(FOOTNOTE_INLINE_RE, "");
+  }
+
+  // edit: "^[" "]" だけ外し、中身のテキストを残す
+  return text.replace(FOOTNOTE_INLINE_RE, (_m, content: string) => content);
+}
+
+// ─────────────────────────────────────────
+// inline.footnoteReference（[^1] 参照マーカー + [^1]: 定義）
+//
+// keep / remove の2択のみ（editを持たない。型定義側のコメント参照）。
+// remove時は、定義行（[^label]: 本文）を先に削除してから
+// 参照マーカー（[^label]）を削除する。定義を先に処理することで、
+// 参照マーカー用の正規表現が定義行と誤って二重マッチすることを防ぐ。
+// ─────────────────────────────────────────
+export function applyFootnoteReferenceRule(text: string, rule?: SimpleRule): string {
+  if (!rule || rule.action === "keep") return text;
+  return text.replace(FOOTNOTE_DEF_RE, "").replace(FOOTNOTE_REF_RE, "");
+}
+
+// ─────────────────────────────────────────
+// inline.embed（![[ノート名]] / ![[ノート名|表示名]]）
+//
+// "keep" の場合、以後のWikilink処理が埋め込み内部の "[[...]]" 部分を
+// 誤って処理してしまわないよう、プレースホルダーで保護する
+// （復元はパイプライン最後、他の保護要素と同じタイミングで行う）。
+// ─────────────────────────────────────────
+export interface EmbedRuleResult {
+  text: string;
+  restore: (text: string) => string;
+}
+
+export function applyEmbedRule(text: string, rule?: EmbedRule): EmbedRuleResult {
+  if (!rule || rule.action === "keep") {
+    const pipe = protectMatches(text, EMBED_PIPE_RE, "embed-pipe");
+    const plain = protectMatches(pipe.text, EMBED_PLAIN_RE, "embed-plain");
+    return { text: plain.text, restore: (t) => pipe.restore(plain.restore(t)) };
+  }
+
+  if (rule.action === "remove") {
+    return {
+      text: text.replace(EMBED_PIPE_RE, "").replace(EMBED_PLAIN_RE, ""),
+      restore: (t) => t,
+    };
+  }
+
+  // edit
+  const editMode = rule.editMode ?? "displayText";
+  let edited: string;
+  if (editMode === "fileName") {
+    // エイリアスを無視し、常にノート名を残す
+    edited = text
+      .replace(EMBED_PIPE_RE, (_m, fileName: string) => fileName)
+      .replace(EMBED_PLAIN_RE, (_m, fileName: string) => fileName);
+  } else {
+    // displayText: エイリアスがあればそれを、なければノート名を残す
+    edited = text
+      .replace(EMBED_PIPE_RE, (_m, _fileName: string, alias: string) => alias)
+      .replace(EMBED_PLAIN_RE, (_m, fileName: string) => fileName);
+  }
+  return { text: edited, restore: (t) => t };
 }

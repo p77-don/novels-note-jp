@@ -898,13 +898,28 @@ export default class NovelsNoteJP extends Plugin {
     this.statusBarEl.addClass("novels-note-wordcount");
     this.statusBarEl.title = "クリックでカウントモードを切り替え";
     this.statusBarEl.setCssProps({ cursor: "pointer" });
-    
+
+    // 【CR-009対応】クリックでのみモード切り替えができるdiv要素
+    // （addStatusBarItem() の戻り値）だったため、キーボード操作が
+    // できなかった。role="button" + tabindex="0" でフォーカス可能にし、
+    // Enter/Space での操作をクリックと同等に扱う
+    // （sidebarView.ts の同種の対応と同じパターン）。
+    this.statusBarEl.setAttribute("role", "button");
+    this.statusBarEl.setAttribute("tabindex", "0");
+
     // クリックでモード切り替え（raw → novel → page → raw ...）
-    this.statusBarEl.addEventListener("click", () => {
+    const cycleCountMode = (): void => {
       const modes: CountMode[] = ["raw", "novel", "page"];
       const current = modes.indexOf(this.settings.countMode);
       this.settings.countMode = modes[(current + 1) % modes.length];
       void this.saveSettings().then(() => this.updateWordCount());
+    };
+    this.statusBarEl.addEventListener("click", cycleCountMode);
+    this.statusBarEl.addEventListener("keydown", (e: KeyboardEvent) => {
+      if (e.key === "Enter" || e.key === " " || e.key === "Spacebar") {
+        e.preventDefault();
+        cycleCountMode();
+      }
     });
 
     // アクティブファイルが変わったとき

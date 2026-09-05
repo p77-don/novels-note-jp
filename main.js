@@ -1716,6 +1716,20 @@ function validateWikilinkRule(v, path, errors) {
     errors.push(`${path}.editMode: "fileName" \u307E\u305F\u306F "displayText" \u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059`);
   }
 }
+function validateEmbedRule(v, path, errors) {
+  if (!isPlainObject(v)) {
+    errors.push(`${path}: \u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059`);
+    return;
+  }
+  pushUnknownKeys(v, ["action", "editMode"], path, errors);
+  if (typeof v.action !== "string" || !KEEP_REMOVE_EDIT.includes(v.action)) {
+    errors.push(`${path}.action: "keep" / "remove" / "edit" \u306E\u3044\u305A\u308C\u304B\u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059`);
+    return;
+  }
+  if (v.editMode !== void 0 && v.editMode !== "fileName" && v.editMode !== "displayText") {
+    errors.push(`${path}.editMode: "fileName" \u307E\u305F\u306F "displayText" \u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059`);
+  }
+}
 function validateRubyRule(v, path, errors) {
   if (!isPlainObject(v)) {
     errors.push(`${path}: \u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059`);
@@ -1752,10 +1766,10 @@ function validateTrailingWhitespaceRule(v, path, errors) {
     errors.push(`${path}.action: "keep" \u307E\u305F\u306F "normalize" \u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059`);
   }
 }
-var BLOCK_SIMPLE_KEYS = ["comment", "horizontalRule", "html"];
+var BLOCK_SIMPLE_KEYS = ["comment", "horizontalRule", "html", "math"];
 var BLOCK_EDITABLE_KEYS = ["callout", "heading", "blockquote", "list", "codeBlock"];
-var INLINE_SIMPLE_KEYS = ["tag", "image", "html"];
-var INLINE_EDITABLE_KEYS = ["emphasis", "markdownLink", "inlineCode"];
+var INLINE_SIMPLE_KEYS = ["tag", "image", "html", "footnoteReference"];
+var INLINE_EDITABLE_KEYS = ["emphasis", "markdownLink", "inlineCode", "strikethrough", "highlight", "footnoteInline"];
 function validateRules(v, path, errors) {
   if (!isPlainObject(v)) {
     errors.push(`${path}: \u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059`);
@@ -1790,7 +1804,7 @@ function validateRules(v, path, errors) {
     if (!isPlainObject(v.inline)) {
       errors.push(`${p}: \u30AA\u30D6\u30B8\u30A7\u30AF\u30C8\u3067\u3042\u308B\u5FC5\u8981\u304C\u3042\u308A\u307E\u3059`);
     } else {
-      pushUnknownKeys(v.inline, [...INLINE_SIMPLE_KEYS, ...INLINE_EDITABLE_KEYS, "wikilink", "ruby"], p, errors);
+      pushUnknownKeys(v.inline, [...INLINE_SIMPLE_KEYS, ...INLINE_EDITABLE_KEYS, "wikilink", "embed", "ruby"], p, errors);
       for (const key of INLINE_SIMPLE_KEYS) {
         if (v.inline[key] !== void 0) validateSimpleRule(v.inline[key], `${p}.${key}`, errors);
       }
@@ -1798,6 +1812,7 @@ function validateRules(v, path, errors) {
         if (v.inline[key] !== void 0) validateEditableRule(v.inline[key], `${p}.${key}`, errors);
       }
       if (v.inline.wikilink !== void 0) validateWikilinkRule(v.inline.wikilink, `${p}.wikilink`, errors);
+      if (v.inline.embed !== void 0) validateEmbedRule(v.inline.embed, `${p}.embed`, errors);
       if (v.inline.ruby !== void 0) validateRubyRule(v.inline.ruby, `${p}.ruby`, errors);
     }
   }
@@ -1881,17 +1896,23 @@ function createDefaultManuscriptRules() {
       list: { action: "remove" },
       codeBlock: { action: "remove" },
       horizontalRule: { action: "keep" },
-      html: { action: "remove" }
+      html: { action: "remove" },
+      math: { action: "keep" }
     },
     inline: {
       wikilink: { action: "edit", editMode: "displayText" },
+      embed: { action: "edit", editMode: "displayText" },
       tag: { action: "remove" },
       emphasis: { action: "edit" },
+      strikethrough: { action: "remove" },
+      highlight: { action: "edit" },
       markdownLink: { action: "edit" },
       image: { action: "keep" },
       ruby: { mode: "none" },
       inlineCode: { action: "remove" },
-      html: { action: "remove" }
+      html: { action: "remove" },
+      footnoteReference: { action: "remove" },
+      footnoteInline: { action: "edit" }
     },
     document: {
       blankLines: { action: "normalize", maxConsecutive: 1 },
@@ -2061,16 +2082,34 @@ var RuleEditorModal = class extends import_obsidian5.Modal {
     this.addEditableRuleSetting(blockSection, "\u30B3\u30FC\u30C9\u30D6\u30ED\u30C3\u30AF\uFF08``` ... ```\uFF09", () => rules.block.codeBlock, (v) => rules.block.codeBlock = v);
     this.addSimpleRuleSetting(blockSection, "\u6C34\u5E73\u7DDA\uFF08---\uFF09", () => rules.block.horizontalRule, (v) => rules.block.horizontalRule = v);
     this.addSimpleRuleSetting(blockSection, "HTML\u30BF\u30B0\uFF08\u884C\u5168\u4F53\u304C\u30BF\u30B0\u306E\u307F\u306E\u884C\uFF09", () => rules.block.html, (v) => rules.block.html = v);
+    this.addSimpleRuleSetting(
+      blockSection,
+      "\u6570\u5F0F\uFF08$$...$$ \u30D6\u30ED\u30C3\u30AF\uFF09",
+      () => rules.block.math,
+      (v) => rules.block.math = v,
+      "\u5358\u4E00\u306E $...$ \u8A18\u6CD5\uFF08\u30A4\u30F3\u30E9\u30A4\u30F3\u6570\u5F0F\uFF09\u306F\u3001\u901A\u8CA8\u8868\u8A18\uFF08\u300C$5\u300D\u306A\u3069\uFF09\u3068\u306E\u8AA4\u691C\u51FA\u3092\u907F\u3051\u308B\u305F\u3081\u5BFE\u8C61\u5916\u3067\u3059\u3002"
+    );
     const inlineSection = contentEl.createDiv();
     inlineSection.createEl("h3", { text: "\u30A4\u30F3\u30E9\u30A4\u30F3\u8981\u7D20" });
     this.addWikilinkRuleSetting(inlineSection, () => rules.inline.wikilink, (v) => rules.inline.wikilink = v);
+    this.addEmbedRuleSetting(inlineSection, () => rules.inline.embed, (v) => rules.inline.embed = v);
     this.addSimpleRuleSetting(inlineSection, "\u30BF\u30B0\uFF08#\u30BF\u30B0\u540D\uFF09", () => rules.inline.tag, (v) => rules.inline.tag = v);
     this.addEditableRuleSetting(inlineSection, "\u5F37\u8ABF\uFF08*\u659C\u4F53* / **\u592A\u5B57**\uFF09", () => rules.inline.emphasis, (v) => rules.inline.emphasis = v);
+    this.addEditableRuleSetting(inlineSection, "\u53D6\u308A\u6D88\u3057\u7DDA\uFF08~~text~~\uFF09", () => rules.inline.strikethrough, (v) => rules.inline.strikethrough = v);
+    this.addEditableRuleSetting(inlineSection, "\u30CF\u30A4\u30E9\u30A4\u30C8\uFF08==text==\uFF09", () => rules.inline.highlight, (v) => rules.inline.highlight = v);
     this.addEditableRuleSetting(inlineSection, "Markdown\u30EA\u30F3\u30AF\uFF08[text](url)\uFF09", () => rules.inline.markdownLink, (v) => rules.inline.markdownLink = v);
     this.addSimpleRuleSetting(inlineSection, "\u753B\u50CF\uFF08![alt](url)\uFF09", () => rules.inline.image, (v) => rules.inline.image = v);
     this.addRubyRuleSetting(inlineSection, () => rules.inline.ruby, (v) => rules.inline.ruby = v);
     this.addEditableRuleSetting(inlineSection, "\u30A4\u30F3\u30E9\u30A4\u30F3\u30B3\u30FC\u30C9\uFF08`code`\uFF09", () => rules.inline.inlineCode, (v) => rules.inline.inlineCode = v);
     this.addSimpleRuleSetting(inlineSection, "HTML\u30BF\u30B0\uFF08\u672C\u6587\u4E2D\u306B\u6DF7\u5728\u3059\u308B\u30BF\u30B0\uFF09", () => rules.inline.html, (v) => rules.inline.html = v);
+    this.addSimpleRuleSetting(
+      inlineSection,
+      "\u53C2\u7167\u811A\u6CE8\uFF08[^1] \u3068\u305D\u306E\u5B9A\u7FA9\uFF09",
+      () => rules.inline.footnoteReference,
+      (v) => rules.inline.footnoteReference = v,
+      "\u30DE\u30FC\u30AB\u30FC\u5358\u4F53\u306B\u306F\u6B8B\u3059\u3079\u304D\u672C\u6587\u304C\u306A\u3044\u305F\u3081\u3001keep / remove\u306E2\u629E\u3067\u3059\uFF08remove\u3067\u30DE\u30FC\u30AB\u30FC\u30FB\u5B9A\u7FA9\u306E\u4E21\u65B9\u3092\u524A\u9664\uFF09\u3002"
+    );
+    this.addEditableRuleSetting(inlineSection, "\u30A4\u30F3\u30E9\u30A4\u30F3\u811A\u6CE8\uFF08^[\u672C\u6587]\uFF09", () => rules.inline.footnoteInline, (v) => rules.inline.footnoteInline = v);
     const documentSection = contentEl.createDiv();
     documentSection.createEl("h3", { text: "\u6587\u66F8\u5168\u4F53\u306E\u6574\u5F62" });
     const blankLinesContainer = documentSection.createDiv();
@@ -2134,6 +2173,27 @@ var RuleEditorModal = class extends import_obsidian5.Modal {
     var _a;
     const current = (_a = get()) != null ? _a : { action: "keep" };
     new import_obsidian5.Setting(container).setName("Wikilink\uFF08[[\u30DA\u30FC\u30B8\u540D]]\uFF09").addDropdown((drop) => {
+      var _a2;
+      drop.addOption("keep", "\u305D\u306E\u307E\u307E\u7DAD\u6301");
+      drop.addOption("remove", "\u524A\u9664\u3059\u308B\uFF08\u4E2D\u8EAB\u3054\u3068\uFF09");
+      drop.addOption("fileName", "\u30D5\u30A1\u30A4\u30EB\u540D\u3092\u6B8B\u3059\uFF08\u30A8\u30A4\u30EA\u30A2\u30B9\u7121\u8996\uFF09");
+      drop.addOption("displayText", "\u8868\u793A\u540D\u3092\u6B8B\u3059\uFF08\u30A8\u30A4\u30EA\u30A2\u30B9\u512A\u5148\uFF09");
+      const initial = current.action === "edit" ? (_a2 = current.editMode) != null ? _a2 : "displayText" : current.action;
+      drop.setValue(initial);
+      drop.onChange((value) => {
+        if (value === "keep" || value === "remove") {
+          set({ action: value });
+        } else {
+          set({ action: "edit", editMode: value });
+        }
+        this.dirty = true;
+      });
+    });
+  }
+  addEmbedRuleSetting(container, get, set) {
+    var _a;
+    const current = (_a = get()) != null ? _a : { action: "keep" };
+    new import_obsidian5.Setting(container).setName("\u57CB\u3081\u8FBC\u307F\uFF08![[\u30CE\u30FC\u30C8\u540D]]\uFF09").setDesc("Wikilink\u3068\u540C\u3058\u8A18\u6CD5\u69CB\u9020\uFF08\u30A8\u30A4\u30EA\u30A2\u30B9\u542B\u3080\uFF09\u3092\u6301\u3064\u305F\u3081\u3001\u9078\u629E\u80A2\u3082Wikilink\u3068\u63C3\u3048\u3066\u3044\u307E\u3059\u3002").addDropdown((drop) => {
       var _a2;
       drop.addOption("keep", "\u305D\u306E\u307E\u307E\u7DAD\u6301");
       drop.addOption("remove", "\u524A\u9664\u3059\u308B\uFF08\u4E2D\u8EAB\u3054\u3068\uFF09");
@@ -3547,6 +3607,14 @@ var IMAGE_RE = /!\[[^\]]*\]\([^)]+\)/g;
 var MARKDOWN_LINK_OR_IMAGE_RE = /(!)?\[([^\]]+)\]\(([^)]+)\)/g;
 var BLOCK_HTML_LINE_RE = /^[ \t]*<(?!\/?(ruby|rt)\b)[^>]+>[ \t]*$/gim;
 var HTML_TAG_RE = /<(?!\/?(ruby|rt)\b)[^>]+>/gi;
+var HIGHLIGHT_RE = /==([\s\S]+?)==/g;
+var STRIKETHROUGH_RE = /~~([\s\S]+?)~~/g;
+var MATH_BLOCK_RE = /\$\$[\s\S]*?\$\$/g;
+var EMBED_PIPE_RE = /!\[\[([^\]|]+)\|([^\]]+)\]\]/g;
+var EMBED_PLAIN_RE = /!\[\[([^\]]+)\]\]/g;
+var FOOTNOTE_DEF_RE = /^[ \t]{0,3}\[\^([^\]]+)\]:[ \t]?.*$\n?/gm;
+var FOOTNOTE_REF_RE = /\[\^([^\]]+)\]/g;
+var FOOTNOTE_INLINE_RE = /\^\[([^\]]+)\]/g;
 
 // src/manuscript-rules/cleaner/elementCleaner.ts
 function applyFrontmatterRule(text, rule) {
@@ -3666,6 +3734,53 @@ function applyRubyRule(text, rule, sourceRubyStyle) {
   if (!rule || rule.mode === "none") return text;
   return convertRubyStyle(text, sourceRubyStyle, rule.mode);
 }
+function applyHighlightRule(text, rule) {
+  if (!rule || rule.action === "keep") return text;
+  if (rule.action === "remove") {
+    return text.replace(HIGHLIGHT_RE, "");
+  }
+  return text.replace(HIGHLIGHT_RE, (_m, content) => content);
+}
+function applyStrikethroughRule(text, rule) {
+  if (!rule || rule.action === "keep") return text;
+  if (rule.action === "remove") {
+    return text.replace(STRIKETHROUGH_RE, "");
+  }
+  return text.replace(STRIKETHROUGH_RE, (_m, content) => content);
+}
+function applyFootnoteInlineRule(text, rule) {
+  if (!rule || rule.action === "keep") return text;
+  if (rule.action === "remove") {
+    return text.replace(FOOTNOTE_INLINE_RE, "");
+  }
+  return text.replace(FOOTNOTE_INLINE_RE, (_m, content) => content);
+}
+function applyFootnoteReferenceRule(text, rule) {
+  if (!rule || rule.action === "keep") return text;
+  return text.replace(FOOTNOTE_DEF_RE, "").replace(FOOTNOTE_REF_RE, "");
+}
+function applyEmbedRule(text, rule) {
+  var _a;
+  if (!rule || rule.action === "keep") {
+    const pipe = protectMatches(text, EMBED_PIPE_RE, "embed-pipe");
+    const plain = protectMatches(pipe.text, EMBED_PLAIN_RE, "embed-plain");
+    return { text: plain.text, restore: (t) => pipe.restore(plain.restore(t)) };
+  }
+  if (rule.action === "remove") {
+    return {
+      text: text.replace(EMBED_PIPE_RE, "").replace(EMBED_PLAIN_RE, ""),
+      restore: (t) => t
+    };
+  }
+  const editMode = (_a = rule.editMode) != null ? _a : "displayText";
+  let edited;
+  if (editMode === "fileName") {
+    edited = text.replace(EMBED_PIPE_RE, (_m, fileName) => fileName).replace(EMBED_PLAIN_RE, (_m, fileName) => fileName);
+  } else {
+    edited = text.replace(EMBED_PIPE_RE, (_m, _fileName, alias) => alias).replace(EMBED_PLAIN_RE, (_m, fileName) => fileName);
+  }
+  return { text: edited, restore: (t) => t };
+}
 
 // src/manuscript-rules/cleaner/codeCleaner.ts
 function applyCodeBlockRule(text, rule) {
@@ -3717,6 +3832,17 @@ function applyInlineCodeRule(text, rule) {
   return session;
 }
 
+// src/manuscript-rules/cleaner/mathCleaner.ts
+function applyMathRule(text, rule) {
+  if (!rule || rule.action === "keep") {
+    return protectMatches(text, MATH_BLOCK_RE, "math-block");
+  }
+  return {
+    text: text.replace(MATH_BLOCK_RE, ""),
+    restore: (t) => t
+  };
+}
+
 // src/manuscript-rules/cleaner/normalizer.ts
 function applyBlankLinesRule(text, rule) {
   var _a;
@@ -3734,13 +3860,15 @@ function applyTrailingWhitespaceRule(text, rule) {
 
 // src/manuscript-rules/cleaner/manuscriptCleaner.ts
 function cleanManuscript(source, rules, sourceRubyStyle) {
-  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s;
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y;
   let text = source.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
   const codeBlockRule = (_a = rules.block) == null ? void 0 : _a.codeBlock;
   const inlineCodeRule = (_b = rules.inline) == null ? void 0 : _b.inlineCode;
   const codeBlockIsLateRemove = (codeBlockRule == null ? void 0 : codeBlockRule.action) === "remove";
   text = applyFrontmatterRule(text, (_c = rules.metadata) == null ? void 0 : _c.frontmatter);
   text = applyCommentRule(text, (_d = rules.block) == null ? void 0 : _d.comment);
+  const mathResult = applyMathRule(text, (_e = rules.block) == null ? void 0 : _e.math);
+  text = mathResult.text;
   let codeBlockResult = { text, restore: (t) => t };
   let inlineCodeResult = { text, restore: (t) => t };
   if (!codeBlockIsLateRemove) {
@@ -3749,31 +3877,39 @@ function cleanManuscript(source, rules, sourceRubyStyle) {
     inlineCodeResult = applyInlineCodeRule(text, inlineCodeRule);
     text = inlineCodeResult.text;
   }
-  const calloutResult = applyCalloutRule(text, (_e = rules.block) == null ? void 0 : _e.callout);
+  const embedResult = applyEmbedRule(text, (_f = rules.inline) == null ? void 0 : _f.embed);
+  text = embedResult.text;
+  const calloutResult = applyCalloutRule(text, (_g = rules.block) == null ? void 0 : _g.callout);
   text = calloutResult.text;
-  text = applyWikilinkRule(text, (_f = rules.inline) == null ? void 0 : _f.wikilink);
-  text = applyTagRule(text, (_g = rules.inline) == null ? void 0 : _g.tag);
-  text = applyHeadingRule(text, (_h = rules.block) == null ? void 0 : _h.heading);
-  text = applyBlockquoteRule(text, (_i = rules.block) == null ? void 0 : _i.blockquote);
-  text = applyListRule(text, (_j = rules.block) == null ? void 0 : _j.list);
-  text = applyEmphasisRule(text, (_k = rules.inline) == null ? void 0 : _k.emphasis);
-  text = applyHorizontalRuleRule(text, (_l = rules.block) == null ? void 0 : _l.horizontalRule);
+  text = applyWikilinkRule(text, (_h = rules.inline) == null ? void 0 : _h.wikilink);
+  text = applyFootnoteReferenceRule(text, (_i = rules.inline) == null ? void 0 : _i.footnoteReference);
+  text = applyFootnoteInlineRule(text, (_j = rules.inline) == null ? void 0 : _j.footnoteInline);
+  text = applyTagRule(text, (_k = rules.inline) == null ? void 0 : _k.tag);
+  text = applyHeadingRule(text, (_l = rules.block) == null ? void 0 : _l.heading);
+  text = applyBlockquoteRule(text, (_m = rules.block) == null ? void 0 : _m.blockquote);
+  text = applyListRule(text, (_n = rules.block) == null ? void 0 : _n.list);
+  text = applyEmphasisRule(text, (_o = rules.inline) == null ? void 0 : _o.emphasis);
+  text = applyStrikethroughRule(text, (_p = rules.inline) == null ? void 0 : _p.strikethrough);
+  text = applyHighlightRule(text, (_q = rules.inline) == null ? void 0 : _q.highlight);
+  text = applyHorizontalRuleRule(text, (_r = rules.block) == null ? void 0 : _r.horizontalRule);
   if (codeBlockIsLateRemove) {
     codeBlockResult = applyCodeBlockRule(text, codeBlockRule);
     text = codeBlockResult.text;
     inlineCodeResult = applyInlineCodeRule(text, inlineCodeRule);
     text = inlineCodeResult.text;
   }
-  text = applyImageRule(text, (_m = rules.inline) == null ? void 0 : _m.image);
-  text = applyMarkdownLinkRule(text, (_n = rules.inline) == null ? void 0 : _n.markdownLink);
-  text = applyBlockHtmlRule(text, (_o = rules.block) == null ? void 0 : _o.html);
-  text = applyInlineHtmlRule(text, (_p = rules.inline) == null ? void 0 : _p.html);
-  text = applyRubyRule(text, (_q = rules.inline) == null ? void 0 : _q.ruby, sourceRubyStyle);
-  text = applyBlankLinesRule(text, (_r = rules.document) == null ? void 0 : _r.blankLines);
-  text = applyTrailingWhitespaceRule(text, (_s = rules.document) == null ? void 0 : _s.trailingWhitespace);
+  text = applyImageRule(text, (_s = rules.inline) == null ? void 0 : _s.image);
+  text = applyMarkdownLinkRule(text, (_t = rules.inline) == null ? void 0 : _t.markdownLink);
+  text = applyBlockHtmlRule(text, (_u = rules.block) == null ? void 0 : _u.html);
+  text = applyInlineHtmlRule(text, (_v = rules.inline) == null ? void 0 : _v.html);
+  text = applyRubyRule(text, (_w = rules.inline) == null ? void 0 : _w.ruby, sourceRubyStyle);
+  text = applyBlankLinesRule(text, (_x = rules.document) == null ? void 0 : _x.blankLines);
+  text = applyTrailingWhitespaceRule(text, (_y = rules.document) == null ? void 0 : _y.trailingWhitespace);
   text = inlineCodeResult.restore(text);
   text = codeBlockResult.restore(text);
+  text = embedResult.restore(text);
   text = calloutResult.restore(text);
+  text = mathResult.restore(text);
   return text;
 }
 
@@ -4302,7 +4438,9 @@ function patchVerticalBody(textEl, html) {
   }
 }
 function toVerticalHtml(source, rubyStyle, rules = createDefaultManuscriptRules(), selectedText = "") {
-  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _A, _B, _C, _D, _E, _F, _G, _H, _I, _J;
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _A, _B, _C, _D, _E, _F, _G, _H, _I, _J, _K, _L, _M, _N, _O, _P, _Q, _R, _S, _T, _U, _V;
+  source = source.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  selectedText = selectedText.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
   const SEL_START = "\0\0";
   const SEL_END = "\0\0";
   const block = (_a = rules.block) != null ? _a : {};
@@ -4318,12 +4456,18 @@ function toVerticalHtml(source, rubyStyle, rules = createDefaultManuscriptRules(
   const horizontalRuleAction = (_s = (_r = block.horizontalRule) == null ? void 0 : _r.action) != null ? _s : "keep";
   const blockHtmlAction = (_u = (_t = block.html) == null ? void 0 : _t.action) != null ? _u : "remove";
   const wikilinkRule = (_v = inline.wikilink) != null ? _v : { action: "edit", editMode: "displayText" };
-  const tagAction = (_x = (_w = inline.tag) == null ? void 0 : _w.action) != null ? _x : "remove";
-  const emphasisAction = (_z = (_y = inline.emphasis) == null ? void 0 : _y.action) != null ? _z : "edit";
-  const markdownLinkAction = (_B = (_A = inline.markdownLink) == null ? void 0 : _A.action) != null ? _B : "edit";
-  const imageAction = (_D = (_C = inline.image) == null ? void 0 : _C.action) != null ? _D : "keep";
-  const inlineCodeAction = (_F = (_E = inline.inlineCode) == null ? void 0 : _E.action) != null ? _F : "remove";
-  const inlineHtmlAction = (_H = (_G = inline.html) == null ? void 0 : _G.action) != null ? _H : "remove";
+  const embedRule = (_w = inline.embed) != null ? _w : { action: "edit", editMode: "displayText" };
+  const tagAction = (_y = (_x = inline.tag) == null ? void 0 : _x.action) != null ? _y : "remove";
+  const emphasisAction = (_A = (_z = inline.emphasis) == null ? void 0 : _z.action) != null ? _A : "edit";
+  const strikethroughAction = (_C = (_B = inline.strikethrough) == null ? void 0 : _B.action) != null ? _C : "remove";
+  const highlightAction = (_E = (_D = inline.highlight) == null ? void 0 : _D.action) != null ? _E : "edit";
+  const markdownLinkAction = (_G = (_F = inline.markdownLink) == null ? void 0 : _F.action) != null ? _G : "edit";
+  const imageAction = (_I = (_H = inline.image) == null ? void 0 : _H.action) != null ? _I : "keep";
+  const inlineCodeAction = (_K = (_J = inline.inlineCode) == null ? void 0 : _J.action) != null ? _K : "remove";
+  const inlineHtmlAction = (_M = (_L = inline.html) == null ? void 0 : _L.action) != null ? _M : "remove";
+  const mathAction = (_O = (_N = block.math) == null ? void 0 : _N.action) != null ? _O : "keep";
+  const footnoteReferenceAction = (_Q = (_P = inline.footnoteReference) == null ? void 0 : _P.action) != null ? _Q : "remove";
+  const footnoteInlineAction = (_S = (_R = inline.footnoteInline) == null ? void 0 : _R.action) != null ? _S : "edit";
   let cleaned = source;
   if (selectedText.length > 0) {
     const idx = cleaned.indexOf(selectedText);
@@ -4339,6 +4483,9 @@ function toVerticalHtml(source, rubyStyle, rules = createDefaultManuscriptRules(
     cleaned = cleaned.replace(/^```[\s\S]*?^```[ \t]*$/gm, protectCodeBlock);
     cleaned = cleaned.replace(/^~~~[\s\S]*?^~~~[ \t]*$/gm, protectCodeBlock);
   }
+  if (mathAction !== "keep") {
+    cleaned = cleaned.replace(MATH_BLOCK_RE, protectCodeBlock);
+  }
   const stripKeepingLines = (whole) => {
     var _a2;
     return "\n".repeat(((_a2 = whole.match(/\n/g)) != null ? _a2 : []).length);
@@ -4348,6 +4495,24 @@ function toVerticalHtml(source, rubyStyle, rules = createDefaultManuscriptRules(
   }
   if (commentAction !== "keep") {
     cleaned = cleaned.replace(COMMENT_RE, stripKeepingLines);
+  }
+  const embedPlaceholders = [];
+  const EMBED_PLACEHOLDER_MARK = "\uE001";
+  const protectEmbed = (whole) => {
+    const idx = embedPlaceholders.push(whole) - 1;
+    return `${EMBED_PLACEHOLDER_MARK}${toFullWidthDigits(idx)}${EMBED_PLACEHOLDER_MARK}`;
+  };
+  if (embedRule.action === "keep") {
+    cleaned = cleaned.replace(EMBED_PIPE_RE, protectEmbed).replace(EMBED_PLAIN_RE, protectEmbed);
+  } else if (embedRule.action === "remove") {
+    cleaned = cleaned.replace(EMBED_PIPE_RE, stripKeepingLines).replace(EMBED_PLAIN_RE, stripKeepingLines);
+  } else {
+    const mode = (_T = embedRule.editMode) != null ? _T : "displayText";
+    if (mode === "fileName") {
+      cleaned = cleaned.replace(EMBED_PIPE_RE, "$1").replace(EMBED_PLAIN_RE, "$1");
+    } else {
+      cleaned = cleaned.replace(EMBED_PIPE_RE, "$2").replace(EMBED_PLAIN_RE, "$1");
+    }
   }
   if (calloutAction === "remove") {
     cleaned = cleaned.replace(CALLOUT_BLOCK_RE, stripKeepingLines);
@@ -4360,12 +4525,30 @@ function toVerticalHtml(source, rubyStyle, rules = createDefaultManuscriptRules(
   if (wikilinkRule.action === "remove") {
     cleaned = cleaned.replace(WIKILINK_PIPE_RE, stripKeepingLines).replace(WIKILINK_PLAIN_RE, stripKeepingLines);
   } else if (wikilinkRule.action === "edit") {
-    const mode = (_I = wikilinkRule.editMode) != null ? _I : "displayText";
+    const mode = (_U = wikilinkRule.editMode) != null ? _U : "displayText";
     if (mode === "fileName") {
       cleaned = cleaned.replace(WIKILINK_PIPE_RE, "$1").replace(WIKILINK_PLAIN_RE, "$1");
     } else {
       cleaned = cleaned.replace(WIKILINK_PIPE_RE, "$2").replace(WIKILINK_PLAIN_RE, "$1");
     }
+  }
+  if (embedPlaceholders.length > 0) {
+    cleaned = cleaned.replace(
+      new RegExp(`${EMBED_PLACEHOLDER_MARK}([\uFF10-\uFF19]+)${EMBED_PLACEHOLDER_MARK}`, "g"),
+      (_m2, digits) => {
+        var _a2;
+        const idx = Number(digits.replace(/[０-９]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 65248)));
+        return (_a2 = embedPlaceholders[idx]) != null ? _a2 : "";
+      }
+    );
+  }
+  if (footnoteReferenceAction !== "keep") {
+    cleaned = cleaned.replace(FOOTNOTE_DEF_RE, stripKeepingLines).replace(FOOTNOTE_REF_RE, "");
+  }
+  if (footnoteInlineAction === "remove") {
+    cleaned = cleaned.replace(FOOTNOTE_INLINE_RE, stripKeepingLines);
+  } else if (footnoteInlineAction === "edit") {
+    cleaned = cleaned.replace(FOOTNOTE_INLINE_RE, "$1");
   }
   if (tagAction !== "keep") {
     cleaned = stripHashtags(cleaned);
@@ -4394,6 +4577,16 @@ function toVerticalHtml(source, rubyStyle, rules = createDefaultManuscriptRules(
     cleaned = cleaned.replace(EMPHASIS_RE, stripKeepingLines);
   } else if (emphasisAction === "edit") {
     cleaned = cleaned.replace(EMPHASIS_RE, "$2");
+  }
+  if (strikethroughAction === "remove") {
+    cleaned = cleaned.replace(STRIKETHROUGH_RE, stripKeepingLines);
+  } else if (strikethroughAction === "edit") {
+    cleaned = cleaned.replace(STRIKETHROUGH_RE, "$1");
+  }
+  if (highlightAction === "remove") {
+    cleaned = cleaned.replace(HIGHLIGHT_RE, stripKeepingLines);
+  } else if (highlightAction === "edit") {
+    cleaned = cleaned.replace(HIGHLIGHT_RE, "$1");
   }
   if (horizontalRuleAction === "remove") {
     cleaned = cleaned.replace(HORIZONTAL_RULE_RE, stripKeepingLines);
@@ -4476,7 +4669,7 @@ function toVerticalHtml(source, rubyStyle, rules = createDefaultManuscriptRules(
   for (let i = frontmatterLineCount; i < sourceLines.length; i++) {
     const srcLine = sourceLines[i];
     const isBlank = srcLine.trim() === "";
-    const cleanedLine = (_J = cleanedLines[i - frontmatterLineCount]) != null ? _J : "";
+    const cleanedLine = (_V = cleanedLines[i - frontmatterLineCount]) != null ? _V : "";
     if (isBlank !== prevBlank) {
       flushChunk();
     }
@@ -7529,11 +7722,20 @@ var NovelsNoteJP = class extends import_obsidian16.Plugin {
     this.statusBarEl.addClass("novels-note-wordcount");
     this.statusBarEl.title = "\u30AF\u30EA\u30C3\u30AF\u3067\u30AB\u30A6\u30F3\u30C8\u30E2\u30FC\u30C9\u3092\u5207\u308A\u66FF\u3048";
     this.statusBarEl.setCssProps({ cursor: "pointer" });
-    this.statusBarEl.addEventListener("click", () => {
+    this.statusBarEl.setAttribute("role", "button");
+    this.statusBarEl.setAttribute("tabindex", "0");
+    const cycleCountMode = () => {
       const modes = ["raw", "novel", "page"];
       const current = modes.indexOf(this.settings.countMode);
       this.settings.countMode = modes[(current + 1) % modes.length];
       void this.saveSettings().then(() => this.updateWordCount());
+    };
+    this.statusBarEl.addEventListener("click", cycleCountMode);
+    this.statusBarEl.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " " || e.key === "Spacebar") {
+        e.preventDefault();
+        cycleCountMode();
+      }
     });
     this.registerEvent(
       this.app.workspace.on("active-leaf-change", () => {
