@@ -44,6 +44,7 @@ import { VerticalPreviewView } from "./views/verticalPreview";
 import { NovelReadingView } from "./views/novelReadingView";
 import { WritingStatsView } from "./views/writingStatsView";
 import { onEditorMenuForRuby, registerRubyCommands } from "./editor/rubyInserter";
+import { onEditorMenuForTermNote } from "./editor/termNoteMenu";
 import { TermPreviewModal } from "./core/termPreviewModal";
 import { matchTermTag } from "./core/termTree";
 import { buildGlossaryPaletteExtension, GlossaryPaletteBundle } from "./editor/glossaryPalette";
@@ -392,11 +393,17 @@ export default class NovelsNoteJP extends Plugin {
 
 
     // ─────────────────────────────────────────
-    // 右クリック「ルビを振る」メニュー（デスクトップ）
+    // 右クリック「用語ノートの新規作成」「ルビを振る」メニュー（デスクトップ）
+    //
+    // 表示順は上から
+    //   「用語ノートの新規作成」→ 区切り線 → 「ルビを振る」→ 「傍点を振る」
+    // となるよう、この順番で登録する（区切り線は
+    // onEditorMenuForRuby 側の先頭で追加される）。
     // ─────────────────────────────────────────
     this.registerEvent(
       this.app.workspace.on("editor-menu", (menu, editor, info) => {
         if (!(info instanceof MarkdownView)) return;
+        onEditorMenuForTermNote(this.app, () => this.settings.tagDefinitions, menu, editor, info);
         onEditorMenuForRuby(this.app, () => this.settings, menu, editor, info);
       })
     );
@@ -672,18 +679,12 @@ export default class NovelsNoteJP extends Plugin {
       .cm-editor[data-novel-mode="true"] .cm-content .novel-fwsp--box {
         outline: 1px solid ${fwColor}; opacity: 0.6;
       }
-      .cm-editor[data-novel-mode="true"] .cm-content .novel-eol {
-        position: relative;
-        display: inline-block;
-        width: 0;
-      }
-      .cm-editor[data-novel-mode="true"] .cm-content .novel-eol-mark {
-        position: absolute;
-        top: 50%; left: 0.15em;
-        transform: translateY(-50%);
+      .cm-editor[data-novel-mode="true"] .cm-content .novel-eol-line::after {
+        content: "↵";
         color: ${fwColor}; opacity: 0.5;
-        font-size: 1em; pointer-events: none; line-height: 1;
-        user-select: none;
+        font-size: 1em; line-height: 1;
+        margin-left: 0.15em;
+        pointer-events: none; user-select: none;
       }`
       : "";
 

@@ -8,7 +8,6 @@ import {
   DecorationSet,
   Decoration,
   ViewUpdate,
-  WidgetType,
 } from "@codemirror/view";
 
 // ルビ表示 Extension（別ファイルで定義）
@@ -390,36 +389,20 @@ export function buildFullWidthSpaceExtension(getSettings: () => NovelsNoteSettin
 // Extension 4.5: 改行記号可視化
 // mode:novel のエディタのみ動作する
 //
-// 【折り返しへの影響について】
-// 実際に文字を挿入する（Decoration.replace など）方式だと、記号の
-// 分だけ幅が増え、折り返し境界ぎりぎりの行では記号だけが次行に
-// 押し出されてしまう可能性がある。
-// これを避けるため、記号本体はレイアウト幅を持たない
-// width:0 の inline-block ラッパー（Decoration.widget）に収め、
-// 見た目の記号は position:absolute の子要素として重ねて描画する
-// （全角スペース可視化の ::after オーバーレイと同じ考え方）。
-// ラッパー自体の幅が 0 のため、折り返し判定に影響を与えない。
+// 【実装方式について（重要）】
+// 以前は Decoration.widget（実際にDOM要素を挿入する方式）で
+// 改行記号を描画していたが、iOSの音声入力中に「改行」を声で
+// 挟むと、直後に別のDOM要素が挿入されることで、続く音声入力の
+// 挿入先DOMノードとの対応が壊れ、文字の二重入力・表示欠落を
+// 引き起こす不具合が確認された。
+//
+// 折り返しガイドライン（buildRulerExtension）と同様、
+// Decoration.line で行（.cm-line 要素）自体にクラスを付与し、
+// 記号本体はCSSの ::after 疑似要素で描画する方式に変更した。
+// 疑似要素はcontentEditableが認識する実DOM／テキストノードには
+// 含まれないため、音声入力・IME変換のどのタイミングで反映しても
+// 挿入先ノードとの対応を壊すおそれがない。
 // ─────────────────────────────────────────
-class EolWidget extends WidgetType {
-  eq(): boolean {
-    // どの行の改行記号も見た目・状態は同一なので、常に等価として
-    // 扱い、無駄な DOM 再生成を避ける。
-    return true;
-  }
-
-  toDOM(): HTMLElement {
-    const wrap = createSpan({ cls: "novel-eol", attr: { "aria-hidden": "true" } });
-    wrap.createSpan({ cls: "novel-eol-mark", text: "↵" });
-    return wrap;
-  }
-
-  ignoreEvent(): boolean {
-    // クリック等はエディタ本体に委ね、記号自体はカーソル操作に
-    // 割り込まない。
-    return true;
-  }
-}
-
 export function buildEolMarkerExtension(getSettings: () => NovelsNoteSettings) {
   return ViewPlugin.fromClass(
     class {
@@ -452,9 +435,9 @@ export function buildEolMarkerExtension(getSettings: () => NovelsNoteSettings) {
           return builder.finish();
         }
 
-        const widget = Decoration.widget({ widget: new EolWidget(), side: 1 });
         const doc = view.state.doc;
         const lastLine = doc.lines;
+        const lineDeco = Decoration.line({ attributes: { class: "novel-eol-line" } });
 
         for (const { from, to } of view.visibleRanges) {
           let pos = from;
@@ -462,7 +445,7 @@ export function buildEolMarkerExtension(getSettings: () => NovelsNoteSettings) {
             const line = doc.lineAt(pos);
             // 文書の最終行には改行が存在しないため記号を出さない
             if (line.number < lastLine) {
-              builder.add(line.to, line.to, widget);
+              builder.add(line.from, line.from, lineDeco);
             }
             if (line.to >= to) break;
             pos = line.to + 1;
@@ -474,7 +457,6 @@ export function buildEolMarkerExtension(getSettings: () => NovelsNoteSettings) {
     { decorations: v => v.decorations }
   );
 }
-
 
 //
 // サイドバー（用語インデックス）の用語行をメインエディタへ

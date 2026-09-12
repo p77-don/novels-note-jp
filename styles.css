@@ -414,6 +414,11 @@
   animation: nn-shake 0.25s ease;
 }
 
+.nn-modal-select-category {
+  cursor: pointer;
+  appearance: auto;
+}
+
 @keyframes nn-shake {
   0%, 100% { transform: translateX(0); }
   25% { transform: translateX(-4px); }

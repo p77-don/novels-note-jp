@@ -7,174 +7,7 @@ import { ItemView, WorkspaceLeaf, TFile, Plugin, Notice, Modal, Menu, App, setIc
 import { SIDEBAR_VIEW_TYPE, TermEntry, TERM_DRAG_MIME_TYPE } from "../types";
 import { TagDefinition } from "../settings";
 import { FolderNode, buildFolderTree, sortTree, filterTree, countTerms } from "../core/termTree";
-
-// ─────────────────────────────────────────
-// 用語ノート新規作成ダイアログ
-// ─────────────────────────────────────────
-class CreateTermModal extends Modal {
-  private folderPath: string;
-  private tag: string;
-  private tagLabel: string;
-  private onSubmit: (termName: string, folderPath: string) => Promise<void>;
-  private focusTimer?: number;
-
-  constructor(
-    app: App,
-    folderPath: string,
-    tag: string,
-    tagLabel: string,
-    onSubmit: (termName: string, folderPath: string) => Promise<void>
-  ) {
-    super(app);
-    this.folderPath = folderPath;
-    this.tag = tag;
-    this.tagLabel = tagLabel;
-    this.onSubmit = onSubmit;
-  }
-
-  onOpen(): void {
-    const { contentEl } = this;
-    contentEl.empty();
-    contentEl.addClass("nn-create-term-modal");
-
-    // ソフトウェアキーボードはOSネイティブのUIであり、WebView内の
-    // どんなCSS z-indexよりも常に最前面に表示される。モーダルが
-    // 画面中央（＝キーボードの占める領域と重なる位置）に表示されると、
-    // キーボードに隠れて操作できなくなるため、モバイルでは画面上部
-    // （キーボードが占めない領域）を起点に表示する。
-    if (Platform.isMobile) {
-      this.containerEl.addClass("nn-mobile-top-modal-container");
-      this.modalEl.addClass("nn-mobile-top-modal");
-    }
-
-    const titleEl = contentEl.createEl("h3", { text: "用語ノートを新規作成", cls: "nn-modal-title" });
-
-    // カテゴリ表示（読み取り専用）
-    const infoEl = contentEl.createDiv({ cls: "nn-modal-info" });
-    infoEl.createSpan({ text: "カテゴリ：", cls: "nn-modal-label" });
-    infoEl.createSpan({ text: this.tagLabel, cls: "nn-modal-value" });
-
-    // タイトル・カテゴリ表示部分をタップすると、入力欄からフォーカスを
-    // 外してソフトウェアキーボードを閉じられるようにする
-    // （Obsidian側の「モーダル外タップで閉じる」挙動が当てにならない
-    //  場合があるため、明示的な手段を用意する）。
-    const dismissKeyboard = () => {
-      const active = contentEl.ownerDocument.activeElement;
-      if (active instanceof HTMLElement && contentEl.contains(active)) {
-        active.blur();
-      }
-    };
-    titleEl.addEventListener("mousedown", dismissKeyboard);
-    infoEl.addEventListener("mousedown", dismissKeyboard);
-
-    // フォルダパス入力（任意）
-    const folderWrap = contentEl.createDiv({ cls: "nn-modal-input-wrap" });
-    folderWrap.createEl("label", { text: "フォルダ（任意）", cls: "nn-modal-field-label" });
-    const folderInput = folderWrap.createEl("input", {
-      type: "text",
-      placeholder: "例: characters/heroes （空欄でルートに作成）",
-      cls: "nn-modal-input nn-modal-input-folder",
-    });
-    folderInput.value = this.folderPath;
-
-    // 用語名入力
-    const inputWrap = contentEl.createDiv({ cls: "nn-modal-input-wrap" });
-    inputWrap.createEl("label", { text: "用語名", cls: "nn-modal-field-label" });
-    const input = inputWrap.createEl("input", {
-      type: "text",
-      placeholder: "用語名を入力してください",
-      cls: "nn-modal-input",
-    });
-
-    const btnRow = contentEl.createDiv({ cls: "nn-modal-btn-row" });
-    const cancelBtn = btnRow.createEl("button", { text: "キャンセル", cls: "nn-modal-btn nn-modal-btn-cancel" });
-    const createBtn = btnRow.createEl("button", { text: "作成", cls: "nn-modal-btn nn-modal-btn-create" });
-
-    const submit = () => {
-      const name = input.value.trim();
-      if (!name) {
-        input.addClass("nn-modal-input-error");
-        input.focus();
-        return;
-      }
-      // フォルダパスの末尾スラッシュを除去して正規化
-      const folder = folderInput.value.trim().replace(/\/+$/, "");
-      this.close();
-      void this.onSubmit(name, folder);
-    };
-
-    // Tab キーでフォルダ入力 → 用語名入力へ移動
-    folderInput.addEventListener("keydown", (e: KeyboardEvent) => {
-      if (e.key === "Enter") { e.preventDefault(); input.focus(); }
-      if (e.key === "Escape") this.close();
-    });
-    input.addEventListener("keydown", (e: KeyboardEvent) => {
-      if (e.key === "Enter") submit();
-      if (e.key === "Escape") this.close();
-    });
-    cancelBtn.addEventListener("click", () => this.close());
-    createBtn.addEventListener("click", submit);
-
-    // フォルダパスが空のときは用語名にフォーカス、入力済みなら用語名に
-    this.focusTimer = window.setTimeout(() => {
-      if (this.folderPath) {
-        input.focus();
-      } else {
-        folderInput.focus();
-      }
-    }, 50);
-  }
-
-  onClose(): void {
-    if (this.focusTimer !== undefined) window.clearTimeout(this.focusTimer);
-    this.contentEl.empty();
-  }
-}
-
-// ─────────────────────────────────────────
-// フォルダ作成確認ダイアログ
-// ─────────────────────────────────────────
-class ConfirmFolderCreateModal extends Modal {
-  private folderPath: string;
-  private onResult: (confirmed: boolean) => void;
-
-  constructor(
-    app: App,
-    folderPath: string,
-    onResult: (confirmed: boolean) => void
-  ) {
-    super(app);
-    this.folderPath = folderPath;
-    this.onResult = onResult;
-  }
-
-  onOpen(): void {
-    const { contentEl } = this;
-    contentEl.empty();
-    contentEl.addClass("nn-confirm-modal");
-
-    contentEl.createEl("h3", { text: "フォルダの作成", cls: "nn-modal-title" });
-    contentEl.createEl("p", {
-      text: "指定されたフォルダは存在しません。フォルダを作成しますか？",
-      cls: "nn-modal-text"
-    });
-    contentEl.createEl("p", {
-      text: this.folderPath,
-      cls: "nn-modal-path"
-    });
-
-    const btnRow = contentEl.createDiv({ cls: "nn-modal-btn-row" });
-    const cancelBtn = btnRow.createEl("button", { text: "キャンセル", cls: "nn-modal-btn nn-modal-btn-cancel" });
-    const confirmBtn = btnRow.createEl("button", { text: "作成する", cls: "nn-modal-btn nn-modal-btn-create" });
-
-    cancelBtn.addEventListener("click", () => { this.close(); this.onResult(false); });
-    confirmBtn.addEventListener("click", () => { this.close(); this.onResult(true); });
-  }
-
-  onClose(): void {
-    this.contentEl.empty();
-  }
-}
+import { CreateTermModal, createTermNote } from "../core/termNoteCreator";
 
 // ─────────────────────────────────────────
 // 削除確認ダイアログ
@@ -716,10 +549,10 @@ export class NovelsNoteSidebarView extends ItemView {
           new CreateTermModal(
             this.app,
             "",
+            this.tagDefs,
             td.tag,
-            td.label,
-            async (termName: string, folderPath: string) => {
-              await this.createTermNote(termName, folderPath, td.tag);
+            async (termName: string, folderPath: string, tag: string) => {
+              await createTermNote(this.app, termName, folderPath, tag);
             }
           ).open();
         });
@@ -743,10 +576,10 @@ export class NovelsNoteSidebarView extends ItemView {
           new CreateTermModal(
             this.app,
             node.fullPath,
+            this.tagDefs,
             td.tag,
-            td.label,
-            async (termName: string, folderPath: string) => {
-              await this.createTermNote(termName, folderPath, td.tag);
+            async (termName: string, folderPath: string, tag: string) => {
+              await createTermNote(this.app, termName, folderPath, tag);
             }
           ).open();
         });
@@ -846,47 +679,6 @@ export class NovelsNoteSidebarView extends ItemView {
       menu.showAtMouseEvent(e);
     } else {
       menu.showAtPosition(e);
-    }
-  }
-
-  // ─────────────────────────────────────────
-  // 用語ノート新規作成
-  // ─────────────────────────────────────────
-  private async createTermNote(termName: string, folderPath: string, tag: string): Promise<void> {
-    try {
-      // フォルダが指定されている場合、存在確認 → 不存在なら確認ダイアログ
-      if (folderPath) {
-        const folder = this.app.vault.getAbstractFileByPath(folderPath);
-        if (!folder) {
-          const confirmed = await new Promise<boolean>(resolve => {
-            new ConfirmFolderCreateModal(this.app, folderPath, resolve).open();
-          });
-          if (!confirmed) return;
-          await this.app.vault.createFolder(folderPath);
-        }
-      }
-
-      const fileName = `${termName}.md`;
-      const filePath = folderPath ? `${folderPath}/${fileName}` : fileName;
-
-      // 既存ファイルチェック
-      const existing = this.app.vault.getAbstractFileByPath(filePath);
-      if (existing) {
-        new Notice(`「${fileName}」はすでに存在します。`);
-        return;
-      }
-
-      // フロントマターを生成（tags のみ）
-      const content = `---\ntags:\n  - ${tag}\n---\n\n`;
-
-      const newFile = await this.app.vault.create(filePath, content);
-      new Notice(`「${termName}」を作成しました。`);
-
-      // 作成したノートを開く
-      await this.app.workspace.getLeaf(false).openFile(newFile);
-    } catch (err) {
-      new Notice(`ノートの作成に失敗しました: ${err}`);
-      console.error("Novels Note JP: 用語ノート作成エラー", err);
     }
   }
 
